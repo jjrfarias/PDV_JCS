@@ -1,8 +1,16 @@
-# PDV JCS — primeiro código executável
+# PDV JCS
 
-**Versão 0.1.0 · laboratório local · somente dados fictícios · não liberado para uso comercial.**
+**Versão 0.1.0 · produção inicial em Railway/PostgreSQL · emissão fiscal ainda não ativa.**
 
-Este projeto implementa o primeiro fluxo em dinheiro. Não modifica Mordomê, CR Smart, Cuidar, Railway nem qualquer sistema de cliente. Nenhum desses repositórios foi auditado nesta entrega.
+Este projeto implementa o primeiro fluxo operacional do PDV JCS: login, loja/terminal, produtos, abertura e fechamento de caixa, venda em dinheiro, estoque, auditoria e idempotência. A aplicação está implantada na Railway com PostgreSQL, mantendo o modo SQLite local apenas para desenvolvimento e testes.
+
+Produção atual:
+
+```text
+https://pdvjcs-production.up.railway.app
+```
+
+Consulte também [docs/OPERACAO.md](docs/OPERACAO.md) para deploy, migrations e validação operacional.
 
 ## Começar no Windows
 
@@ -18,7 +26,7 @@ npm.cmd start
 4. Abra `http://127.0.0.1:3000` no navegador. Mantenha o terminal aberto.
 5. No primeiro início, o servidor cria o banco e gera senhas aleatórias. Os acessos aparecem no terminal e em `data/ACESSOS-LOCAIS.txt`. Entre com empresa `demo`, e-mail `gerente@jcs.local` e a senha gerada correspondente.
 
-**Não precisa executar npm install.** O pacote não tem dependências externas. Não precisa de Docker, PostgreSQL ou Railway para este laboratório. O navegador deve abrir o endereço do servidor; não abra `public/index.html` diretamente.
+Para desenvolvimento local SQLite, não precisa configurar PostgreSQL ou Railway. O navegador deve abrir o endereço do servidor; não abra `public/index.html` diretamente.
 
 O arquivo de acessos contém senhas em texto para uso local inicial. Não publique, não coloque no Git e não o envie ao cliente. O banco armazena os hashes das senhas, não esse texto. As permissões de arquivo POSIX não equivalem às ACLs do Windows.
 
@@ -65,22 +73,23 @@ A autenticação não tem redefinição de senha, troca obrigatória no primeiro
 
 ## Decisão técnica desta entrega
 
-**JavaScript ESM + Node.js + SQLite local + HTML/CSS/JavaScript.** Não é TypeScript/PostgreSQL. É um recorte executável para validar as regras e a primeira transação, sem instalação de banco externo. A arquitetura compartilhada com PostgreSQL permanece uma evolução separada, não uma funcionalidade concluída.
+**JavaScript ESM + Node.js + PostgreSQL em produção + SQLite local para desenvolvimento + HTML/CSS/JavaScript.** O adaptador PostgreSQL preserva os contratos do domínio, usa transações reais, bloqueios de linha/advisory lock para idempotência e RLS como defesa adicional de isolamento multi-tenant.
 
-O `node:sqlite` é um módulo nativo com status experimental na versão Node 22.16 utilizada nos testes. O alerta emitido nesse runtime não é ocultado. Não tratar o módulo como garantia de estabilidade nem o laboratório como seleção definitiva do armazenamento comercial.
+O `node:sqlite` continua existindo para execução local e testes sem infraestrutura externa. Ele usa o módulo nativo experimental do Node; não é o armazenamento de produção.
 
-As operações do `DatabaseSync` são síncronas. Este serviço não foi dimensionado para alta concorrência de um SaaS. SQLite usa `BEGIN IMMEDIATE`, não `SELECT FOR UPDATE` ou RLS do PostgreSQL. Não copiar o SQL e assumir equivalência automática entre bancos.
+Em produção, o servidor exige `DATABASE_ENGINE=postgres` e valida que `DATABASE_URL` usa role runtime sem superuser, sem `BYPASSRLS` e sem propriedade das tabelas. O usuário admin/dono do banco deve ficar restrito a migrations e tarefas operacionais controladas.
 
-Antes de migrar para a nuvem, preservar os contratos de domínio e reimplementar transações, concorrência, isolamento no banco e recuperação no adaptador PostgreSQL; executar novamente a suíte em PostgreSQL real. Não compartilhar o arquivo SQLite por pasta de rede nem sincronizá-lo por Dropbox/OneDrive/Google Drive enquanto estiver aberto.
+Não compartilhar o arquivo SQLite por pasta de rede nem sincronizá-lo por Dropbox/OneDrive/Google Drive enquanto estiver aberto.
 
 ## Estrutura
 
 ```text
 src/
-  server.mjs       Inicialização local, dados fictícios e bloqueio de produção.
+  server.mjs       Inicialização local ou produção PostgreSQL.
   http.mjs         Rotas, sessão, CSRF, política de origem e arquivos públicos.
   security.mjs     scrypt, tokens aleatórios, login e expiração.
   database.mjs     Conexão, migração inicial e transação SQLite.
+  postgres*.mjs    Pool, transações e adaptador PostgreSQL do PDV.
   schema.sql       Tabelas STRICT, restrições e referências compostas.
   demo.mjs         Dados fictícios, sem reset automático a cada início.
   pos.mjs          Regras de produtos, caixa, venda e idempotência.
@@ -97,6 +106,7 @@ tests/
 docs/
   API.md          Contratos de entrada e exemplos.
   DECISOES.md     Limites, riscos e sequência de evolução.
+  OPERACAO.md     Deploy, migrations e operação Railway/PostgreSQL.
   TESTES.md       Evidências e limitações da validação.
   TESTES.tap      Saída real dos testes automatizados.
 ```
