@@ -14,7 +14,7 @@
   --shadow:0 18px 45px #0f172a14;
 }
 *{box-sizing:border-box}
-body{margin:0;min-height:100vh;background:radial-gradient(circle at top left,#dff7f2 0,#eef2f6 34%,#f7f9fc 100%)}
+body{margin:0;min-height:100vh;background:#f4f7fb}
 [hidden]{display:none!important}
 button,input,select{font:inherit}
 button{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:8px;padding:10px 14px;cursor:pointer;font-weight:700}
@@ -31,7 +31,6 @@ h1,h2,p{margin-top:0}
 h1{font-weight:800;letter-spacing:-.8px;font-size:32px;margin-bottom:0}
 h2{font-size:17px;letter-spacing:-.2px;margin-bottom:12px}
 p{color:var(--muted);font-size:14px}
-.test-band{background:#0f172a;color:#d7f5ee;text-align:center;font-size:10px;letter-spacing:1.4px;padding:8px 12px;font-weight:800}
 .wordmark{font-size:24px;font-weight:900;letter-spacing:-.9px;white-space:nowrap;color:#0f172a}
 .wordmark span{font-size:10px;font-weight:800;letter-spacing:2px;margin-left:9px;border-left:1px solid #b7c3d0;padding-left:12px;vertical-align:middle;color:var(--brand)}
 .login-wrap{max-width:1120px;margin:8vh auto;padding:56px;display:grid;grid-template-columns:1.1fr 440px;gap:80px;align-items:center}
@@ -43,18 +42,18 @@ p{color:var(--muted);font-size:14px}
 .login-form .primary{width:100%;padding:13px}
 .login-form code{font-size:12px;overflow-wrap:anywhere}
 #login-error{margin:16px 0 0;color:var(--danger);font-weight:700}
-.header{position:sticky;top:0;z-index:5;padding:14px 32px;display:grid;grid-template-columns:auto 1fr auto;gap:24px;align-items:center;background:#ffffffed;border-bottom:1px solid var(--line);backdrop-filter:blur(14px)}
+.header{position:sticky;top:0;z-index:5;padding:12px 28px;display:grid;grid-template-columns:auto 1fr auto;gap:22px;align-items:center;background:#ffffff;box-shadow:0 1px 0 var(--line)}
 .main-nav{display:flex;justify-content:center;gap:6px}
 .main-nav button{border:0;background:transparent;color:#64748b;border-radius:999px;padding:9px 16px;font-size:13px}
 .main-nav button:hover{background:#f1f5f9}
 .main-nav .selected{background:#0f172a;color:#fff}
-.head-controls{display:flex;gap:14px;align-items:center}
+.head-controls{display:flex;gap:10px;align-items:center}
 .head-controls label{margin:0;font-size:10px;letter-spacing:.7px;text-transform:uppercase}
 .head-controls select{min-width:155px;font-size:13px;padding:8px 10px}
 .operator-card{border-left:1px solid var(--line);padding-left:14px;min-width:140px}
 .head-controls small{font-size:10px;color:var(--muted);font-weight:800;letter-spacing:.8px}
 #user-label{font-size:13px;font-weight:800}
-.page-heading{margin:28px 32px 18px;display:flex;justify-content:space-between;align-items:flex-end;gap:24px}
+.page-heading{margin:22px 32px 14px;display:flex;justify-content:space-between;align-items:flex-end;gap:24px}
 .eyebrow{display:block;font-size:10px;font-weight:900;letter-spacing:1.8px;color:var(--brand);margin-bottom:5px}
 .register-actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
 .badge{font-size:12px;border:1px solid #99f6e4;background:#ccfbf1;color:#115e59;border-radius:999px;padding:7px 12px;font-weight:900}
@@ -67,15 +66,16 @@ p{color:var(--muted);font-size:14px}
 .cash-strip strong{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums}
 .cash-strip .strip-note{font-size:12px;color:#dbeafe;justify-content:center;background:#0f172a;border-color:#0f172a}
 .view-panel{margin:0 32px}
-.sale-layout{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:22px;align-items:start}
-.items-panel,.payment-panel,.management{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
-.items-panel{min-height:510px;display:flex;flex-direction:column;overflow:hidden}
+.sale-layout{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:20px;align-items:start}
+.items-panel,.payment-panel,.management{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:0 10px 28px #0f172a0d}
+.items-panel{min-height:560px;display:flex;flex-direction:column;overflow:hidden}
 .section-title{display:flex;align-items:center;justify-content:space-between;padding:20px 22px;border-bottom:1px solid #edf1f5}
 .section-title h2{margin:0}
 .section-title>span{font-size:12px;color:var(--muted);font-weight:800}
-.search-form{display:flex;align-items:flex-end;gap:12px;padding:18px 22px 12px;background:#fbfdff}
+.search-form{display:flex;align-items:flex-end;gap:12px;padding:18px 22px 16px;background:#fbfdff}
 .search-form label{flex:1;margin:0}
-.search-form button{padding:11px 15px}
+.search-form input{font-size:18px;padding:15px 16px}
+.search-form button{padding:15px 18px}
 .search-results{padding:0 22px 14px;display:flex;gap:8px;flex-wrap:wrap;background:#fbfdff}
 .search-results:empty{display:none}
 .search-results button{font-size:12px;font-weight:700;padding:8px 11px;border-color:#cbd5e1}
@@ -87,12 +87,12 @@ td small{display:block;color:#748295;font-size:11px;margin-top:2px}
 td input{width:74px;padding:7px}
 td button{font-size:11px;padding:7px 10px;color:#475569}
 td.number,th.number{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-.empty{text-align:center;margin:auto;padding:44px 20px;color:#64748b}
-.empty strong{display:block;font-size:18px;font-weight:800;margin-bottom:10px;color:#334155}
+.empty{text-align:center;margin:auto;padding:64px 20px;color:#64748b}
+.empty strong{display:block;font-size:22px;font-weight:900;margin-bottom:10px;color:#334155}
 .empty p{font-size:13px;margin-bottom:6px}
 .shortcuts{margin-top:auto;padding:14px 22px;background:#f8fafc;border-top:1px solid #edf1f5;font-size:11px;color:#64748b;font-weight:800}
 .shortcuts span{margin-left:20px}
-.payment-panel{padding:22px;position:sticky;top:86px}
+.payment-panel{padding:24px;position:sticky;top:86px}
 .pay-method{display:flex;justify-content:space-between;border:1px solid #99f6e4;background:#ecfdf5;color:#115e59;padding:12px;margin:18px 0 23px;border-radius:10px;font-size:12px;font-weight:900}
 .pay-method span{font-weight:800;color:#0f766e}
 fieldset{border:0;margin:0;padding:0;min-width:0}
@@ -108,9 +108,9 @@ fieldset{border:0;margin:0;padding:0;min-width:0}
 .discount-box label:last-child{margin-bottom:14px}
 .grand-total{border-top:1px solid var(--line);margin:20px 0;padding-top:16px}
 .grand-total span{display:block;font-size:12px;color:var(--muted);font-weight:900;text-transform:uppercase;letter-spacing:.5px}
-.grand-total strong{font-size:42px;font-weight:950;letter-spacing:-1.5px;color:#0f172a}
-.change-line{padding:10px 0;color:#0f766e;font-weight:900}
-.confirm{width:100%;padding:15px;font-size:13px}
+.grand-total strong{font-size:50px;font-weight:950;letter-spacing:-1.8px;color:#0f172a}
+.change-line{padding:12px 0;color:#0f766e;font-weight:900;font-size:16px}
+.confirm{width:100%;padding:18px;font-size:15px;border-radius:12px}
 .payment-note{font-size:11px;margin:14px 0 0;text-align:center}
 .management,.cash-dashboard{overflow:hidden;background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
 .management .section-title{padding:20px 22px}
