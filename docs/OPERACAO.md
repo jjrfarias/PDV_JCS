@@ -77,6 +77,17 @@ Use `railway up` apenas para emergencia ou validacao manual. Depois de qualquer 
 Invoke-WebRequest -UseBasicParsing https://pdvjcs-production.up.railway.app/health
 ```
 
+Ou rode o smoke test automatizado:
+
+```powershell
+$env:PDV_SMOKE_TENANT = "jcs"
+$env:PDV_SMOKE_EMAIL = "admin@jcs.local"
+$env:PDV_SMOKE_PASSWORD = "<senha do usuario>"
+npm.cmd run smoke:production
+```
+
+O smoke test valida `/health`, login e `/api/me`. Nao commite senha nem coloque esse valor em arquivos do repositorio.
+
 Tambem validar:
 
 - login com usuario autorizado;

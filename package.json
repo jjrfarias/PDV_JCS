@@ -11,7 +11,8 @@
     "start": "node src/server.mjs",
     "test": "node --test --test-concurrency=1 tests/*.test.mjs",
     "check": "node scripts-check.mjs",
-    "migrate:postgres": "node scripts/migrate-postgres.mjs"
+    "migrate:postgres": "node scripts/migrate-postgres.mjs",
+    "smoke:production": "node scripts/smoke-production.mjs"
   },
   "dependencies": {
     "pg": "^8.16.3"
