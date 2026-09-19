@@ -204,7 +204,12 @@ export class Pos {
         FROM users u JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
         WHERE u.tenant_id=? AND m.store_id=? ORDER BY u.name`,ctx.tenantId,storeId):[],
       cash:open.map(c=>this.cash(ctx,c.id)),
-      sales:this.all('SELECT id,total_cents,discount_cents,created_at FROM sales WHERE tenant_id=? AND store_id=? ORDER BY created_at DESC LIMIT 30',ctx.tenantId,storeId),
+      sales:this.all(`SELECT s.id,s.total_cents,s.discount_cents,s.created_at,u.name operator_name,c.terminal_id,t.name terminal_name
+        FROM sales s
+        JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.operator_id
+        JOIN cash_sessions c ON c.tenant_id=s.tenant_id AND c.id=s.cash_session_id
+        JOIN terminals t ON t.tenant_id=c.tenant_id AND t.id=c.terminal_id
+        WHERE s.tenant_id=? AND s.store_id=? ORDER BY s.created_at DESC LIMIT 30`,ctx.tenantId,storeId),
       stockMovements:this.all(`SELECT m.product_id,p.name,m.kind,m.quantity,m.reason,m.created_at FROM stock_movements m JOIN products p ON p.tenant_id=m.tenant_id AND p.id=m.product_id
         WHERE m.tenant_id=? AND m.store_id=? ORDER BY m.created_at DESC LIMIT 50`,ctx.tenantId,storeId),
       cashHistory:this.all("SELECT id,terminal_id,expected_cents,counted_cents,difference_cents,closed_at FROM cash_sessions WHERE tenant_id=? AND store_id=? AND status='CLOSED' ORDER BY closed_at DESC LIMIT 20",ctx.tenantId,storeId)

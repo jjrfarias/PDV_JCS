@@ -14,7 +14,9 @@ test('01 · cenário R$100 / R$50 / R$5 / R$45 / troco R$5 / saldo R$145',t=>{
   assert.equal(sale.subtotal_cents,5000);assert.equal(sale.discount_cents,500);assert.equal(sale.total_cents,4500);
   assert.equal(sale.payment.tendered_cents,5000);assert.equal(sale.payment.change_cents,500);
   assert.equal(sale.status,'CONFIRMED');assert.equal(sale.payment.status,'CONFIRMED');assert.equal(sale.fiscal_status,'TEST_NOT_ISSUED');
-  assert.equal(pos.state(DEMO.manager,DEMO.storeA).products[0].quantity,8);
+  const stateA=pos.state(DEMO.manager,DEMO.storeA);
+  assert.equal(stateA.products[0].quantity,8);
+  assert.equal(stateA.sales[0].operator_name,'Gerente de demonstração');assert.equal(stateA.sales[0].terminal_name,'Caixa 01');
   assert.equal(pos.state(DEMO.manager,DEMO.storeB).products[0].quantity,30);
   assert.equal(pos.cash(DEMO.manager,cash.id).expected_cents,14500);
   const closed=pos.closeCash(DEMO.manager,key(),{storeId:DEMO.storeA,cashSessionId:cash.id,countedCents:14500,reason:null}).data;

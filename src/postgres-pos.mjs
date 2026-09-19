@@ -110,8 +110,12 @@ class TransactionPos {
           WHERE u.tenant_id=$1 AND m.store_id=$2 ORDER BY u.name`, ctx.tenantId, storeId)
         : [],
       cash,
-      sales: await this.all(`SELECT id,total_cents,discount_cents,created_at FROM sales
-        WHERE tenant_id=$1 AND store_id=$2 ORDER BY created_at DESC LIMIT 30`, ctx.tenantId, storeId),
+      sales: await this.all(`SELECT s.id,s.total_cents,s.discount_cents,s.created_at,u.name operator_name,c.terminal_id,t.name terminal_name
+        FROM sales s
+        JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.operator_id
+        JOIN cash_sessions c ON c.tenant_id=s.tenant_id AND c.id=s.cash_session_id
+        JOIN terminals t ON t.tenant_id=c.tenant_id AND t.id=c.terminal_id
+        WHERE s.tenant_id=$1 AND s.store_id=$2 ORDER BY s.created_at DESC LIMIT 30`, ctx.tenantId, storeId),
       stockMovements: await this.all(`SELECT m.product_id,p.name,m.kind,m.quantity,m.reason,m.created_at
         FROM stock_movements m JOIN products p ON p.tenant_id=m.tenant_id AND p.id=m.product_id
         WHERE m.tenant_id=$1 AND m.store_id=$2 ORDER BY m.created_at DESC LIMIT 50`, ctx.tenantId, storeId),
