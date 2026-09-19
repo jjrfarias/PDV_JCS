@@ -27,3 +27,18 @@ export async function withPostgresTransaction(pool, work) {
     client.release();
   }
 }
+
+export const one = async (client, text, values = []) => {
+  const result = await client.query(text, values);
+  return result.rows[0] ?? null;
+};
+
+export const all = async (client, text, values = []) => {
+  const result = await client.query(text, values);
+  return result.rows;
+};
+
+export const run = async (client, text, values = []) => {
+  const result = await client.query(text, values);
+  return { changes: result.rowCount, rows: result.rows };
+};
