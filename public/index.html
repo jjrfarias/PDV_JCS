@@ -18,6 +18,7 @@
     <div id="message" class="message" role="status" aria-live="polite" hidden></div>
     <section id="pending-panel" class="pending" hidden><div><strong>Existe uma operação sem resposta confirmada.</strong><p>Não crie outra venda. Recupere a mesma operação, inclusive após atualizar a página.</p></div><button id="recover" type="button">Recuperar operação</button></section>
     <section class="view-panel sale-view" data-panel="sale">
+    <div id="cash-gate" class="cash-gate" hidden><div><strong id="cash-gate-title">Caixa fechado</strong><p id="cash-gate-text">Abra o caixa antes de registrar vendas neste terminal.</p></div><button id="cash-gate-action" type="button">Ir para caixa</button></div>
     <div class="sale-layout">
       <section class="items-panel"><div class="section-title"><h2>Produtos da venda</h2><span id="item-count">0 unidades</span></div>
         <form id="search-form" class="search-form"><label class="search-label">Produto<input id="search" placeholder="Leia o código de barras ou busque pelo nome" autocomplete="off" data-edit></label><button type="submit" data-write>Adicionar</button></form>

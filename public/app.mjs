@@ -46,6 +46,10 @@ async function refresh(){
 function renderCash(){
   const cash=currentCash();
   $('cash-label').textContent=cash?(cash.operator_id===state.me.user.id?'Caixa aberto':'Aberto por outro operador'):'Caixa fechado';
+  $('cash-label').classList.toggle('closed',!cash||cash.operator_id!==state.me.user.id);
+  $('cash-gate').hidden=Boolean(cash&&cash.operator_id===state.me.user.id);
+  if(!cash){$('cash-gate-title').textContent='Caixa fechado';$('cash-gate-text').textContent='Abra o caixa antes de registrar vendas neste terminal.';}
+  else if(cash.operator_id!==state.me.user.id){$('cash-gate-title').textContent='Terminal em uso';$('cash-gate-text').textContent='Este caixa foi aberto por outro operador. Selecione outro terminal ou peça o fechamento.';}
   $('opening-value').textContent=brl(cash?.opening_cents??0);
   $('sales-value').textContent=brl(cash?.sales_cents??0);
   $('expected-value').textContent=brl(cash?.expected_cents??0);lock();
@@ -191,6 +195,7 @@ $('new-user').addEventListener('click',()=>$('user-dialog').showModal());
 $('user-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/users',{storeId:storeId(),email:f.email,name:f.name,role:f.role,temporaryPassword:f.temporaryPassword});});});
 $('recover').addEventListener('click',()=>run(submitPending));
 $('print').addEventListener('click',()=>window.print());
+$('cash-gate-action').addEventListener('click',()=>setView('cash'));
 document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
 document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
 document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{state.tab=b.dataset.tab;document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('selected',button===b));renderManagement();}));

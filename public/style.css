@@ -57,9 +57,14 @@ p{color:var(--muted);font-size:14px}
 .eyebrow{display:block;font-size:10px;font-weight:900;letter-spacing:1.8px;color:var(--brand);margin-bottom:5px}
 .register-actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
 .badge{font-size:12px;border:1px solid #99f6e4;background:#ccfbf1;color:#115e59;border-radius:999px;padding:7px 12px;font-weight:900}
+.badge.closed{border-color:#fecaca;background:#fee2e2;color:#991b1b}
 .message{margin:0 32px 18px;padding:13px 16px;border:1px solid #bfdbfe;background:#eff6ff;color:#1e3a8a;border-radius:12px;font-size:13px;font-weight:700}
 .pending{margin:0 32px 18px;padding:18px;border:1px solid #f59e0b;background:#fffbeb;border-radius:14px;display:flex;justify-content:space-between;align-items:center;gap:20px}
 .pending p{margin:5px 0 0}.pending strong{font-size:14px}
+.cash-gate{margin-bottom:14px;padding:16px 18px;border:1px solid #fed7aa;background:#fff7ed;border-radius:14px;display:flex;align-items:center;justify-content:space-between;gap:18px}
+.cash-gate strong{display:block;color:#9a3412;font-size:15px}
+.cash-gate p{margin:3px 0 0;color:#9a3412}
+.cash-gate button{border-color:#fdba74;color:#9a3412;background:#fff}
 .cash-strip{padding:22px;display:grid;grid-template-columns:repeat(3,minmax(160px,1fr)) minmax(180px,.8fr);gap:14px}
 .cash-strip div{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:4px;box-shadow:0 8px 24px #0f172a0a}
 .cash-strip span{font-size:12px;color:var(--muted);font-weight:800}
@@ -141,7 +146,7 @@ dialog::backdrop{background:#0f172a99}
   .page-heading{display:block}.register-actions{margin-top:18px}
   .cash-strip{grid-template-columns:1fr}.cash-strip .strip-note{display:none}
   .sale-layout{display:block}.payment-panel{margin-top:20px;position:static}.items-panel{min-height:360px}
-  .tabs{gap:14px;flex-wrap:wrap}.pending{display:block}.pending button{margin-top:15px}
+  .tabs{gap:14px;flex-wrap:wrap}.pending,.cash-gate{display:block}.pending button,.cash-gate button{margin-top:15px}
   .search-form{display:block}.search-form button{margin-top:8px;width:100%}
   footer{display:block;margin:20px}footer span{display:block;margin-top:5px}.test-band{font-size:8px}.grand-total strong{font-size:34px}
 }
