@@ -25,7 +25,7 @@
         <div id="search-results" class="search-results"></div>
         <div class="table-wrap"><table><thead><tr><th>Produto</th><th>Quantidade</th><th>Unitário</th><th>Total</th><th></th></tr></thead><tbody id="cart-body"></tbody></table></div>
         <div id="empty-cart" class="empty"><strong>Venda vazia</strong><p>Leia o código de barras ou busque um produto para começar.</p></div>
-        <div class="shortcuts">F2 Buscar produto <span>F9 Confirmar venda</span> <span>F10 Imprimir último comprovante</span></div>
+        <div class="shortcuts">F2 Buscar produto <span>F9 Confirmar venda</span> <span>Esc Cancelar venda</span> <span>F10 Imprimir último comprovante</span></div>
       </section>
       <aside class="payment-panel"><h2>Pagamento</h2><div class="pay-method">DINHEIRO <span>Ativo</span></div><form id="sale-form"><fieldset data-edit>
         <div class="total-line"><span>Subtotal</span><strong id="subtotal">R$ 0,00</strong></div>
@@ -34,6 +34,7 @@
         <label>Valor entregue pelo cliente<input id="tendered" inputmode="decimal" placeholder="0,00" required></label>
         <div class="change-line"><span>Troco</span><strong id="change">R$ 0,00</strong></div>
         <button class="primary confirm" type="submit" id="confirm-sale" data-write>Confirmar venda em dinheiro</button>
+        <button class="ghost cancel-sale" type="button" id="cancel-sale" data-write>Cancelar venda</button>
       </fieldset></form><p class="payment-note">Venda em dinheiro. Documento fiscal ainda não ativo.</p></aside>
     </div>
     </section>

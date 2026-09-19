@@ -22,6 +22,8 @@ button:hover{background:#f3f6f9}
 button:disabled{cursor:not-allowed;opacity:.45}
 .primary{background:var(--brand);color:#fff;border-color:var(--brand)}
 .primary:hover{background:var(--brand-strong)}
+.ghost{background:transparent}
+.ghost:hover{background:#f8fafc}
 input,select{display:block;width:100%;border:1px solid var(--line);border-radius:8px;padding:11px 12px;background:#fff;color:var(--ink)}
 input:focus,select:focus,button:focus-visible{outline:3px solid #14b8a633;outline-offset:2px}
 input:disabled{background:#edf1f5}
@@ -116,6 +118,8 @@ fieldset{border:0;margin:0;padding:0;min-width:0}
 .grand-total strong{font-size:50px;font-weight:950;letter-spacing:-1.8px;color:#0f172a}
 .change-line{padding:12px 0;color:#0f766e;font-weight:900;font-size:16px}
 .confirm{width:100%;padding:18px;font-size:15px;border-radius:12px}
+.cancel-sale{width:100%;margin-top:10px;color:#991b1b;border-color:#fecaca}
+.cancel-sale:hover{background:#fef2f2}
 .payment-note{font-size:11px;margin:14px 0 0;text-align:center}
 .management,.cash-dashboard{overflow:hidden;background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
 .management .section-title{padding:20px 22px}
