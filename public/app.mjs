@@ -130,15 +130,20 @@ function table(headers,rows){
 }
 const date=value=>new Date(value).toLocaleString('pt-BR');
 const includes=(values,query)=>!query||values.some(value=>String(value??'').toLowerCase().includes(query));
+function renderSummary(cards){
+  $('management-summary').replaceChildren(...cards.map(([label,value])=>{
+    const card=element('div');card.append(element('span',label),element('strong',value));return card;
+  }));
+}
 function renderManagement(){
   const d=state.data,query=$('management-search').value.trim().toLowerCase();let content;
-  if(state.tab==='products')content=table(['Código','Produto','Código de barras','Preço','Estoque'],d.products.filter(p=>includes([p.sku,p.name,p.barcode,brl(p.price_cents),p.quantity],query)).map(p=>[p.sku,p.name,p.barcode??'—',brl(p.price_cents),p.quantity]));
-  if(state.tab==='users')content=table(['Nome','E-mail','Perfil','Status'],(d.users??[]).filter(u=>includes([u.name,u.email,u.role,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo'],query)).map(u=>[u.name,u.email,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo']));
-  if(state.tab==='history')content=table(['Data','Venda','Operador','Terminal','Desconto','Total','Comprovante'],d.sales.filter(s=>includes([date(s.created_at),s.id,s.operator_name,s.terminal_name,brl(s.discount_cents),brl(s.total_cents)],query)).map(s=>{
+  if(state.tab==='products'){const rows=d.products.filter(p=>includes([p.sku,p.name,p.barcode,brl(p.price_cents),p.quantity],query));renderSummary([['Produtos',rows.length],['Estoque total',rows.reduce((n,p)=>n+p.quantity,0)],['Valor em estoque',brl(rows.reduce((n,p)=>n+p.quantity*p.price_cents,0))]]);content=table(['Código','Produto','Código de barras','Preço','Estoque'],rows.map(p=>[p.sku,p.name,p.barcode??'—',brl(p.price_cents),p.quantity]));}
+  if(state.tab==='users'){const rows=(d.users??[]).filter(u=>includes([u.name,u.email,u.role,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo'],query));renderSummary([['Usuários',rows.length],['Ativos',rows.filter(u=>u.active===1).length],['Gerentes',rows.filter(u=>u.role==='MANAGER').length]]);content=table(['Nome','E-mail','Perfil','Status'],rows.map(u=>[u.name,u.email,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo']));}
+  if(state.tab==='history'){const rows=d.sales.filter(s=>includes([date(s.created_at),s.id,s.operator_name,s.terminal_name,brl(s.discount_cents),brl(s.total_cents)],query));renderSummary([['Vendas',rows.length],['Total vendido',brl(rows.reduce((n,s)=>n+s.total_cents,0))],['Descontos',brl(rows.reduce((n,s)=>n+s.discount_cents,0))]]);content=table(['Data','Venda','Operador','Terminal','Desconto','Total','Comprovante'],rows.map(s=>{
     const b=element('button','Abrir');b.type='button';b.addEventListener('click',()=>run(async()=>showReceipt(await api(`/api/sales/${s.id}`))));
-    return [date(s.created_at),s.id.slice(0,8),s.operator_name,s.terminal_name,brl(s.discount_cents),brl(s.total_cents),b];}));
-  if(state.tab==='stock')content=table(['Data','Produto','Movimento','Quantidade','Motivo'],d.stockMovements.filter(m=>includes([date(m.created_at),m.name,m.kind,m.kind==='SALE'?'Venda':'Entrada inicial',m.quantity,m.reason],query)).map(m=>[date(m.created_at),m.name,m.kind==='SALE'?'Venda':'Entrada inicial',m.quantity,m.reason]));
-  if(state.tab==='closures')content=table(['Data','Terminal','Esperado','Contado','Diferença'],d.cashHistory.filter(c=>{const terminal=d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id;return includes([date(c.closed_at),terminal,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)],query);}).map(c=>[date(c.closed_at),d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)]));
+    return [date(s.created_at),s.id.slice(0,8),s.operator_name,s.terminal_name,brl(s.discount_cents),brl(s.total_cents),b];}));}
+  if(state.tab==='stock'){const rows=d.stockMovements.filter(m=>includes([date(m.created_at),m.name,m.kind,m.kind==='SALE'?'Venda':'Entrada inicial',m.quantity,m.reason],query));renderSummary([['Movimentos',rows.length],['Entradas',rows.filter(m=>m.quantity>0).reduce((n,m)=>n+m.quantity,0)],['Saídas',Math.abs(rows.filter(m=>m.quantity<0).reduce((n,m)=>n+m.quantity,0))]]);content=table(['Data','Produto','Movimento','Quantidade','Motivo'],rows.map(m=>[date(m.created_at),m.name,m.kind==='SALE'?'Venda':'Entrada inicial',m.quantity,m.reason]));}
+  if(state.tab==='closures'){const rows=d.cashHistory.filter(c=>{const terminal=d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id;return includes([date(c.closed_at),terminal,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)],query);});renderSummary([['Fechamentos',rows.length],['Esperado',brl(rows.reduce((n,c)=>n+c.expected_cents,0))],['Diferença',brl(rows.reduce((n,c)=>n+c.difference_cents,0))]]);content=table(['Data','Terminal','Esperado','Contado','Diferença'],rows.map(c=>[date(c.closed_at),d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)]));}
   $('management-content').replaceChildren(content);
 }
 function showReceipt(sale){

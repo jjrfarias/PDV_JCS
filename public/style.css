@@ -132,6 +132,10 @@ fieldset{border:0;margin:0;padding:0;min-width:0}
 .tabs .selected{color:var(--brand);border-bottom:3px solid var(--brand)}
 .management-filter{padding:14px 22px;background:#fbfdff;border-bottom:1px solid #edf1f5}
 .management-filter label{max-width:420px;margin:0}
+.management-summary{display:grid;grid-template-columns:repeat(3,minmax(140px,1fr));gap:12px;padding:16px 22px;border-bottom:1px solid #edf1f5;background:#fff}
+.management-summary div{border:1px solid #e2e8f0;border-radius:12px;padding:12px;background:#f8fafc}
+.management-summary span{display:block;font-size:11px;color:#64748b;font-weight:900;text-transform:uppercase;letter-spacing:.5px}
+.management-summary strong{display:block;margin-top:4px;font-size:20px;font-weight:950;color:#0f172a}
 footer{margin:20px 32px;font-size:11px;color:#64748b;display:flex;justify-content:space-between;font-weight:700}
 dialog{border:1px solid var(--line);border-radius:16px;padding:28px;max-width:520px;width:calc(100% - 30px);max-height:90vh;overflow:auto;box-shadow:0 24px 90px #0f172a38}
 dialog::backdrop{background:#0f172a99}
@@ -157,6 +161,7 @@ dialog::backdrop{background:#0f172a99}
   .cash-strip{grid-template-columns:1fr}.cash-strip .strip-note{display:none}
   .sale-layout{display:block}.payment-panel{margin-top:20px;position:static}.items-panel{min-height:360px}
   .tabs{gap:14px;flex-wrap:wrap}.pending,.cash-gate{display:block}.pending button,.cash-gate button{margin-top:15px}
+  .management-summary{grid-template-columns:1fr}
   .search-form{display:block}.search-form button{margin-top:8px;width:100%}
   footer{display:block;margin:20px}footer span{display:block;margin-top:5px}.test-band{font-size:8px}.grand-total strong{font-size:34px}
 }
