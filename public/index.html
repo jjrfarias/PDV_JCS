@@ -32,6 +32,7 @@
         <details class="discount-box"><summary>Desconto gerencial</summary><label>Desconto em reais<input id="discount" value="0,00" inputmode="decimal"></label><small id="discount-help">Somente gerente. Limite de teste: 20%.</small><label>Motivo do desconto<input id="discount-reason" maxlength="200" placeholder="Obrigatório quando houver desconto"></label></details>
         <div class="grand-total"><span>Total da venda</span><strong id="total">R$ 0,00</strong></div>
         <label>Valor entregue pelo cliente<input id="tendered" inputmode="decimal" placeholder="0,00" required></label>
+        <div class="quick-cash" aria-label="Atalhos de valor entregue"><button type="button" data-tendered="exact">Exato</button><button type="button" data-tendered="round">Arredondar</button><button type="button" data-tendered="1000">+ R$ 10</button><button type="button" data-tendered="2000">+ R$ 20</button></div>
         <div class="change-line"><span>Troco</span><strong id="change">R$ 0,00</strong></div>
         <button class="primary confirm" type="submit" id="confirm-sale" data-write>Confirmar venda em dinheiro</button>
         <button class="ghost cancel-sale" type="button" id="cancel-sale" data-write>Cancelar venda</button>

@@ -117,6 +117,8 @@ fieldset{border:0;margin:0;padding:0;min-width:0}
 .grand-total span{display:block;font-size:12px;color:var(--muted);font-weight:900;text-transform:uppercase;letter-spacing:.5px}
 .grand-total strong{font-size:50px;font-weight:950;letter-spacing:-1.8px;color:#0f172a}
 .change-line{padding:12px 0;color:#0f766e;font-weight:900;font-size:16px}
+.quick-cash{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:-4px 0 12px}
+.quick-cash button{padding:9px 10px;font-size:12px;color:#475569;background:#f8fafc}
 .confirm{width:100%;padding:18px;font-size:15px;border-radius:12px}
 .cancel-sale{width:100%;margin-top:10px;color:#991b1b;border-color:#fecaca}
 .cancel-sale:hover{background:#fef2f2}

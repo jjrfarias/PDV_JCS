@@ -31,6 +31,7 @@ function lock(){
   $('close-cash').disabled=locked||!cash||cash.operator_id!==state.me?.user.id;
   $('confirm-sale').disabled=locked||!cash||cash.operator_id!==state.me?.user.id||state.cart.length===0;
   $('cancel-sale').disabled=locked||state.cart.length===0;
+  document.querySelectorAll('[data-tendered]').forEach(el=>{el.disabled=locked||state.cart.length===0;});
   $('new-product').hidden=!manager();
   $('new-user').hidden=!manager();
   $('password-open').disabled=locked;
@@ -92,6 +93,19 @@ function renderTotals(){
   const total=subtotal-discount;
   $('subtotal').textContent=brl(subtotal);$('total').textContent=brl(total);
   $('change').textContent=brl(Math.max(0,tendered-total));
+}
+function currentTotalCents(){
+  const subtotal=state.cart.reduce((sum,p)=>sum+p.units*p.price_cents,0);
+  let discount=0;try{discount=cents($('discount').value||'0');}catch{}
+  return Math.max(0,subtotal-discount);
+}
+function fillTendered(mode){
+  const total=currentTotalCents();
+  if(total<=0)return;
+  if(mode==='exact')$('tendered').value=brl(total).replace('R$','').trim();
+  else if(mode==='round')$('tendered').value=brl(Math.ceil(total/1000)*1000).replace('R$','').trim();
+  else $('tendered').value=brl(total+Number(mode)).replace('R$','').trim();
+  renderTotals();$('tendered').focus();
 }
 function clearSale(){
   if(!state.cart.length)return;
@@ -193,6 +207,7 @@ $('sale-form').addEventListener('submit',event=>{event.preventDefault();run(asyn
   await command('/api/sales',{storeId:storeId(),cashSessionId:cash.id,items:state.cart.map(p=>({productId:p.id,quantity:p.units})),discountCents:cents($('discount').value||'0'),discountReason:$('discount-reason').value||null,tenderedCents:cents($('tendered').value)});
 });});
 $('cancel-sale').addEventListener('click',clearSale);
+document.querySelectorAll('[data-tendered]').forEach(button=>button.addEventListener('click',()=>fillTendered(button.dataset.tendered)));
 $('open-cash').addEventListener('click',()=>{$('open-description').textContent=`${$('store-select').selectedOptions[0].textContent} · ${$('terminal-select').selectedOptions[0].textContent}`;$('open-dialog').showModal();});
 $('open-form').addEventListener('submit',event=>{event.preventDefault();run(()=>command('/api/cash/open',{storeId:storeId(),terminalId:terminalId(),openingCents:cents(event.target.opening.value)}));});
 $('close-cash').addEventListener('click',()=>{$('close-description').textContent=`Dinheiro esperado: ${brl(currentCash().expected_cents)}. Informe a contagem física.`;$('close-dialog').showModal();});
