@@ -89,3 +89,17 @@ test('HTTP 13 · corpo grande e tipo de conteúdo incorreto são rejeitados',asy
   assert.equal((await w.call('/api/login',{method:'POST',body:{tenant:'demo',email:'x',password:'a'.repeat(40000)}})).response.status,413);
   assert.equal((await w.call('/api/login',{method:'POST',headers:{'Content-Type':'text/plain'},body:{}})).response.status,415);
 });
+test('HTTP 14 · usuário troca a própria senha com senha atual',async t=>{
+  const w=await web(t);await w.login();
+  const weak=await w.call('/api/me/password',{method:'POST',body:{currentPassword:PASSWORD,newPassword:'senhafracasemnumero'}});
+  assert.equal(weak.response.status,400);assert.equal(weak.data.error.code,'WEAK_PASSWORD');
+  const wrong=await w.call('/api/me/password',{method:'POST',body:{currentPassword:'senha-errada',newPassword:'NovaSenha2026'}});
+  assert.equal(wrong.response.status,403);assert.equal(wrong.data.error.code,'INVALID_PASSWORD');
+  const changed=await w.call('/api/me/password',{method:'POST',body:{currentPassword:PASSWORD,newPassword:'NovaSenha2026'}});
+  assert.equal(changed.response.status,200);assert.equal(changed.data.ok,true);
+  await w.call('/api/logout',{method:'POST',body:{}});
+  const oldLogin=await w.call('/api/login',{method:'POST',body:{tenant:'demo',email:'gerente@jcs.local',password:PASSWORD}});
+  assert.equal(oldLogin.response.status,401);
+  const newLogin=await w.call('/api/login',{method:'POST',body:{tenant:'demo',email:'gerente@jcs.local',password:'NovaSenha2026'}});
+  assert.equal(newLogin.response.status,200);
+});

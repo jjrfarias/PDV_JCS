@@ -99,7 +99,7 @@ Tambem validar:
 
 - Fiscal ainda desativado: sem NFC-e/NF-e.
 - Sem PIX, TEF, cartao integrado ou impressora fiscal.
-- Sem tela administrativa de usuarios, redefinicao de senha ou MFA.
+- Sem tela administrativa completa de usuarios, redefinicao de senha por e-mail ou MFA. O usuario autenticado consegue trocar a propria senha.
 - Sem backup/restauracao homologados registrados neste repositorio.
 - A senha inicial salva em `.codex-validation/` e local e nao deve ser commitada.
 

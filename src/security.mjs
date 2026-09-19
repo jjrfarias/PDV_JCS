@@ -74,4 +74,31 @@ export class Auth {
         'DELETE FROM sessions WHERE tenant_id=$1 AND user_id=$2 AND token_hash=$3', [ctx.tenantId,ctx.userId,ctx.tokenHash]), ctx);
     } else this.db.prepare('DELETE FROM sessions WHERE tenant_id=? AND user_id=? AND token_hash=?').run(ctx.tenantId,ctx.userId,ctx.tokenHash);
   }
+  async changePassword(ctx, input) {
+    object(input, ['currentPassword', 'newPassword']);
+    const currentPassword = text(input.currentPassword, 'Senha atual', 200, 1);
+    const newPassword = text(input.newPassword, 'Nova senha', 200, 12);
+    requireThat(/[A-Z]/.test(newPassword) && /[a-z]/.test(newPassword) && /\d/.test(newPassword),
+      400, 'WEAK_PASSWORD', 'A nova senha deve ter 12 caracteres, com letras maiúsculas, minúsculas e número.');
+    requireThat(currentPassword !== newPassword, 400, 'SAME_PASSWORD', 'A nova senha deve ser diferente da senha atual.');
+    if (typeof this.db.query === 'function') {
+      await withPostgresTransaction(this.db, async client => {
+        const user = await one(client, 'SELECT password_hash FROM users WHERE tenant_id=$1 AND id=$2 AND active=1 FOR UPDATE',
+          [ctx.tenantId, ctx.userId]);
+        requireThat(user, 401, 'AUTH_REQUIRED', 'Faça login novamente.');
+        requireThat(await verifyPassword(currentPassword, user.password_hash), 403, 'INVALID_PASSWORD', 'Senha atual incorreta.');
+        await run(client, 'UPDATE users SET password_hash=$1 WHERE tenant_id=$2 AND id=$3',
+          [hashPassword(newPassword), ctx.tenantId, ctx.userId]);
+        await run(client, 'DELETE FROM sessions WHERE tenant_id=$1 AND user_id=$2 AND token_hash<>$3',
+          [ctx.tenantId, ctx.userId, ctx.tokenHash]);
+      }, { tenantId: ctx.tenantId, userId: ctx.userId });
+    } else {
+      const user = this.db.prepare('SELECT password_hash FROM users WHERE tenant_id=? AND id=? AND active=1').get(ctx.tenantId, ctx.userId);
+      requireThat(user, 401, 'AUTH_REQUIRED', 'Faça login novamente.');
+      requireThat(await verifyPassword(currentPassword, user.password_hash), 403, 'INVALID_PASSWORD', 'Senha atual incorreta.');
+      this.db.prepare('UPDATE users SET password_hash=? WHERE tenant_id=? AND id=?').run(hashPassword(newPassword), ctx.tenantId, ctx.userId);
+      this.db.prepare('DELETE FROM sessions WHERE tenant_id=? AND user_id=? AND token_hash<>?').run(ctx.tenantId, ctx.userId, ctx.tokenHash);
+    }
+    return { ok: true };
+  }
 }

@@ -76,6 +76,7 @@ export function createApp(db) {
         await auth.logout(ctx); res.setHeader('Set-Cookie',`jcs_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${production?'; Secure':''}`);
         return send(res,200,{ok:true});
       }
+      if(req.method==='POST'&&url.pathname==='/api/me/password') return send(res,200,await auth.changePassword(ctx,await json(req)));
       let match;
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/stores\/([\w-]+)\/state$/))) return send(res,200,await pos.state(ctx,match[1]));
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/sales\/([\w-]+)$/))) return send(res,200,await pos.receipt(ctx,match[1]));

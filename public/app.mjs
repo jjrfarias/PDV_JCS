@@ -31,6 +31,7 @@ function lock(){
   $('close-cash').disabled=locked||!cash||cash.operator_id!==state.me?.user.id;
   $('confirm-sale').disabled=locked||!cash||cash.operator_id!==state.me?.user.id||state.cart.length===0;
   $('new-product').hidden=!manager();
+  $('password-open').disabled=locked;
   $('logout').disabled=locked;
 }
 async function refresh(){
@@ -153,6 +154,13 @@ $('login-form').addEventListener('submit',async event=>{
   catch(error){$('login-error').textContent=error.message;}finally{button.disabled=false;}
 });
 $('logout').addEventListener('click',()=>run(async()=>{if(state.pending)throw new Error('Resolva a pendência antes de sair.');await api('/api/logout',{method:'POST',body:'{}'});location.reload();}));
+$('password-open').addEventListener('click',()=>$('password-dialog').showModal());
+$('password-form').addEventListener('submit',event=>{event.preventDefault();run(async()=>{
+  const data=Object.fromEntries(new FormData(event.target));
+  if(data.newPassword!==data.confirmPassword)throw new Error('A confirmação da nova senha não confere.');
+  await api('/api/me/password',{method:'POST',body:JSON.stringify({currentPassword:data.currentPassword,newPassword:data.newPassword})});
+  event.target.reset();$('password-dialog').close();message('Senha alterada. Outras sessões deste usuário foram encerradas.');
+});});
 $('store-select').addEventListener('change',()=>run(async()=>{state.cart=[];await refresh();}));
 $('terminal-select').addEventListener('change',()=>{state.cart=[];renderCash();renderCart();});
 $('refresh').addEventListener('click',()=>run(refresh));
