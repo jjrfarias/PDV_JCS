@@ -130,6 +130,8 @@ fieldset{border:0;margin:0;padding:0;min-width:0}
 .tabs{display:flex;gap:24px;padding:0 22px;border-bottom:1px solid var(--line);background:#fbfdff}
 .tabs button{border:0;border-radius:0;padding:14px 0;background:none;font-size:12px;font-weight:900;color:#64748b}
 .tabs .selected{color:var(--brand);border-bottom:3px solid var(--brand)}
+.management-filter{padding:14px 22px;background:#fbfdff;border-bottom:1px solid #edf1f5}
+.management-filter label{max-width:420px;margin:0}
 footer{margin:20px 32px;font-size:11px;color:#64748b;display:flex;justify-content:space-between;font-weight:700}
 dialog{border:1px solid var(--line);border-radius:16px;padding:28px;max-width:520px;width:calc(100% - 30px);max-height:90vh;overflow:auto;box-shadow:0 24px 90px #0f172a38}
 dialog::backdrop{background:#0f172a99}

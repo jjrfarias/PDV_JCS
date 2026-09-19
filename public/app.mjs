@@ -129,15 +129,16 @@ function table(headers,rows){
   if(!rows.length){const tr=element('tr'),td=element('td','Nenhum registro nesta loja.');td.colSpan=headers.length;tr.append(td);body.append(tr);}t.append(body);return t;
 }
 const date=value=>new Date(value).toLocaleString('pt-BR');
+const includes=(values,query)=>!query||values.some(value=>String(value??'').toLowerCase().includes(query));
 function renderManagement(){
-  const d=state.data;let content;
-  if(state.tab==='products')content=table(['Código','Produto','Código de barras','Preço','Estoque'],d.products.map(p=>[p.sku,p.name,p.barcode??'—',brl(p.price_cents),p.quantity]));
-  if(state.tab==='users')content=table(['Nome','E-mail','Perfil','Status'],(d.users??[]).map(u=>[u.name,u.email,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo']));
-  if(state.tab==='history')content=table(['Data','Venda','Desconto','Total','Comprovante'],d.sales.map(s=>{
+  const d=state.data,query=$('management-search').value.trim().toLowerCase();let content;
+  if(state.tab==='products')content=table(['Código','Produto','Código de barras','Preço','Estoque'],d.products.filter(p=>includes([p.sku,p.name,p.barcode,brl(p.price_cents),p.quantity],query)).map(p=>[p.sku,p.name,p.barcode??'—',brl(p.price_cents),p.quantity]));
+  if(state.tab==='users')content=table(['Nome','E-mail','Perfil','Status'],(d.users??[]).filter(u=>includes([u.name,u.email,u.role,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo'],query)).map(u=>[u.name,u.email,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo']));
+  if(state.tab==='history')content=table(['Data','Venda','Desconto','Total','Comprovante'],d.sales.filter(s=>includes([date(s.created_at),s.id,brl(s.discount_cents),brl(s.total_cents)],query)).map(s=>{
     const b=element('button','Abrir');b.type='button';b.addEventListener('click',()=>run(async()=>showReceipt(await api(`/api/sales/${s.id}`))));
     return [date(s.created_at),s.id.slice(0,8),brl(s.discount_cents),brl(s.total_cents),b];}));
-  if(state.tab==='stock')content=table(['Data','Produto','Movimento','Quantidade','Motivo'],d.stockMovements.map(m=>[date(m.created_at),m.name,m.kind==='SALE'?'Venda':'Entrada inicial',m.quantity,m.reason]));
-  if(state.tab==='closures')content=table(['Data','Terminal','Esperado','Contado','Diferença'],d.cashHistory.map(c=>[date(c.closed_at),d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)]));
+  if(state.tab==='stock')content=table(['Data','Produto','Movimento','Quantidade','Motivo'],d.stockMovements.filter(m=>includes([date(m.created_at),m.name,m.kind,m.kind==='SALE'?'Venda':'Entrada inicial',m.quantity,m.reason],query)).map(m=>[date(m.created_at),m.name,m.kind==='SALE'?'Venda':'Entrada inicial',m.quantity,m.reason]));
+  if(state.tab==='closures')content=table(['Data','Terminal','Esperado','Contado','Diferença'],d.cashHistory.filter(c=>{const terminal=d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id;return includes([date(c.closed_at),terminal,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)],query);}).map(c=>[date(c.closed_at),d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)]));
   $('management-content').replaceChildren(content);
 }
 function showReceipt(sale){
@@ -231,7 +232,8 @@ $('print').addEventListener('click',()=>window.print());
 $('cash-gate-action').addEventListener('click',()=>setView('cash'));
 document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
 document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
-document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{state.tab=b.dataset.tab;document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('selected',button===b));renderManagement();}));
+document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{state.tab=b.dataset.tab;$('management-search').value='';document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('selected',button===b));renderManagement();}));
+$('management-search').addEventListener('input',renderManagement);
 document.addEventListener('keydown',event=>{
   if(!state.me)return;
   if(event.key==='F2'){event.preventDefault();$('search').focus();}
