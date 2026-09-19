@@ -93,6 +93,15 @@ function renderTotals(){
   const total=subtotal-discount;
   $('subtotal').textContent=brl(subtotal);$('total').textContent=brl(total);
   $('change').textContent=brl(Math.max(0,tendered-total));
+  updateMoneyPreviews();
+}
+function updateMoneyPreviews(){
+  document.querySelectorAll('.money-input').forEach(input=>{
+    const preview=input.parentElement.querySelector('.money-preview');
+    if(!preview)return;
+    try{preview.textContent=brl(cents(input.value||'0'));preview.classList.remove('invalid');}
+    catch{preview.textContent='Valor inválido';preview.classList.add('invalid');}
+  });
 }
 function currentTotalCents(){
   const subtotal=state.cart.reduce((sum,p)=>sum+p.units*p.price_cents,0);
@@ -111,7 +120,7 @@ function clearSale(){
   if(!state.cart.length)return;
   if(!confirm('Cancelar a venda atual e limpar todos os itens?'))return;
   state.cart=[];$('discount').value='0';$('discount-reason').value='';$('tendered').value='';
-  renderSearch();renderCart();message('Venda cancelada.');$('search').focus();
+  renderSearch();renderCart();updateMoneyPreviews();message('Venda cancelada.');$('search').focus();
 }
 function table(headers,rows){
   const t=element('table'),thead=element('thead'),head=element('tr');headers.forEach(h=>head.append(element('th',h)));thead.append(head);t.append(thead);
@@ -160,6 +169,7 @@ async function submitPending(){
     if(pending.path==='/api/sales'){state.cart=[];$('discount').value='0';$('discount-reason').value='';$('tendered').value='';showReceipt(result.data);}
     if(pending.path==='/api/products')$('product-form').reset();
     if(pending.path==='/api/users')$('user-form').reset();
+    updateMoneyPreviews();
     message(result.replayed?'Operação recuperada. Nenhum registro foi duplicado.':'Operação confirmada.');
     await refresh();
   }catch(error){
@@ -201,7 +211,7 @@ $('refresh').addEventListener('click',()=>run(refresh));
 $('search').addEventListener('input',renderSearch);
 $('search-form').addEventListener('submit',event=>{event.preventDefault();const q=$('search').value.trim().toLowerCase();const exact=state.data.products.find(p=>p.sku.toLowerCase()===q||p.barcode===q);
   const matches=state.data.products.filter(p=>p.name.toLowerCase().includes(q));if(exact)add(exact);else if(q&&matches.length===1)add(matches[0]);else message('Selecione um produto da busca ou informe um código cadastrado.');});
-for(const key of ['discount','tendered'])$(key).addEventListener('input',renderTotals);
+document.querySelectorAll('.money-input').forEach(input=>input.addEventListener('input',()=>{updateMoneyPreviews();if(input.id==='discount'||input.id==='tendered')renderTotals();}));
 $('sale-form').addEventListener('submit',event=>{event.preventDefault();run(async()=>{
   const cash=currentCash();if(!cash)throw new Error('Abra o caixa primeiro.');
   await command('/api/sales',{storeId:storeId(),cashSessionId:cash.id,items:state.cart.map(p=>({productId:p.id,quantity:p.units})),discountCents:cents($('discount').value||'0'),discountReason:$('discount-reason').value||null,tenderedCents:cents($('tendered').value)});

@@ -29,6 +29,8 @@ input:focus,select:focus,button:focus-visible{outline:3px solid #14b8a633;outlin
 input:disabled{background:#edf1f5}
 label{display:block;font-size:12px;font-weight:800;margin:0 0 14px;color:#334155}
 label input,label select{margin-top:6px;font-weight:500}
+.money-preview{display:block;margin-top:6px;font-size:12px;font-weight:900;color:#0f766e}
+.money-preview.invalid{color:var(--danger)}
 h1,h2,p{margin-top:0}
 h1{font-weight:800;letter-spacing:-.8px;font-size:32px;margin-bottom:0}
 h2{font-size:17px;letter-spacing:-.2px;margin-bottom:12px}
