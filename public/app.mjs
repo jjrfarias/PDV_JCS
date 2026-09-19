@@ -102,15 +102,15 @@ function currentTotalCents(){
 function fillTendered(mode){
   const total=currentTotalCents();
   if(total<=0)return;
-  if(mode==='exact')$('tendered').value=brl(total).replace('R$','').trim();
-  else if(mode==='round')$('tendered').value=brl(Math.ceil(total/1000)*1000).replace('R$','').trim();
-  else $('tendered').value=brl(total+Number(mode)).replace('R$','').trim();
+  if(mode==='exact')$('tendered').value=String(total);
+  else if(mode==='round')$('tendered').value=String(Math.ceil(total/1000)*1000);
+  else $('tendered').value=String(total+Number(mode));
   renderTotals();$('tendered').focus();
 }
 function clearSale(){
   if(!state.cart.length)return;
   if(!confirm('Cancelar a venda atual e limpar todos os itens?'))return;
-  state.cart=[];$('discount').value='0,00';$('discount-reason').value='';$('tendered').value='';
+  state.cart=[];$('discount').value='0';$('discount-reason').value='';$('tendered').value='';
   renderSearch();renderCart();message('Venda cancelada.');$('search').focus();
 }
 function table(headers,rows){
@@ -157,7 +157,7 @@ async function submitPending(){
     const result=await api(pending.path,{method:'POST',body:JSON.stringify(pending.body),headers:{'Idempotency-Key':pending.key}});
     localStorage.removeItem(scope());state.pending=null;
     document.querySelectorAll('dialog[open]').forEach(d=>d.close());
-    if(pending.path==='/api/sales'){state.cart=[];$('discount').value='0,00';$('discount-reason').value='';$('tendered').value='';showReceipt(result.data);}
+    if(pending.path==='/api/sales'){state.cart=[];$('discount').value='0';$('discount-reason').value='';$('tendered').value='';showReceipt(result.data);}
     if(pending.path==='/api/products')$('product-form').reset();
     if(pending.path==='/api/users')$('user-form').reset();
     message(result.replayed?'Operação recuperada. Nenhum registro foi duplicado.':'Operação confirmada.');

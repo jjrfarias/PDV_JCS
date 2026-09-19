@@ -38,10 +38,10 @@ Faça este roteiro em um banco de demonstração novo, usando o gerente:
 
 | Ação | Resultado esperado |
 |---|---|
-| Selecione Loja A / Caixa 01 e abra com `100,00` | Fundo inicial R$ 100,00 |
+| Selecione Loja A / Caixa 01 e abra com `10000` | Fundo inicial R$ 100,00 |
 | Leia/digite `7890000000017` e pressione Enter duas vezes | Duas unidades do produto de R$ 25,00 |
-| Digite desconto `5,00` e um motivo | Total R$ 45,00 |
-| Informe dinheiro entregue `50,00` | Troco R$ 5,00 |
+| Digite desconto `500` e um motivo | Total R$ 45,00 |
+| Informe dinheiro entregue `5000` | Troco R$ 5,00 |
 | Confirme a venda | Comprovante marcado TESTE — SEM VALOR FISCAL |
 | Confira Produtos e Movimentos de estoque | Saldo 8, com baixa registrada de 2 |
 | Confira o caixa | Vendas R$ 45,00; esperado R$ 145,00 |
@@ -98,7 +98,7 @@ src/
 public/
   index.html      Tela de acesso e frente de caixa.
   app.mjs         Interface, recuperação e comprovante de teste.
-  money.mjs       Conversão de valores decimais para centavos.
+  money.mjs       Conversão de valores digitados em centavos.
   style.css       Interface monocromática e estilo de impressão.
 tests/
   pos.test.mjs    Regras e persistência, incluindo concorrência real em SQLite.
@@ -124,7 +124,7 @@ npm.cmd test
 
 Os testes usam memória ou diretórios temporários criados especificamente para a suíte. Não apontam para `data/pdv.sqlite` e não removem seu banco de demonstração.
 
-Foram executados 44 testes de domínio e HTTP, sem falhas, no ambiente de preparação. A navegação automatizada da interface não pôde ser concluída porque o Chromium disponível bloqueou a abertura dos endereços de teste por política administrativa. Isso não é teste visual aprovado. Execute o roteiro manual acima no seu computador antes de demonstrar a interface.
+Foram executados 47 testes de domínio e HTTP, sem falhas, no ambiente de preparação. A navegação automatizada da interface não pôde ser concluída porque o Chromium disponível bloqueou a abertura dos endereços de teste por política administrativa. Isso não é teste visual aprovado. Execute o roteiro manual acima no seu computador antes de demonstrar a interface.
 
 ## Persistência e manutenção local
 

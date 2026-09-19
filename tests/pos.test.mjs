@@ -143,9 +143,9 @@ test('26 · reinício preserva venda e seed não repõe saldo',t=>{
   assert.equal(service.sell(DEMO.manager,k,saleInput(cash)).replayed,true);
   reopened.close();
 });
-test('27 · conversão monetária decimal exata e limites',()=>{
-  assert.equal(cents('25,00'),2500);assert.equal(cents('0.29'),29);assert.equal(cents('100'),10000);assert.equal(cents('0,1'),10);
-  for(const v of ['-1','1,001','1e3','1.000,00','Infinity','1000001'])assert.throws(()=>cents(v));
+test('27 · conversão monetária por centavos digitados, decimal explícito e limites',()=>{
+  assert.equal(cents('2590'),2590);assert.equal(cents('5000'),5000);assert.equal(cents('25,00'),2500);assert.equal(cents('0.29'),29);assert.equal(cents('0,1'),10);
+  for(const v of ['-1','1,001','1e3','1.000,00','Infinity','100000001'])assert.throws(()=>cents(v));
 });
 test('28 · mesma chave não expõe resposta para outro operador',t=>{
   const {pos}=fixture(t);const cash=open(pos),k=key();pos.sell(DEMO.manager,k,saleInput(cash));

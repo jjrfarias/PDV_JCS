@@ -1,7 +1,14 @@
-// Entrada sem separador de milhar. Conversão decimal por string, sem multiplicar floats.
+// Entrada em centavos quando só há dígitos: 1234 => R$ 12,34.
+// Também aceita decimal explícito para compatibilidade: 12,34 ou 12.34.
 export function cents(value) {
-  const input=String(value??'').trim().replace(',','.');
-  if(!/^\d{1,7}(\.\d{1,2})?$/.test(input)) throw new Error('Informe um valor como 25,00, sem separador de milhar.');
+  const raw=String(value??'').trim();
+  if(/^\d{1,9}$/.test(raw)){
+    const digitResult=Number(raw);
+    if(!Number.isSafeInteger(digitResult)||digitResult>100_000_000) throw new Error('Valor acima do limite de teste.');
+    return digitResult;
+  }
+  const input=raw.replace(',','.');
+  if(!/^\d{1,7}\.\d{1,2}$/.test(input)) throw new Error('Informe apenas números, por exemplo 1234 para R$ 12,34.');
   const [whole,fraction='']=input.split('.');
   const result=Number(whole)*100+Number(fraction.padEnd(2,'0'));
   if(!Number.isSafeInteger(result)||result>100_000_000) throw new Error('Valor acima do limite de teste.');
