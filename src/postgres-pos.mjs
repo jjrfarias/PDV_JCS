@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { all, one, run, withPostgresTransaction } from './postgres.mjs';
 import { PostgresProducts } from './postgres-products.mjs';
 import { PostgresOperations } from './postgres-operations.mjs';
-import { sha256 } from './security.mjs';
+import { hashPassword, sha256 } from './security.mjs';
 import { requireThat, object, text, integer, id, operationKey } from './errors.mjs';
 
 const now = () => new Date().toISOString();
@@ -104,6 +104,11 @@ class TransactionPos {
     return {
       products: await this.products.listForStore(ctx.tenantId, storeId),
       terminals: await this.all('SELECT id,name FROM terminals WHERE tenant_id=$1 AND store_id=$2 ORDER BY id', ctx.tenantId, storeId),
+      users: (await this.user(ctx)).role === 'MANAGER'
+        ? await this.all(`SELECT u.id,u.email,u.name,u.role,u.active
+          FROM users u JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
+          WHERE u.tenant_id=$1 AND m.store_id=$2 ORDER BY u.name`, ctx.tenantId, storeId)
+        : [],
       cash,
       sales: await this.all(`SELECT id,total_cents,discount_cents,created_at FROM sales
         WHERE tenant_id=$1 AND store_id=$2 ORDER BY created_at DESC LIMIT 30`, ctx.tenantId, storeId),
@@ -184,6 +189,33 @@ export class PostgresPos {
       await tx.audit(ctx, input.storeId, 'PRODUCT_CREATED', productId,
         { initialQuantity: input.initialQuantity, priceCents: input.priceCents });
       return { id: productId, ...input };
+    });
+  }
+
+  async createUser(ctx, key, raw) {
+    object(raw, ['storeId', 'email', 'name', 'role', 'temporaryPassword']);
+    const input = {
+      storeId: id(raw.storeId),
+      email: text(raw.email, 'E-mail', 120).toLowerCase(),
+      name: text(raw.name, 'Nome', 120),
+      role: text(raw.role, 'Perfil', 20),
+      temporaryPassword: text(raw.temporaryPassword, 'Senha temporária', 200, 12)
+    };
+    requireThat(['MANAGER', 'CASHIER'].includes(input.role), 400, 'INVALID_ROLE', 'Perfil inválido.');
+    requireThat(/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(input.email), 400, 'INVALID_EMAIL', 'E-mail inválido.');
+    requireThat(/[A-Z]/.test(input.temporaryPassword) && /[a-z]/.test(input.temporaryPassword) && /\d/.test(input.temporaryPassword),
+      400, 'WEAK_PASSWORD', 'A senha temporária deve ter 12 caracteres, com letras maiúsculas, minúsculas e número.');
+    return this.#mutate(ctx, 'USER_CREATE', key, input, async (tx, user) => {
+      requireThat(user.role === 'MANAGER', 403, 'MANAGER_REQUIRED', 'Somente gerente cadastra usuários.');
+      const userId = randomUUID();
+      const inserted = await tx.run(`INSERT INTO users(tenant_id,id,email,name,password_hash,role,active)
+        VALUES($1,$2,$3,$4,$5,$6,1) ON CONFLICT DO NOTHING`,
+      ctx.tenantId, userId, input.email, input.name, hashPassword(input.temporaryPassword), input.role);
+      requireThat(inserted.changes === 1, 409, 'DUPLICATE_USER', 'E-mail já cadastrado.');
+      await tx.run('INSERT INTO memberships(tenant_id,user_id,store_id) VALUES($1,$2,$3)',
+        ctx.tenantId, userId, input.storeId);
+      await tx.audit(ctx, input.storeId, 'USER_CREATED', userId, { email: input.email, role: input.role });
+      return { id: userId, email: input.email, name: input.name, role: input.role, active: 1, storeId: input.storeId };
     });
   }
 

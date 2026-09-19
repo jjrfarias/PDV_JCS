@@ -31,6 +31,7 @@ function lock(){
   $('close-cash').disabled=locked||!cash||cash.operator_id!==state.me?.user.id;
   $('confirm-sale').disabled=locked||!cash||cash.operator_id!==state.me?.user.id||state.cart.length===0;
   $('new-product').hidden=!manager();
+  $('new-user').hidden=!manager();
   $('password-open').disabled=locked;
   $('logout').disabled=locked;
 }
@@ -91,6 +92,7 @@ const date=value=>new Date(value).toLocaleString('pt-BR');
 function renderManagement(){
   const d=state.data;let content;
   if(state.tab==='products')content=table(['Código','Produto','Código de barras','Preço','Estoque'],d.products.map(p=>[p.sku,p.name,p.barcode??'—',brl(p.price_cents),p.quantity]));
+  if(state.tab==='users')content=table(['Nome','E-mail','Perfil','Status'],(d.users??[]).map(u=>[u.name,u.email,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo']));
   if(state.tab==='history')content=table(['Data','Venda','Desconto','Total','Comprovante'],d.sales.map(s=>{
     const b=element('button','Abrir');b.type='button';b.addEventListener('click',()=>run(async()=>showReceipt(await api(`/api/sales/${s.id}`))));
     return [date(s.created_at),s.id.slice(0,8),brl(s.discount_cents),brl(s.total_cents),b];}));
@@ -126,6 +128,7 @@ async function submitPending(){
     document.querySelectorAll('dialog[open]').forEach(d=>d.close());
     if(pending.path==='/api/sales'){state.cart=[];$('discount').value='0,00';$('discount-reason').value='';$('tendered').value='';showReceipt(result.data);}
     if(pending.path==='/api/products')$('product-form').reset();
+    if(pending.path==='/api/users')$('user-form').reset();
     message(result.replayed?'Operação recuperada. Nenhum registro foi duplicado.':'Operação confirmada.');
     await refresh();
   }catch(error){
@@ -178,6 +181,8 @@ $('close-cash').addEventListener('click',()=>{$('close-description').textContent
 $('close-form').addEventListener('submit',event=>{event.preventDefault();run(()=>command('/api/cash/close',{storeId:storeId(),cashSessionId:currentCash().id,countedCents:cents(event.target.counted.value),reason:event.target.reason.value||null}));});
 $('new-product').addEventListener('click',()=>$('product-dialog').showModal());
 $('product-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/products',{storeId:storeId(),sku:f.sku,barcode:f.barcode||null,name:f.name,priceCents:cents(f.price),initialQuantity:Number(f.quantity)});});});
+$('new-user').addEventListener('click',()=>$('user-dialog').showModal());
+$('user-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/users',{storeId:storeId(),email:f.email,name:f.name,role:f.role,temporaryPassword:f.temporaryPassword});});});
 $('recover').addEventListener('click',()=>run(submitPending));
 $('print').addEventListener('click',()=>window.print());
 document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));

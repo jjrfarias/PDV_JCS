@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { transaction } from './database.mjs';
-import { sha256 } from './security.mjs';
+import { hashPassword, sha256 } from './security.mjs';
 import { requireThat, object, text, integer, id, operationKey } from './errors.mjs';
 import { PostgresPos } from './postgres-pos.mjs';
 
@@ -73,6 +73,25 @@ export class Pos {
       if(input.initialQuantity>0) this.run('INSERT INTO stock_movements VALUES(?,?,?,?,?,?,?,?,?,?)',ctx.tenantId,randomUUID(),input.storeId,productId,null,input.initialQuantity,'INITIAL','Cadastro com estoque inicial',ctx.userId,now());
       this.audit(ctx,input.storeId,'PRODUCT_CREATED',productId,{initialQuantity:input.initialQuantity,priceCents:input.priceCents});
       return {id:productId,...input};
+    });
+  }
+  createUser(ctx,key,raw) {
+    object(raw,['storeId','email','name','role','temporaryPassword']);
+    const input={storeId:id(raw.storeId),email:text(raw.email,'E-mail',120).toLowerCase(),name:text(raw.name,'Nome',120),
+      role:text(raw.role,'Perfil',20),temporaryPassword:text(raw.temporaryPassword,'Senha temporária',200,12)};
+    requireThat(['MANAGER','CASHIER'].includes(input.role),400,'INVALID_ROLE','Perfil inválido.');
+    requireThat(/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(input.email),400,'INVALID_EMAIL','E-mail inválido.');
+    requireThat(/[A-Z]/.test(input.temporaryPassword)&&/[a-z]/.test(input.temporaryPassword)&&/\d/.test(input.temporaryPassword),
+      400,'WEAK_PASSWORD','A senha temporária deve ter 12 caracteres, com letras maiúsculas, minúsculas e número.');
+    return this.mutate(ctx,'USER_CREATE',key,input,user => {
+      requireThat(user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente cadastra usuários.');
+      requireThat(!this.one('SELECT 1 FROM users WHERE tenant_id=? AND email=?',ctx.tenantId,input.email),409,'DUPLICATE_USER','E-mail já cadastrado.');
+      const userId=randomUUID();
+      this.run('INSERT INTO users(tenant_id,id,email,name,password_hash,role,active) VALUES(?,?,?,?,?,?,1)',
+        ctx.tenantId,userId,input.email,input.name,hashPassword(input.temporaryPassword),input.role);
+      this.run('INSERT INTO memberships VALUES(?,?,?)',ctx.tenantId,userId,input.storeId);
+      this.audit(ctx,input.storeId,'USER_CREATED',userId,{email:input.email,role:input.role});
+      return {id:userId,email:input.email,name:input.name,role:input.role,active:1,storeId:input.storeId};
     });
   }
   openCash(ctx,key,raw) {
@@ -181,6 +200,9 @@ export class Pos {
       products:this.all(`SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,s.quantity FROM products p JOIN stock s ON s.tenant_id=p.tenant_id AND s.product_id=p.id
         WHERE s.tenant_id=? AND s.store_id=? AND p.active=1 ORDER BY p.name`,ctx.tenantId,storeId),
       terminals:this.all('SELECT id,name FROM terminals WHERE tenant_id=? AND store_id=? ORDER BY id',ctx.tenantId,storeId),
+      users:this.user(ctx).role==='MANAGER'?this.all(`SELECT u.id,u.email,u.name,u.role,u.active
+        FROM users u JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
+        WHERE u.tenant_id=? AND m.store_id=? ORDER BY u.name`,ctx.tenantId,storeId):[],
       cash:open.map(c=>this.cash(ctx,c.id)),
       sales:this.all('SELECT id,total_cents,discount_cents,created_at FROM sales WHERE tenant_id=? AND store_id=? ORDER BY created_at DESC LIMIT 30',ctx.tenantId,storeId),
       stockMovements:this.all(`SELECT m.product_id,p.name,m.kind,m.quantity,m.reason,m.created_at FROM stock_movements m JOIN products p ON p.tenant_id=m.tenant_id AND p.id=m.product_id

@@ -103,3 +103,18 @@ test('HTTP 14 · usuário troca a própria senha com senha atual',async t=>{
   const newLogin=await w.call('/api/login',{method:'POST',body:{tenant:'demo',email:'gerente@jcs.local',password:'NovaSenha2026'}});
   assert.equal(newLogin.response.status,200);
 });
+test('HTTP 15 · gerente cadastra usuário vinculado à loja',async t=>{
+  const w=await web(t);await w.login();
+  const body={storeId:DEMO.storeA,email:'novo.operador@jcs.local',name:'Novo Operador',role:'CASHIER',temporaryPassword:'SenhaTemp2026'};
+  const created=await w.call('/api/users',{method:'POST',headers:{'Idempotency-Key':key()},body});
+  assert.equal(created.response.status,201);assert.equal(created.data.data.email,body.email);assert.equal(created.data.data.temporaryPassword,undefined);
+  const me=await w.call('/api/stores/store-a/state');
+  assert.equal(me.data.users.some(u=>u.email===body.email),true);
+  const login=await w.call('/api/login',{method:'POST',body:{tenant:'demo',email:body.email,password:body.temporaryPassword}});
+  assert.equal(login.response.status,200);
+});
+test('HTTP 16 · operador não cadastra usuário',async t=>{
+  const w=await web(t);await w.login('operador@jcs.local');
+  const result=await w.call('/api/users',{method:'POST',headers:{'Idempotency-Key':key()},body:{storeId:DEMO.storeA,email:'bloqueado@jcs.local',name:'Bloqueado',role:'CASHIER',temporaryPassword:'SenhaTemp2026'}});
+  assert.equal(result.response.status,403);assert.equal(result.data.error.code,'MANAGER_REQUIRED');
+});

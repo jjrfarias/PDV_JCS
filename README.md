@@ -56,6 +56,7 @@ O operador `operador@jcs.local` tem acesso apenas à Loja A e não pode conceder
 
 - Login individual, sessão com expiração, autorização por loja, perfil de gerente/operador e proteção de origem/CSRF nas gravações.
 - Troca da própria senha com confirmação da senha atual e encerramento das demais sessões do mesmo usuário.
+- Cadastro de usuários por gerente, com vínculo à loja selecionada e senha temporária definida no cadastro.
 - Produtos por unidade, código interno, código de barras opcional, preço e saldo inicial com movimento identificado.
 - Seleção entre lojas e terminais fictícios. Estoque separado por loja, sem transferência ou sincronização de máquinas.
 - Abertura e fechamento de caixa pelo próprio operador, com fundo inicial, valor contado, diferença e justificativa.
@@ -70,7 +71,7 @@ O operador `operador@jcs.local` tem acesso apenas à Loja A e não pode conceder
 
 Não há emissão de NFC-e/NF-e, PIX, cartão, TEF, integração de maquininha, certificado digital, impressora fiscal, cadastro completo de clientes, cadastro administrativo de funcionários, contas a pagar/receber, sangria, suprimento, devolução, troca, inventário completo, transferência entre lojas, sincronização com nuvem, gestão consolidada de várias máquinas, contingência fiscal, empacotamento Electron, instalador comercial, restauração/backup homologado, atualização automática nem operação em produção.
 
-A autenticação não tem redefinição de senha por e-mail, troca obrigatória no primeiro login, MFA ou administração completa de usuários pela interface. O usuário autenticado consegue alterar a própria senha. Os usuários iniciais são criados por seed ou provisionamento operacional. A autorização do gerente significa **o próprio gerente autenticado concede o desconto**; não há fluxo de aprovação por senha do supervisor em uma venda de outro operador.
+A autenticação não tem redefinição de senha por e-mail, troca obrigatória no primeiro login, MFA, edição/desativação de usuários pela interface ou vínculo a múltiplas lojas pela tela. O usuário autenticado consegue alterar a própria senha, e gerentes conseguem cadastrar novos usuários para a loja selecionada. Os usuários iniciais são criados por seed ou provisionamento operacional. A autorização do gerente significa **o próprio gerente autenticado concede o desconto**; não há fluxo de aprovação por senha do supervisor em uma venda de outro operador.
 
 ## Decisão técnica desta entrega
 
