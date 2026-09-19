@@ -14,11 +14,11 @@
     </form>
   </main>
   <div id="workspace" hidden>
-    <header class="header"><div class="wordmark">JCS <span>PDV</span></div><div class="head-controls"><label>Loja<select id="store-select" data-edit></select></label><label>Terminal<select id="terminal-select" data-edit></select></label><div class="operator-card"><small id="role-label"></small><div id="user-label"></div></div><button id="password-open" type="button">Senha</button><button id="logout" type="button">Sair</button></div></header>
-    <div class="page-heading"><div><span class="eyebrow">FRENTE DE CAIXA</span><h1>Nova venda</h1></div><div class="register-actions"><span id="cash-label" class="badge">Caixa fechado</span><button id="refresh" type="button">Atualizar</button><button id="open-cash" data-write type="button">Abrir caixa</button><button id="close-cash" data-write type="button">Fechar caixa</button></div></div>
+    <header class="header"><div class="wordmark">JCS <span>PDV</span></div><nav class="main-nav" aria-label="Áreas do sistema"><button class="selected" data-view="sale" type="button">Venda</button><button data-view="cash" type="button">Caixa</button><button data-view="management" type="button">Gestão</button></nav><div class="head-controls"><label>Loja<select id="store-select" data-edit></select></label><label>Terminal<select id="terminal-select" data-edit></select></label><div class="operator-card"><small id="role-label"></small><div id="user-label"></div></div><button id="password-open" type="button">Senha</button><button id="logout" type="button">Sair</button></div></header>
+    <div class="page-heading"><div><span class="eyebrow">FRENTE DE CAIXA</span><h1>Nova venda</h1></div><div class="register-actions"><span id="cash-label" class="badge">Caixa fechado</span><button id="refresh" type="button">Atualizar</button></div></div>
     <div id="message" class="message" role="status" aria-live="polite" hidden></div>
     <section id="pending-panel" class="pending" hidden><div><strong>Existe uma operação sem resposta confirmada.</strong><p>Não crie outra venda. Recupere a mesma operação, inclusive após atualizar a página.</p></div><button id="recover" type="button">Recuperar operação</button></section>
-    <div class="cash-strip"><div><span>Fundo inicial</span><strong id="opening-value">R$ 0,00</strong></div><div><span>Vendas deste caixa</span><strong id="sales-value">R$ 0,00</strong></div><div><span>Dinheiro esperado</span><strong id="expected-value">R$ 0,00</strong></div><div class="strip-note">Pagamento disponível neste incremento: dinheiro.</div></div>
+    <section class="view-panel sale-view" data-panel="sale">
     <div class="sale-layout">
       <section class="items-panel"><div class="section-title"><h2>Produtos da venda</h2><span id="item-count">0 unidades</span></div>
         <form id="search-form" class="search-form"><label class="search-label">Código de barras, referência ou nome<input id="search" placeholder="Leia o código ou digite para buscar" autocomplete="off" data-edit></label><button type="submit" data-write>Adicionar</button></form>
@@ -29,15 +29,16 @@
       </section>
       <aside class="payment-panel"><h2>Pagamento</h2><div class="pay-method">DINHEIRO <span>Ativo</span></div><form id="sale-form"><fieldset data-edit>
         <div class="total-line"><span>Subtotal</span><strong id="subtotal">R$ 0,00</strong></div>
-        <label>Desconto em reais<input id="discount" value="0,00" inputmode="decimal"></label><small id="discount-help">Somente gerente. Limite de teste: 20%.</small>
-        <label>Motivo do desconto<input id="discount-reason" maxlength="200" placeholder="Obrigatório quando houver desconto"></label>
+        <details class="discount-box"><summary>Desconto gerencial</summary><label>Desconto em reais<input id="discount" value="0,00" inputmode="decimal"></label><small id="discount-help">Somente gerente. Limite de teste: 20%.</small><label>Motivo do desconto<input id="discount-reason" maxlength="200" placeholder="Obrigatório quando houver desconto"></label></details>
         <div class="grand-total"><span>Total da venda</span><strong id="total">R$ 0,00</strong></div>
         <label>Valor entregue pelo cliente<input id="tendered" inputmode="decimal" placeholder="0,00" required></label>
         <div class="change-line"><span>Troco</span><strong id="change">R$ 0,00</strong></div>
         <button class="primary confirm" type="submit" id="confirm-sale" data-write>Confirmar venda em dinheiro</button>
       </fieldset></form><p class="payment-note">Não cobra cartão, não confirma PIX e não emite documento fiscal.</p></aside>
     </div>
-    <section class="management"><div class="section-title"><div><span class="eyebrow">CONFERÊNCIA</span><h2>Produtos, equipe e movimentações</h2></div><div class="register-actions"><button id="new-user" type="button" data-write>Cadastrar usuário</button><button id="new-product" type="button" data-write>Cadastrar produto</button></div></div>
+    </section>
+    <section class="cash-dashboard view-panel" data-panel="cash" hidden><div class="section-title"><div><span class="eyebrow">CAIXA</span><h2>Resumo do caixa atual</h2></div><div class="register-actions"><button id="open-cash" data-write type="button">Abrir caixa</button><button id="close-cash" data-write type="button">Fechar caixa</button></div></div><div class="cash-strip"><div><span>Fundo inicial</span><strong id="opening-value">R$ 0,00</strong></div><div><span>Vendas deste caixa</span><strong id="sales-value">R$ 0,00</strong></div><div><span>Dinheiro esperado</span><strong id="expected-value">R$ 0,00</strong></div><div class="strip-note">Pagamento disponível neste incremento: dinheiro.</div></div></section>
+    <section class="management view-panel" data-panel="management" hidden><div class="section-title"><div><span class="eyebrow">GESTÃO</span><h2>Produtos, equipe e movimentações</h2></div><div class="register-actions"><button id="new-user" type="button" data-write>Cadastrar usuário</button><button id="new-product" type="button" data-write>Cadastrar produto</button></div></div>
       <div class="tabs" role="tablist"><button data-tab="products" class="selected" type="button">Produtos</button><button data-tab="users" type="button">Usuários</button><button data-tab="history" type="button">Vendas recentes</button><button data-tab="stock" type="button">Movimentos de estoque</button><button data-tab="closures" type="button">Fechamentos</button></div>
       <div id="management-content" class="table-wrap"></div>
     </section>

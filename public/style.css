@@ -43,7 +43,11 @@ p{color:var(--muted);font-size:14px}
 .login-form .primary{width:100%;padding:13px}
 .login-form code{font-size:12px;overflow-wrap:anywhere}
 #login-error{margin:16px 0 0;color:var(--danger);font-weight:700}
-.header{position:sticky;top:0;z-index:5;padding:16px 32px;display:flex;justify-content:space-between;align-items:center;background:#ffffffd9;border-bottom:1px solid var(--line);backdrop-filter:blur(14px)}
+.header{position:sticky;top:0;z-index:5;padding:14px 32px;display:grid;grid-template-columns:auto 1fr auto;gap:24px;align-items:center;background:#ffffffed;border-bottom:1px solid var(--line);backdrop-filter:blur(14px)}
+.main-nav{display:flex;justify-content:center;gap:6px}
+.main-nav button{border:0;background:transparent;color:#64748b;border-radius:999px;padding:9px 16px;font-size:13px}
+.main-nav button:hover{background:#f1f5f9}
+.main-nav .selected{background:#0f172a;color:#fff}
 .head-controls{display:flex;gap:14px;align-items:center}
 .head-controls label{margin:0;font-size:10px;letter-spacing:.7px;text-transform:uppercase}
 .head-controls select{min-width:155px;font-size:13px;padding:8px 10px}
@@ -57,12 +61,13 @@ p{color:var(--muted);font-size:14px}
 .message{margin:0 32px 18px;padding:13px 16px;border:1px solid #bfdbfe;background:#eff6ff;color:#1e3a8a;border-radius:12px;font-size:13px;font-weight:700}
 .pending{margin:0 32px 18px;padding:18px;border:1px solid #f59e0b;background:#fffbeb;border-radius:14px;display:flex;justify-content:space-between;align-items:center;gap:20px}
 .pending p{margin:5px 0 0}.pending strong{font-size:14px}
-.cash-strip{margin:0 32px 22px;display:grid;grid-template-columns:repeat(3,minmax(160px,1fr)) minmax(180px,.8fr);gap:14px}
+.cash-strip{padding:22px;display:grid;grid-template-columns:repeat(3,minmax(160px,1fr)) minmax(180px,.8fr);gap:14px}
 .cash-strip div{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:4px;box-shadow:0 8px 24px #0f172a0a}
 .cash-strip span{font-size:12px;color:var(--muted);font-weight:800}
 .cash-strip strong{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums}
 .cash-strip .strip-note{font-size:12px;color:#dbeafe;justify-content:center;background:#0f172a;border-color:#0f172a}
-.sale-layout{margin:0 32px;display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:22px;align-items:start}
+.view-panel{margin:0 32px}
+.sale-layout{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:22px;align-items:start}
 .items-panel,.payment-panel,.management{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
 .items-panel{min-height:510px;display:flex;flex-direction:column;overflow:hidden}
 .section-title{display:flex;align-items:center;justify-content:space-between;padding:20px 22px;border-bottom:1px solid #edf1f5}
@@ -94,13 +99,20 @@ fieldset{border:0;margin:0;padding:0;min-width:0}
 .total-line,.change-line{display:flex;justify-content:space-between;font-size:14px;margin:14px 0}
 .payment-panel label{margin-bottom:12px}
 #discount-help{font-size:11px;color:#64748b;display:block;margin:-6px 0 15px}
+.discount-box{border:1px solid #e2e8f0;border-radius:12px;margin:12px 0 16px;padding:0;background:#fbfdff}
+.discount-box summary{cursor:pointer;list-style:none;padding:12px 14px;font-size:12px;font-weight:900;color:#475569}
+.discount-box summary::-webkit-details-marker{display:none}
+.discount-box summary::after{content:'+';float:right;font-size:16px;color:#0f766e}
+.discount-box[open] summary::after{content:'–'}
+.discount-box label,.discount-box small{margin-left:14px;margin-right:14px}
+.discount-box label:last-child{margin-bottom:14px}
 .grand-total{border-top:1px solid var(--line);margin:20px 0;padding-top:16px}
 .grand-total span{display:block;font-size:12px;color:var(--muted);font-weight:900;text-transform:uppercase;letter-spacing:.5px}
 .grand-total strong{font-size:42px;font-weight:950;letter-spacing:-1.5px;color:#0f172a}
 .change-line{padding:10px 0;color:#0f766e;font-weight:900}
 .confirm{width:100%;padding:15px;font-size:13px}
 .payment-note{font-size:11px;margin:14px 0 0;text-align:center}
-.management{margin:24px 32px;overflow:hidden}
+.management,.cash-dashboard{overflow:hidden;background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
 .management .section-title{padding:20px 22px}
 .tabs{display:flex;gap:24px;padding:0 22px;border-bottom:1px solid var(--line);background:#fbfdff}
 .tabs button{border:0;border-radius:0;padding:14px 0;background:none;font-size:12px;font-weight:900;color:#64748b}
@@ -119,9 +131,9 @@ dialog::backdrop{background:#0f172a99}
 #receipt th,#receipt td{padding:9px 4px}
 #receipt .grand-total strong{font-size:26px}
 @media(max-width:1050px){
-  .header{padding:16px 20px}.head-controls{gap:10px;flex-wrap:wrap}.head-controls label select{min-width:120px}
-  .page-heading{margin:24px 20px 18px}.sale-layout{margin:0 20px;grid-template-columns:minmax(0,1fr) 320px;gap:16px}
-  .cash-strip,.management,.message,.pending{margin-left:20px;margin-right:20px}.cash-strip{grid-template-columns:repeat(2,1fr)}
+  .header{padding:16px 20px;grid-template-columns:1fr}.main-nav{justify-content:flex-start}.head-controls{gap:10px;flex-wrap:wrap}.head-controls label select{min-width:120px}
+  .page-heading{margin:24px 20px 18px}.view-panel{margin-left:20px;margin-right:20px}.sale-layout{grid-template-columns:minmax(0,1fr) 320px;gap:16px}
+  .message,.pending{margin-left:20px;margin-right:20px}.cash-strip{grid-template-columns:repeat(2,1fr)}
 }
 @media(max-width:780px){
   .login-wrap{display:block;margin:0;padding:25px}.login-intro h1{font-size:36px;margin:25px 0}.muted{margin-top:20px}

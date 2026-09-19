@@ -1,6 +1,6 @@
 import {cents,brl} from './money.mjs';
 const $=id=>document.getElementById(id);
-const state={me:null,data:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',lastReceipt:null};
+const state={me:null,data:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null};
 function element(tag,content,className=''){const node=document.createElement(tag);if(content!==undefined)node.textContent=String(content);if(className)node.className=className;return node;}
 function message(value){
   $('message').textContent=value;$('message').hidden=!value;
@@ -49,6 +49,12 @@ function renderCash(){
   $('opening-value').textContent=brl(cash?.opening_cents??0);
   $('sales-value').textContent=brl(cash?.sales_cents??0);
   $('expected-value').textContent=brl(cash?.expected_cents??0);lock();
+}
+function setView(view){
+  state.view=view;
+  document.querySelectorAll('[data-panel]').forEach(panel=>{panel.hidden=panel.dataset.panel!==view;});
+  document.querySelectorAll('[data-view]').forEach(button=>button.classList.toggle('selected',button.dataset.view===view));
+  if(view==='sale')setTimeout(()=>$('search').focus(),0);
 }
 function renderSearch(){
   const query=$('search').value.trim().toLowerCase();$('search-results').replaceChildren();
@@ -186,6 +192,7 @@ $('user-form').addEventListener('submit',event=>{event.preventDefault();run(()=>
 $('recover').addEventListener('click',()=>run(submitPending));
 $('print').addEventListener('click',()=>window.print());
 document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
+document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
 document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{state.tab=b.dataset.tab;document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('selected',button===b));renderManagement();}));
 document.addEventListener('keydown',event=>{
   if(!state.me)return;
