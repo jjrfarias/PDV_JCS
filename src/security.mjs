@@ -1,6 +1,7 @@
 import { createHash, randomBytes, scrypt, scryptSync, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { requireThat, text, object } from './errors.mjs';
+import { one, run, withPostgresTransaction } from './postgres.mjs';
 
 const derive = promisify(scrypt);
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
@@ -32,25 +33,45 @@ export class Auth {
       entry.count++;
       this.limits.set(key, entry);
     });
-    const user = this.db.prepare(`SELECT u.*, t.slug FROM users u JOIN tenants t ON t.id=u.tenant_id
-      WHERE t.slug=? AND u.email=? AND u.active=1`).get(tenant, email);
+    const postgres = typeof this.db.query === 'function';
+    const user = postgres
+      ? await one(this.db, 'SELECT * FROM public.pdv_login_user($1,$2)', [tenant,email])
+      : this.db.prepare(`SELECT u.*, t.slug FROM users u JOIN tenants t ON t.id=u.tenant_id
+        WHERE t.slug=? AND u.email=? AND u.active=1`).get(tenant, email);
     const valid = await verifyPassword(password, user?.password_hash ?? this.dummyHash);
     requireThat(user && valid, 401, 'INVALID_LOGIN', 'Empresa, e-mail ou senha inválidos.');
-    // Revalidar depois do await: a conta pode ter sido desativada durante o cálculo.
-    requireThat(this.db.prepare('SELECT active FROM users WHERE tenant_id=? AND id=?').get(user.tenant_id, user.id)?.active === 1,
-      401, 'INVALID_LOGIN', 'Acesso indisponível.');
-    this.db.prepare('DELETE FROM sessions WHERE expires_at<?').run(now);
     const token = randomToken();
     const csrfToken = randomToken();
-    this.db.prepare('INSERT INTO sessions VALUES(?,?,?,?,?)').run(sha256(token),user.tenant_id,user.id,csrfToken,now+12*60*60_000);
+    // Revalidar depois do scrypt; o lock impede desativação no meio da criação da sessão.
+    if (postgres) {
+      await withPostgresTransaction(this.db, async client => {
+        const current = await one(client, 'SELECT active,password_hash FROM users WHERE tenant_id=$1 AND id=$2 FOR SHARE', [user.tenant_id,user.id]);
+        requireThat(current?.active===1 && current.password_hash===user.password_hash,401,'INVALID_LOGIN','Acesso indisponível.');
+        await run(client,'DELETE FROM sessions WHERE tenant_id=$1 AND expires_at<$2',[user.tenant_id,now]);
+        await run(client,`INSERT INTO sessions(token_hash,tenant_id,user_id,csrf_token,expires_at) VALUES($1,$2,$3,$4,$5)`,
+          [sha256(token),user.tenant_id,user.id,csrfToken,now+12*60*60_000]);
+      }, {tenantId:user.tenant_id,userId:user.id});
+    } else {
+      const current=this.db.prepare('SELECT active,password_hash FROM users WHERE tenant_id=? AND id=?').get(user.tenant_id,user.id);
+      requireThat(current?.active===1 && current.password_hash===user.password_hash,401,'INVALID_LOGIN','Acesso indisponível.');
+      this.db.prepare('DELETE FROM sessions WHERE tenant_id=? AND expires_at<?').run(user.tenant_id,now);
+      this.db.prepare('INSERT INTO sessions VALUES(?,?,?,?,?)').run(sha256(token),user.tenant_id,user.id,csrfToken,now+12*60*60_000);
+    }
     return { token, csrfToken };
   }
-  resolve(cookie = '') {
+  async resolve(cookie = '') {
     const token = cookie.split(';').map(s => s.trim()).find(s => s.startsWith('jcs_session='))?.slice(12);
     if (!token || !/^[\w-]{43}$/.test(token)) return null;
-    const session = this.db.prepare(`SELECT s.* FROM sessions s JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.user_id
-      WHERE s.token_hash=? AND s.expires_at>? AND u.active=1`).get(sha256(token),Date.now());
+    const session = typeof this.db.query === 'function'
+      ? await one(this.db,'SELECT * FROM public.pdv_resolve_session($1)',[sha256(token)])
+      : this.db.prepare(`SELECT s.* FROM sessions s JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.user_id
+        WHERE s.token_hash=? AND s.expires_at>? AND u.active=1`).get(sha256(token),Date.now());
     return session ? { tenantId: session.tenant_id, userId: session.user_id, csrfToken: session.csrf_token, tokenHash: session.token_hash } : null;
   }
-  logout(ctx) { this.db.prepare('DELETE FROM sessions WHERE token_hash=?').run(ctx.tokenHash); }
+  async logout(ctx) {
+    if (typeof this.db.query === 'function') {
+      await withPostgresTransaction(this.db, client => run(client,
+        'DELETE FROM sessions WHERE tenant_id=$1 AND user_id=$2 AND token_hash=$3', [ctx.tenantId,ctx.userId,ctx.tokenHash]), ctx);
+    } else this.db.prepare('DELETE FROM sessions WHERE tenant_id=? AND user_id=? AND token_hash=?').run(ctx.tenantId,ctx.userId,ctx.tokenHash);
+  }
 }

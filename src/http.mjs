@@ -36,15 +36,27 @@ export function createApp(db) {
     res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'");
     try {
       const port=server.address()?.port;
-      const hosts=[`127.0.0.1:${port}`,`localhost:${port}`];
-      requireThat(hosts.includes(req.headers.host),403,'HOST_FORBIDDEN','Acesso permitido somente pelo endereço local indicado.');
-      const origin=`http://${req.headers.host}`;
+      const production=process.env.NODE_ENV==='production';
+      const configuredHosts=[
+        ...(process.env.ALLOWED_HOSTS??'').split(',').map(host=>host.trim()).filter(Boolean),
+        process.env.PUBLIC_ORIGIN ? new URL(process.env.PUBLIC_ORIGIN).host : '',
+        process.env.RAILWAY_PUBLIC_DOMAIN ?? ''
+      ].filter(Boolean);
+      const hosts=production ? configuredHosts : [`127.0.0.1:${port}`,`localhost:${port}`];
+      requireThat(hosts.length>0&&hosts.includes(req.headers.host),403,'HOST_FORBIDDEN',
+        production?'Host público não configurado para este deploy.':'Acesso permitido somente pelo endereço local indicado.');
+      const origin=(process.env.PUBLIC_ORIGIN?.replace(/\/$/,'') ?? `${production?'https':'http'}://${req.headers.host}`);
       const url=new URL(req.url,origin);
       if(req.method==='GET'&&ASSETS.has(url.pathname)) {
         const asset=ASSETS.get(url.pathname);
         res.writeHead(200,{'Content-Type':asset.type}); return res.end(asset.body);
       }
-      if(req.method==='GET'&&url.pathname==='/health') return send(res,200,{status:'ok',mode:'local-test',fiscal:false});
+      if(req.method==='GET'&&url.pathname==='/health') return send(res,200,{
+        status:'ok',
+        mode:production?'production':'local-test',
+        database:typeof db.query==='function'?'postgres':'sqlite',
+        fiscal:false
+      });
       requireThat(url.pathname.startsWith('/api/'),404,'NOT_FOUND','Rota não encontrada.');
       const mutating=!['GET','HEAD'].includes(req.method);
       if(mutating) {
@@ -53,24 +65,24 @@ export function createApp(db) {
       }
       if(req.method==='POST'&&url.pathname==='/api/login') {
         const result=await auth.login(await json(req),req.socket.remoteAddress);
-        res.setHeader('Set-Cookie',`jcs_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200`);
+        res.setHeader('Set-Cookie',`jcs_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${production?'; Secure':''}`);
         return send(res,200,{csrfToken:result.csrfToken});
       }
-      const ctx=auth.resolve(req.headers.cookie);
+      const ctx=await auth.resolve(req.headers.cookie);
       requireThat(ctx,401,'AUTH_REQUIRED','Faça login para continuar.');
       if(mutating) requireThat(req.headers['x-csrf-token']===ctx.csrfToken,403,'CSRF_FORBIDDEN','Sessão da tela inválida. Atualize a página.');
-      if(req.method==='GET'&&url.pathname==='/api/me') return send(res,200,{...pos.me(ctx),csrfToken:ctx.csrfToken});
+      if(req.method==='GET'&&url.pathname==='/api/me') return send(res,200,{...await pos.me(ctx),csrfToken:ctx.csrfToken});
       if(req.method==='POST'&&url.pathname==='/api/logout') {
-        auth.logout(ctx); res.setHeader('Set-Cookie','jcs_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+        await auth.logout(ctx); res.setHeader('Set-Cookie',`jcs_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${production?'; Secure':''}`);
         return send(res,200,{ok:true});
       }
       let match;
-      if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/stores\/([\w-]+)\/state$/))) return send(res,200,pos.state(ctx,match[1]));
-      if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/sales\/([\w-]+)$/))) return send(res,200,pos.receipt(ctx,match[1]));
-      if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/operations\/([\w-]+)$/))) return send(res,200,pos.operation(ctx,match[1]));
+      if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/stores\/([\w-]+)\/state$/))) return send(res,200,await pos.state(ctx,match[1]));
+      if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/sales\/([\w-]+)$/))) return send(res,200,await pos.receipt(ctx,match[1]));
+      if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/operations\/([\w-]+)$/))) return send(res,200,await pos.operation(ctx,match[1]));
       const routes={'/api/products':'createProduct','/api/cash/open':'openCash','/api/cash/close':'closeCash','/api/sales':'sell'};
       if(req.method==='POST'&&routes[url.pathname]) {
-        const result=pos[routes[url.pathname]](ctx,req.headers['idempotency-key'],await json(req));
+        const result=await pos[routes[url.pathname]](ctx,req.headers['idempotency-key'],await json(req));
         return send(res,result.replayed?200:201,result);
       }
       throw new AppError(404,'NOT_FOUND','Rota não encontrada.');

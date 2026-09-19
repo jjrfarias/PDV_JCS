@@ -2,12 +2,16 @@ import { randomUUID } from 'node:crypto';
 import { transaction } from './database.mjs';
 import { sha256 } from './security.mjs';
 import { requireThat, object, text, integer, id, operationKey } from './errors.mjs';
+import { PostgresPos } from './postgres-pos.mjs';
 
 const now = () => new Date().toISOString();
 const MAX_MONEY = 100_000_000; // R$ 1 milhão por entrada monetária neste laboratório.
 
 export class Pos {
-  constructor(db, hooks = {}) { this.db = db; this.hooks = hooks; }
+  constructor(db, hooks = {}) {
+    if (typeof db.query === 'function' && typeof db.connect === 'function') return new PostgresPos(db, hooks);
+    this.db = db; this.hooks = hooks;
+  }
   one(sql, ...args) { return this.db.prepare(sql).get(...args); }
   all(sql, ...args) { return this.db.prepare(sql).all(...args); }
   run(sql, ...args) { return this.db.prepare(sql).run(...args); }
