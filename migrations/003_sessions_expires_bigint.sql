@@ -1,0 +1,1 @@
+ALTER TABLE sessions ALTER COLUMN expires_at TYPE BIGINT;

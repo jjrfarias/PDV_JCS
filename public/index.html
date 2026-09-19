@@ -1,20 +1,20 @@
 <!doctype html>
 <html lang="pt-BR">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PDV JCS · Laboratório</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.mjs"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PDV JCS</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.mjs"></script></head>
 <body>
-  <div class="test-band">LABORATÓRIO LOCAL · SOMENTE DADOS FICTÍCIOS · SEM VALOR FISCAL</div>
+  <div class="test-band">PDV JCS · OPERAÇÃO EM POSTGRESQL · EMISSÃO FISCAL AINDA NÃO ATIVA</div>
   <main id="login-panel" class="login-wrap">
-    <section class="login-intro"><span class="wordmark">JCS <span>COMÉRCIO</span></span><h1>A operação começa<br>pelo caixa.</h1><p>Produtos, dinheiro e estoque na mesma conferência.</p><p class="muted">Incremento 01 · ambiente de desenvolvimento</p></section>
-    <form id="login-form" class="login-form"><h2>Acessar laboratório</h2><p>As senhas individuais foram geradas no primeiro início do servidor. Consulte <code>data/ACESSOS-LOCAIS.txt</code>.</p>
-      <label>Empresa<input name="tenant" value="demo" required autocomplete="organization"></label>
-      <label>E-mail<input name="email" type="email" value="gerente@jcs.local" required autocomplete="username"></label>
+    <section class="login-intro"><span class="wordmark">JCS <span>PDV</span></span><h1>Frente de caixa simples, rápida e conferida.</h1><p>Venda, estoque, dinheiro e auditoria em uma tela direta para a operação diária.</p><p class="muted">Produção inicial · PostgreSQL · Railway</p></section>
+    <form id="login-form" class="login-form"><h2>Acessar PDV</h2><p>Entre com as credenciais do tenant configurado para sua loja.</p>
+      <label>Empresa<input name="tenant" value="jcs" required autocomplete="organization"></label>
+      <label>E-mail<input name="email" type="email" value="admin@jcs.local" required autocomplete="username"></label>
       <label>Senha<input name="password" type="password" required autocomplete="current-password"></label>
       <button class="primary" type="submit">Entrar</button>
       <p id="login-error" role="alert"></p>
     </form>
   </main>
   <div id="workspace" hidden>
-    <header class="header"><div class="wordmark">JCS <span>COMÉRCIO</span></div><div class="head-controls"><label>Loja<select id="store-select" data-edit></select></label><label>Terminal<select id="terminal-select" data-edit></select></label><div><small id="role-label"></small><div id="user-label"></div></div><button id="logout" type="button">Sair</button></div></header>
+    <header class="header"><div class="wordmark">JCS <span>PDV</span></div><div class="head-controls"><label>Loja<select id="store-select" data-edit></select></label><label>Terminal<select id="terminal-select" data-edit></select></label><div class="operator-card"><small id="role-label"></small><div id="user-label"></div></div><button id="logout" type="button">Sair</button></div></header>
     <div class="page-heading"><div><span class="eyebrow">FRENTE DE CAIXA</span><h1>Nova venda</h1></div><div class="register-actions"><span id="cash-label" class="badge">Caixa fechado</span><button id="refresh" type="button">Atualizar</button><button id="open-cash" data-write type="button">Abrir caixa</button><button id="close-cash" data-write type="button">Fechar caixa</button></div></div>
     <div id="message" class="message" role="status" aria-live="polite" hidden></div>
     <section id="pending-panel" class="pending" hidden><div><strong>Existe uma operação sem resposta confirmada.</strong><p>Não crie outra venda. Recupere a mesma operação, inclusive após atualizar a página.</p></div><button id="recover" type="button">Recuperar operação</button></section>
@@ -41,7 +41,7 @@
       <div class="tabs" role="tablist"><button data-tab="products" class="selected" type="button">Produtos</button><button data-tab="history" type="button">Vendas recentes</button><button data-tab="stock" type="button">Movimentos de estoque</button><button data-tab="closures" type="button">Fechamentos</button></div>
       <div id="management-content" class="table-wrap"></div>
     </section>
-    <footer>Jordão Consultoria e Soluções · Base local 0.1.0 <span>Sem sincronização entre computadores</span></footer>
+    <footer>Jordão Consultoria e Soluções · PDV JCS <span>PostgreSQL multi-tenant · Fiscal desativado nesta etapa</span></footer>
   </div>
   <dialog id="open-dialog"><form id="open-form"><h2>Abrir caixa</h2><p id="open-description"></p><label>Fundo inicial em reais<input name="opening" value="100,00" inputmode="decimal" required></label><div class="dialog-actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Confirmar abertura</button></div></form></dialog>
   <dialog id="close-dialog"><form id="close-form"><h2>Fechar caixa</h2><p id="close-description"></p><label>Dinheiro contado em reais<input name="counted" inputmode="decimal" required></label><label>Motivo de eventual diferença<input name="reason" maxlength="200"></label><div class="dialog-actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Confirmar fechamento</button></div></form></dialog>

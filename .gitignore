@@ -1,5 +1,6 @@
 data/
 node_modules/
+.codex-validation/
 .env
 *.sqlite
 *.sqlite-wal
