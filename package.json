@@ -1,0 +1,19 @@
+{
+  "name": "pdv-jcs-laboratorio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Primeiro incremento local do PDV JCS. Somente dados fictícios; sem valor fiscal.",
+  "engines": {
+    "node": ">=22.16.0"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "check": "node scripts-check.mjs",
+    "migrate:postgres": "node scripts/migrate-postgres.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
+  }
+}

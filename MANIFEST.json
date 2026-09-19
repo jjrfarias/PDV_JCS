@@ -1,0 +1,33 @@
+{
+  "project": "PDV JCS - incremento 01",
+  "version": "0.1.0",
+  "files": {
+    ".gitignore": "e1db125bef6a824279c0fc5e8bd4b7422cb2beafcacb64609481728398009dfb",
+    "AGENTS.md": "7383b4c671bfc5fef977fae769173982d9e37d33c468ab015dd2bef73847960f",
+    "INICIAR-PDV.bat": "f5978410d480999aa5841202699480e174ac0fc6fd89ea0d1a20f4193f913db1",
+    "README.md": "dbc28d4032dd018a25e7585d993279d862b01e63c24943972107377758b8eb4f",
+    "docs/API.md": "fb952637154e4f54ba61d47a908771fd997f14633108ff8f1f9d2556a57fa6b4",
+    "docs/CHECK.log": "f6b3193b051912c7692b7678ceec4175942f75918dc7143dc256658b9b7fb5cf",
+    "docs/DECISOES.md": "2782c63dd27147be201614a6a618cd6405bf33aced3ba24938e1f89568bac6b5",
+    "docs/TESTES.md": "ccec27c17ebf245243c94e64314ae90561f817855af4e92524a0c392de60678d",
+    "docs/TESTES.tap": "1e2a3b016caa4a5af7cbc3e17ad26550a6f2b7f4a9a21d011d493d7f15448f75",
+    "package.json": "43c9728a57e68fbde0e51001b4d8b9ccc86b8ec1161e3d553a86b57714a549ff",
+    "public/app.mjs": "84d0280c830a14447a4c70ab0c9ca4707dd6524af29c39efd8d064944d2ffeab",
+    "public/index.html": "e6f266fe386b4a1938626835b9df283b5a74b4b1c68b6f6c6a2fa4f2cd095d1d",
+    "public/money.mjs": "fd0322aee9d9130ba97e7128524fa9ef0f2aadc2decf29d258aec76f9b3f8ebb",
+    "public/style.css": "f801ca3fe7e6ad82ef5fc2bc4169dae9dbf5ec7900f1ae308d92eca3b2b6f4c4",
+    "scripts-check.mjs": "cfe2077038169f199f878b992034d21f09b634cb04c16d0911f59aeeaf727e91",
+    "src/database.mjs": "7eefc3a0d20c356bc8a6c8157633e19d949336b1b7d882bdce3ba10330dc1746",
+    "src/demo.mjs": "2aa4627ca91b07c35a3d2eb4d7cc986d4104700c232d64efd5821a85e6a6dcb6",
+    "src/errors.mjs": "a21cc0f9e3028029859dc289d5a47b97e55aff56ea8d5472304c55e8c6f83acf",
+    "src/http.mjs": "036f661b087879b384b05d146319cb93664d5f20d241fb736ac47946315131e4",
+    "src/pos.mjs": "da73c1ec300c2ce64e17080c9b7f885a86fcceadc85fe9076671eba82ffb55ac",
+    "src/schema.sql": "b1ca92588ce338b4017d2b748823c5304feb8c8615e69861811f32007f1d91fc",
+    "src/security.mjs": "915bad879522647b020a9415ee71d7496e9d929deef780fdd7d8b19d7bbc865e",
+    "src/server.mjs": "e0cd052b95c77b5cd98eadf62d4375de3c488c56f0498e2ab63e5cc8ba296b2c",
+    "tests/helpers.mjs": "48d8213d93683fc761f1620d59691cbc08902b87ca1361e9f49bd388ea9ede03",
+    "tests/http.test.mjs": "9d6b7db72dc250ffaff8e60c1d125f8a23489c895135eb62cef243885c9c5989",
+    "tests/pos.test.mjs": "73e7445de47168d8054527a06e168186ba4b545353e174731a7263487a49d5e7",
+    "tests/race-worker.mjs": "c3423a822fa87e236f01cc4e0d47104de79ecd3f4e7961e4a249dd1fca857ece"
+  }
+}

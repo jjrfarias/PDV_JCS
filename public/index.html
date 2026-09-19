@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PDV JCS · Laboratório</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.mjs"></script></head>
+<body>
+  <div class="test-band">LABORATÓRIO LOCAL · SOMENTE DADOS FICTÍCIOS · SEM VALOR FISCAL</div>
+  <main id="login-panel" class="login-wrap">
+    <section class="login-intro"><span class="wordmark">JCS <span>COMÉRCIO</span></span><h1>A operação começa<br>pelo caixa.</h1><p>Produtos, dinheiro e estoque na mesma conferência.</p><p class="muted">Incremento 01 · ambiente de desenvolvimento</p></section>
+    <form id="login-form" class="login-form"><h2>Acessar laboratório</h2><p>As senhas individuais foram geradas no primeiro início do servidor. Consulte <code>data/ACESSOS-LOCAIS.txt</code>.</p>
+      <label>Empresa<input name="tenant" value="demo" required autocomplete="organization"></label>
+      <label>E-mail<input name="email" type="email" value="gerente@jcs.local" required autocomplete="username"></label>
+      <label>Senha<input name="password" type="password" required autocomplete="current-password"></label>
+      <button class="primary" type="submit">Entrar</button>
+      <p id="login-error" role="alert"></p>
+    </form>
+  </main>
+  <div id="workspace" hidden>
+    <header class="header"><div class="wordmark">JCS <span>COMÉRCIO</span></div><div class="head-controls"><label>Loja<select id="store-select" data-edit></select></label><label>Terminal<select id="terminal-select" data-edit></select></label><div><small id="role-label"></small><div id="user-label"></div></div><button id="logout" type="button">Sair</button></div></header>
+    <div class="page-heading"><div><span class="eyebrow">FRENTE DE CAIXA</span><h1>Nova venda</h1></div><div class="register-actions"><span id="cash-label" class="badge">Caixa fechado</span><button id="refresh" type="button">Atualizar</button><button id="open-cash" data-write type="button">Abrir caixa</button><button id="close-cash" data-write type="button">Fechar caixa</button></div></div>
+    <div id="message" class="message" role="status" aria-live="polite" hidden></div>
+    <section id="pending-panel" class="pending" hidden><div><strong>Existe uma operação sem resposta confirmada.</strong><p>Não crie outra venda. Recupere a mesma operação, inclusive após atualizar a página.</p></div><button id="recover" type="button">Recuperar operação</button></section>
+    <div class="cash-strip"><div><span>Fundo inicial</span><strong id="opening-value">R$ 0,00</strong></div><div><span>Vendas deste caixa</span><strong id="sales-value">R$ 0,00</strong></div><div><span>Dinheiro esperado</span><strong id="expected-value">R$ 0,00</strong></div><div class="strip-note">Pagamento disponível neste incremento: dinheiro.</div></div>
+    <div class="sale-layout">
+      <section class="items-panel"><div class="section-title"><h2>Produtos da venda</h2><span id="item-count">0 unidades</span></div>
+        <form id="search-form" class="search-form"><label class="search-label">Código de barras, referência ou nome<input id="search" placeholder="Leia o código ou digite para buscar" autocomplete="off" data-edit></label><button type="submit" data-write>Adicionar</button></form>
+        <div id="search-results" class="search-results"></div>
+        <div class="table-wrap"><table><thead><tr><th>Produto</th><th>Quantidade</th><th>Unitário</th><th>Total</th><th></th></tr></thead><tbody id="cart-body"></tbody></table></div>
+        <div id="empty-cart" class="empty"><strong>Pronto para a primeira venda</strong><p>Busque o produto de teste ou leia <code>7890000000017</code>.</p><p>O preço final e o estoque são conferidos novamente pelo servidor.</p></div>
+        <div class="shortcuts">F2 Buscar produto <span>F9 Confirmar venda</span> <span>F10 Imprimir último comprovante</span></div>
+      </section>
+      <aside class="payment-panel"><h2>Pagamento</h2><div class="pay-method">DINHEIRO <span>Ativo</span></div><form id="sale-form"><fieldset data-edit>
+        <div class="total-line"><span>Subtotal</span><strong id="subtotal">R$ 0,00</strong></div>
+        <label>Desconto em reais<input id="discount" value="0,00" inputmode="decimal"></label><small id="discount-help">Somente gerente. Limite de teste: 20%.</small>
+        <label>Motivo do desconto<input id="discount-reason" maxlength="200" placeholder="Obrigatório quando houver desconto"></label>
+        <div class="grand-total"><span>Total da venda</span><strong id="total">R$ 0,00</strong></div>
+        <label>Valor entregue pelo cliente<input id="tendered" inputmode="decimal" placeholder="0,00" required></label>
+        <div class="change-line"><span>Troco</span><strong id="change">R$ 0,00</strong></div>
+        <button class="primary confirm" type="submit" id="confirm-sale" data-write>Confirmar venda em dinheiro</button>
+      </fieldset></form><p class="payment-note">Não cobra cartão, não confirma PIX e não emite documento fiscal.</p></aside>
+    </div>
+    <section class="management"><div class="section-title"><div><span class="eyebrow">CONFERÊNCIA</span><h2>Produtos e movimentações</h2></div><button id="new-product" type="button" data-write>Cadastrar produto</button></div>
+      <div class="tabs" role="tablist"><button data-tab="products" class="selected" type="button">Produtos</button><button data-tab="history" type="button">Vendas recentes</button><button data-tab="stock" type="button">Movimentos de estoque</button><button data-tab="closures" type="button">Fechamentos</button></div>
+      <div id="management-content" class="table-wrap"></div>
+    </section>
+    <footer>Jordão Consultoria e Soluções · Base local 0.1.0 <span>Sem sincronização entre computadores</span></footer>
+  </div>
+  <dialog id="open-dialog"><form id="open-form"><h2>Abrir caixa</h2><p id="open-description"></p><label>Fundo inicial em reais<input name="opening" value="100,00" inputmode="decimal" required></label><div class="dialog-actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Confirmar abertura</button></div></form></dialog>
+  <dialog id="close-dialog"><form id="close-form"><h2>Fechar caixa</h2><p id="close-description"></p><label>Dinheiro contado em reais<input name="counted" inputmode="decimal" required></label><label>Motivo de eventual diferença<input name="reason" maxlength="200"></label><div class="dialog-actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Confirmar fechamento</button></div></form></dialog>
+  <dialog id="product-dialog"><form id="product-form"><h2>Cadastrar produto</h2><p>Produto por unidade. O saldo inicial pertence à loja selecionada.</p><label>Nome<input name="name" maxlength="120" required></label><label>Código interno<input name="sku" maxlength="40" required></label><label>Código de barras (opcional)<input name="barcode" maxlength="48"></label><div class="form-grid"><label>Preço em reais<input name="price" inputmode="decimal" required></label><label>Estoque inicial<input name="quantity" type="number" min="0" max="1000000" step="1" value="0" required></label></div><div class="dialog-actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Salvar produto</button></div></form></dialog>
+  <dialog id="receipt-dialog"><div id="receipt"></div><div class="dialog-actions no-print"><button type="button" data-close>Fechar</button><button id="print" class="primary" type="button">Imprimir comprovante de teste</button></div></dialog>
+</body></html>

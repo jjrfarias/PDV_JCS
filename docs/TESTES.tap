@@ -1,0 +1,286 @@
+
+> pdv-jcs-laboratorio@0.1.0 test
+> node --test --test-concurrency=1 tests/*.test.mjs
+
+TAP version 13
+# (node:1358) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: HTTP 01 · login emite cookie HttpOnly/SameSite e sessão não vai ao JSON
+ok 1 - HTTP 01 · login emite cookie HttpOnly/SameSite e sessão não vai ao JSON
+  ---
+  duration_ms: 599.533454
+  type: 'test'
+  ...
+# Subtest: HTTP 02 · rota exige autenticação
+ok 2 - HTTP 02 · rota exige autenticação
+  ---
+  duration_ms: 212.386967
+  type: 'test'
+  ...
+# Subtest: HTTP 03 · origem externa é bloqueada inclusive no login
+ok 3 - HTTP 03 · origem externa é bloqueada inclusive no login
+  ---
+  duration_ms: 207.255327
+  type: 'test'
+  ...
+# Subtest: HTTP 04 · token CSRF incorreto impede mutação
+ok 4 - HTTP 04 · token CSRF incorreto impede mutação
+  ---
+  duration_ms: 351.121133
+  type: 'test'
+  ...
+# Subtest: HTTP 05 · venda e recuperação via API são persistentes e idempotentes
+ok 5 - HTTP 05 · venda e recuperação via API são persistentes e idempotentes
+  ---
+  duration_ms: 357.878997
+  type: 'test'
+  ...
+# Subtest: HTTP 06 · loja B não aparece nem é acessível para operador A
+ok 6 - HTTP 06 · loja B não aparece nem é acessível para operador A
+  ---
+  duration_ms: 379.194479
+  type: 'test'
+  ...
+# Subtest: HTTP 07 · logout invalida sessão no servidor
+ok 7 - HTTP 07 · logout invalida sessão no servidor
+  ---
+  duration_ms: 268.021919
+  type: 'test'
+  ...
+# Subtest: HTTP 08 · senha incorreta é recusada sem indicar se a conta existe
+ok 8 - HTTP 08 · senha incorreta é recusada sem indicar se a conta existe
+  ---
+  duration_ms: 305.74251
+  type: 'test'
+  ...
+# Subtest: HTTP 09 · limite de tentativas de login é aplicado
+ok 9 - HTTP 09 · limite de tentativas de login é aplicado
+  ---
+  duration_ms: 668.225862
+  type: 'test'
+  ...
+# Subtest: HTTP 10 · Host arbitrário é recusado contra DNS rebinding
+ok 10 - HTTP 10 · Host arbitrário é recusado contra DNS rebinding
+  ---
+  duration_ms: 229.814392
+  type: 'test'
+  ...
+# Subtest: HTTP 11 · arquivo de senhas, esquema e banco não são servidos
+ok 11 - HTTP 11 · arquivo de senhas, esquema e banco não são servidos
+  ---
+  duration_ms: 242.114002
+  type: 'test'
+  ...
+# Subtest: HTTP 12 · sessão expirada exige novo login
+ok 12 - HTTP 12 · sessão expirada exige novo login
+  ---
+  duration_ms: 274.445211
+  type: 'test'
+  ...
+# Subtest: HTTP 13 · corpo grande e tipo de conteúdo incorreto são rejeitados
+ok 13 - HTTP 13 · corpo grande e tipo de conteúdo incorreto são rejeitados
+  ---
+  duration_ms: 224.894551
+  type: 'test'
+  ...
+# (node:1369) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 01 · cenário R$100 / R$50 / R$5 / R$45 / troco R$5 / saldo R$145
+ok 14 - 01 · cenário R$100 / R$50 / R$5 / R$45 / troco R$5 / saldo R$145
+  ---
+  duration_ms: 354.915317
+  type: 'test'
+  ...
+# Subtest: 02 · repetir a venda devolve o mesmo resultado sem novos efeitos
+ok 15 - 02 · repetir a venda devolve o mesmo resultado sem novos efeitos
+  ---
+  duration_ms: 165.930852
+  type: 'test'
+  ...
+# Subtest: 03 · mesma chave com valores diferentes é recusada
+ok 16 - 03 · mesma chave com valores diferentes é recusada
+  ---
+  duration_ms: 165.84012
+  type: 'test'
+  ...
+# Subtest: 04 · resposta perdida pode ser recuperada por chave
+ok 17 - 04 · resposta perdida pode ser recuperada por chave
+  ---
+  duration_ms: 153.609738
+  type: 'test'
+  ...
+# Subtest: 05 · falha antes de COMMIT desfaz venda, pagamento, estoque, caixa, auditoria e chave
+ok 18 - 05 · falha antes de COMMIT desfaz venda, pagamento, estoque, caixa, auditoria e chave
+  ---
+  duration_ms: 158.352874
+  type: 'test'
+  ...
+# Subtest: 06 · estoque insuficiente não gera registros parciais
+ok 19 - 06 · estoque insuficiente não gera registros parciais
+  ---
+  duration_ms: 150.927266
+  type: 'test'
+  ...
+# Subtest: 07 · venda em caixa fechado é recusada
+ok 20 - 07 · venda em caixa fechado é recusada
+  ---
+  duration_ms: 151.398427
+  type: 'test'
+  ...
+# Subtest: 08 · operador sem permissão não concede desconto
+ok 21 - 08 · operador sem permissão não concede desconto
+  ---
+  duration_ms: 155.541317
+  type: 'test'
+  ...
+# Subtest: 09 · operador vende sem desconto em seu próprio caixa
+ok 22 - 09 · operador vende sem desconto em seu próprio caixa
+  ---
+  duration_ms: 172.107689
+  type: 'test'
+  ...
+# Subtest: 10 · gerente precisa justificar desconto e respeitar limite
+ok 23 - 10 · gerente precisa justificar desconto e respeitar limite
+  ---
+  duration_ms: 154.197319
+  type: 'test'
+  ...
+# Subtest: 11 · acesso direto de operador à loja B é bloqueado
+ok 24 - 11 · acesso direto de operador à loja B é bloqueado
+  ---
+  duration_ms: 163.210791
+  type: 'test'
+  ...
+# Subtest: 12 · contratante A não acessa loja de B
+ok 25 - 12 · contratante A não acessa loja de B
+  ---
+  duration_ms: 150.128073
+  type: 'test'
+  ...
+# Subtest: 13 · ID de produto de outro contratante não é aceito na venda
+ok 26 - 13 · ID de produto de outro contratante não é aceito na venda
+  ---
+  duration_ms: 152.127431
+  type: 'test'
+  ...
+# Subtest: 14 · caixa de outra loja não pode receber a venda
+ok 27 - 14 · caixa de outra loja não pode receber a venda
+  ---
+  duration_ms: 152.623561
+  type: 'test'
+  ...
+# Subtest: 15 · preço, total e tenant enviados pelo navegador são rejeitados
+ok 28 - 15 · preço, total e tenant enviados pelo navegador são rejeitados
+  ---
+  duration_ms: 157.503203
+  type: 'test'
+  ...
+# Subtest: 16 · valores fracionários, negativos, NaN e quantidades repetidas são recusados
+ok 29 - 16 · valores fracionários, negativos, NaN e quantidades repetidas são recusados
+  ---
+  duration_ms: 169.487712
+  type: 'test'
+  ...
+# Subtest: 17 · dinheiro insuficiente é recusado sem baixa
+ok 30 - 17 · dinheiro insuficiente é recusado sem baixa
+  ---
+  duration_ms: 168.704016
+  type: 'test'
+  ...
+# Subtest: 18 · reabertura simultânea do mesmo terminal não cria dois caixas
+ok 31 - 18 · reabertura simultânea do mesmo terminal não cria dois caixas
+  ---
+  duration_ms: 152.395813
+  type: 'test'
+  ...
+# Subtest: 19 · abertura e fechamento também são idempotentes
+ok 32 - 19 · abertura e fechamento também são idempotentes
+  ---
+  duration_ms: 169.48781
+  type: 'test'
+  ...
+# Subtest: 20 · outro operador não vende nem fecha o caixa do gerente
+ok 33 - 20 · outro operador não vende nem fecha o caixa do gerente
+  ---
+  duration_ms: 158.134494
+  type: 'test'
+  ...
+# Subtest: 21 · fechamento com diferença exige motivo e registra divergência
+ok 34 - 21 · fechamento com diferença exige motivo e registra divergência
+  ---
+  duration_ms: 156.865136
+  type: 'test'
+  ...
+# Subtest: 22 · cadastro mantém movimento inicial e impede código duplicado
+ok 35 - 22 · cadastro mantém movimento inicial e impede código duplicado
+  ---
+  duration_ms: 154.878773
+  type: 'test'
+  ...
+# Subtest: 23 · alteração posterior de cadastro não muda snapshot de venda
+ok 36 - 23 · alteração posterior de cadastro não muda snapshot de venda
+  ---
+  duration_ms: 154.638448
+  type: 'test'
+  ...
+# Subtest: 24 · registros confirmados não podem ser apagados ou alterados
+ok 37 - 24 · registros confirmados não podem ser apagados ou alterados
+  ---
+  duration_ms: 155.01201
+  type: 'test'
+  ...
+# Subtest: 25 · chaves estrangeiras compostas bloqueiam mistura de empresas
+ok 38 - 25 · chaves estrangeiras compostas bloqueiam mistura de empresas
+  ---
+  duration_ms: 152.380961
+  type: 'test'
+  ...
+# Subtest: 26 · reinício preserva venda e seed não repõe saldo
+ok 39 - 26 · reinício preserva venda e seed não repõe saldo
+  ---
+  duration_ms: 159.619363
+  type: 'test'
+  ...
+# Subtest: 27 · conversão monetária decimal exata e limites
+ok 40 - 27 · conversão monetária decimal exata e limites
+  ---
+  duration_ms: 0.705091
+  type: 'test'
+  ...
+# Subtest: 28 · mesma chave não expõe resposta para outro operador
+ok 41 - 28 · mesma chave não expõe resposta para outro operador
+  ---
+  duration_ms: 151.749425
+  type: 'test'
+  ...
+# Subtest: 29 · desativar usuário bloqueia acesso mesmo com contexto previamente obtido
+ok 42 - 29 · desativar usuário bloqueia acesso mesmo com contexto previamente obtido
+  ---
+  duration_ms: 163.821428
+  type: 'test'
+  ...
+# (node:1369) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# (node:1369) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 30 · duas conexões reais disputam a última unidade: apenas uma confirma
+ok 43 - 30 · duas conexões reais disputam a última unidade: apenas uma confirma
+  ---
+  duration_ms: 338.296475
+  type: 'test'
+  ...
+# Subtest: 31 · transação não aceita função assíncrona
+ok 44 - 31 · transação não aceita função assíncrona
+  ---
+  duration_ms: 149.088343
+  type: 'test'
+  ...
+1..44
+# tests 44
+# suites 0
+# pass 44
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 9962.485765
