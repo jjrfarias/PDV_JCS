@@ -228,6 +228,37 @@ export class PostgresPos {
     });
   }
 
+  async adjustStock(ctx, key, raw) {
+    object(raw, ['storeId', 'productId', 'quantity', 'reason']);
+    const input = {
+      storeId: id(raw.storeId), productId: id(raw.productId),
+      quantity: integer(raw.quantity, 'Quantidade', -1_000_000, 1_000_000),
+      reason: text(raw.reason, 'Motivo', 200, 3)
+    };
+    requireThat(input.quantity !== 0, 400, 'INVALID_INPUT', 'Quantidade deve ser diferente de zero.');
+    return this.#mutate(ctx, 'STOCK_ADJUST', key, input, async (tx, user) => {
+      requireThat(user.role === 'MANAGER', 403, 'MANAGER_REQUIRED', 'Somente gerente ajusta estoque.');
+      const product = await tx.one(`SELECT p.name,s.quantity FROM products p
+        JOIN stock s ON s.tenant_id=p.tenant_id AND s.product_id=p.id
+        WHERE p.tenant_id=$1 AND s.store_id=$2 AND p.id=$3 AND p.active=1 FOR UPDATE`,
+      ctx.tenantId, input.storeId, input.productId);
+      requireThat(product, 404, 'PRODUCT_NOT_FOUND', 'Produto não disponível nesta loja.');
+      const changed = await tx.run(`UPDATE stock SET quantity=quantity+$1
+        WHERE tenant_id=$2 AND store_id=$3 AND product_id=$4 AND quantity+$1 BETWEEN 0 AND 1000000`,
+      input.quantity, ctx.tenantId, input.storeId, input.productId);
+      requireThat(changed.changes === 1, 409, 'STOCK_LIMIT', 'Ajuste deixaria o estoque fora do limite permitido.');
+      await tx.run(`INSERT INTO stock_movements
+        (tenant_id,id,store_id,product_id,sale_id,quantity,kind,reason,actor_id,created_at)
+        VALUES($1,$2,$3,$4,NULL,$5,'ADJUSTMENT',$6,$7,$8)`,
+      ctx.tenantId, randomUUID(), input.storeId, input.productId, input.quantity, input.reason, ctx.userId, now());
+      await tx.audit(ctx, input.storeId, 'STOCK_ADJUSTED', input.productId,
+        { quantity: input.quantity, reason: input.reason });
+      const updated = await tx.one('SELECT quantity FROM stock WHERE tenant_id=$1 AND store_id=$2 AND product_id=$3',
+        ctx.tenantId, input.storeId, input.productId);
+      return { productId: input.productId, name: product.name, quantity: updated.quantity, adjustment: input.quantity, reason: input.reason };
+    });
+  }
+
   async openCash(ctx, key, raw) {
     object(raw, ['storeId', 'terminalId', 'openingCents']);
     const input = { storeId: id(raw.storeId), terminalId: id(raw.terminalId), openingCents: integer(raw.openingCents, 'Fundo inicial') };

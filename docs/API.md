@@ -88,6 +88,16 @@ Uma diferença exige motivo com pelo menos três caracteres. O operador de abert
 
 Somente gerente. SKU e código de barras não podem se repetir dentro do contratante. `barcode` pode ser null. Estoque inicial zero é permitido; nesse caso não há movimento de quantidade zero.
 
+## Ajustar estoque
+
+`POST /api/stock/adjust`
+
+```json
+{"storeId":"store-a","productId":"product-25","quantity":-2,"reason":"Avaria na conferência"}
+```
+
+Somente gerente. `quantity` pode ser positivo ou negativo, mas não zero. O ajuste não pode deixar o saldo abaixo de zero nem acima do limite operacional. O motivo é obrigatório.
+
 ## Consultas
 
 | Rota | Retorno |

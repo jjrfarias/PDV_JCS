@@ -9,13 +9,13 @@ export function connect(filename) {
   const db = new DatabaseSync(filename);
   db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 3) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
+  if (version > 4) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
   if (version === 0) {
     transaction(db, () => {
       if (db.prepare('PRAGMA user_version').get().user_version !== 0) return;
       db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
       createImmutableTriggers(db);
-      db.exec('PRAGMA user_version=3;');
+      db.exec('PRAGMA user_version=4;');
     });
   }
   if (version === 1) {
@@ -67,6 +67,31 @@ export function connect(filename) {
         CREATE UNIQUE INDEX one_opening ON cash_movements(tenant_id,cash_session_id) WHERE kind='OPENING';`);
       createImmutableTriggers(db, ['cash_movements']);
       db.exec('PRAGMA user_version=3;');
+    });
+  }
+  if (version <= 3) {
+    transaction(db, () => {
+      if (db.prepare('PRAGMA user_version').get().user_version !== 3) return;
+      db.exec(`DROP TRIGGER IF EXISTS stock_movements_no_update;
+        DROP TRIGGER IF EXISTS stock_movements_no_delete;
+        ALTER TABLE stock_movements RENAME TO stock_movements_old;
+        CREATE TABLE stock_movements (
+          tenant_id TEXT NOT NULL, id TEXT NOT NULL, store_id TEXT NOT NULL, product_id TEXT NOT NULL,
+          sale_id TEXT, quantity INTEGER NOT NULL CHECK(quantity<>0),
+          kind TEXT NOT NULL CHECK(kind IN('INITIAL','SALE','ADJUSTMENT')), reason TEXT NOT NULL,
+          actor_id TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(tenant_id,id),
+          UNIQUE(tenant_id,sale_id,product_id),
+          CHECK((kind='SALE' AND quantity<0 AND sale_id IS NOT NULL)
+             OR (kind='INITIAL' AND quantity>0 AND sale_id IS NULL)
+             OR (kind='ADJUSTMENT' AND sale_id IS NULL)),
+          FOREIGN KEY(tenant_id,store_id,product_id) REFERENCES stock(tenant_id,store_id,product_id),
+          FOREIGN KEY(tenant_id,store_id,sale_id) REFERENCES sales(tenant_id,store_id,id),
+          FOREIGN KEY(tenant_id,actor_id) REFERENCES users(tenant_id,id)
+        ) STRICT;
+        INSERT INTO stock_movements SELECT * FROM stock_movements_old;
+        DROP TABLE stock_movements_old;`);
+      createImmutableTriggers(db, ['stock_movements']);
+      db.exec('PRAGMA user_version=4;');
     });
   }
   return db;

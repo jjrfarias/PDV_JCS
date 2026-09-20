@@ -144,6 +144,15 @@ test('22 · cadastro mantém movimento inicial e impede código duplicado',t=>{
   assert.equal(state.stockMovements.find(m=>m.product_id===product.id).quantity,5);
   fails(()=>pos.createProduct(DEMO.manager,key(),input),'DUPLICATE_PRODUCT');
 });
+test('22b - gerente ajusta estoque com motivo sem permitir saldo negativo',t=>{
+  const {pos,db}=fixture(t);
+  fails(()=>pos.adjustStock(DEMO.cashier,key(),{storeId:DEMO.storeA,productId:DEMO.product,quantity:1,reason:'entrada'}),'MANAGER_REQUIRED');
+  fails(()=>pos.adjustStock(DEMO.manager,key(),{storeId:DEMO.storeA,productId:DEMO.product,quantity:1,reason:'ok'}),'INVALID_INPUT');
+  assert.equal(pos.adjustStock(DEMO.manager,key(),{storeId:DEMO.storeA,productId:DEMO.product,quantity:5,reason:'contagem física'}).data.quantity,15);
+  assert.equal(pos.adjustStock(DEMO.manager,key(),{storeId:DEMO.storeA,productId:DEMO.product,quantity:-3,reason:'avaria'}).data.quantity,12);
+  fails(()=>pos.adjustStock(DEMO.manager,key(),{storeId:DEMO.storeA,productId:DEMO.product,quantity:-13,reason:'erro de contagem'}),'STOCK_LIMIT');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM stock_movements WHERE kind='ADJUSTMENT'").get().n,2);
+});
 test('23 · alteração posterior de cadastro não muda snapshot de venda',t=>{
   const {pos,db}=fixture(t);const cash=open(pos),sale=pos.sell(DEMO.manager,key(),saleInput(cash)).data;
   db.prepare('UPDATE products SET price_cents=9999,name=? WHERE tenant_id=? AND id=?').run('Nome alterado em teste',DEMO.manager.tenantId,DEMO.product);

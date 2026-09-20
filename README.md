@@ -57,7 +57,7 @@ O operador `operador@jcs.local` tem acesso apenas à Loja A e não pode conceder
 - Login individual, sessão com expiração, autorização por loja, perfil de gerente/operador e proteção de origem/CSRF nas gravações.
 - Troca da própria senha com confirmação da senha atual e encerramento das demais sessões do mesmo usuário.
 - Cadastro de usuários por gerente, com vínculo à loja selecionada e senha temporária definida no cadastro.
-- Produtos por unidade, código interno, código de barras opcional, preço e saldo inicial com movimento identificado.
+- Produtos por unidade, código interno, código de barras opcional, preço, saldo inicial e ajuste manual de estoque com motivo.
 - Seleção entre lojas e terminais fictícios. Estoque separado por loja, sem transferência ou sincronização de máquinas.
 - Abertura, sangria, suprimento e fechamento de caixa pelo próprio operador, com fundo inicial, valor contado, diferença e justificativa.
 - Venda com preço consultado no servidor, desconto autorizado até 20% e motivo. Dinheiro calcula valor entregue e troco; PIX/cartão são registrados manualmente após confirmação externa.
@@ -124,7 +124,7 @@ npm.cmd test
 
 Os testes usam memória ou diretórios temporários criados especificamente para a suíte. Não apontam para `data/pdv.sqlite` e não removem seu banco de demonstração.
 
-Foram executados 49 testes de domínio e HTTP, sem falhas, no ambiente de preparação. A navegação automatizada da interface não pode ser concluída porque o Chromium disponível bloqueou a abertura dos endereços de teste por política administrativa. Isso não é teste visual aprovado. Execute o roteiro manual acima no seu computador antes de demonstrar a interface.
+Foram executados 50 testes de domínio e HTTP, sem falhas, no ambiente de preparação. A navegação automatizada da interface não pode ser concluída porque o Chromium disponível bloqueou a abertura dos endereços de teste por política administrativa. Isso não é teste visual aprovado. Execute o roteiro manual acima no seu computador antes de demonstrar a interface.
 
 ## Persistência e manutenção local
 

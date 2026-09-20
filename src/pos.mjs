@@ -96,6 +96,25 @@ export class Pos {
       return {id:userId,email:input.email,name:input.name,role:input.role,active:1,storeId:input.storeId};
     });
   }
+  adjustStock(ctx,key,raw) {
+    object(raw,['storeId','productId','quantity','reason']);
+    const input={storeId:id(raw.storeId),productId:id(raw.productId),quantity:integer(raw.quantity,'Quantidade',-1_000_000,1_000_000),
+      reason:text(raw.reason,'Motivo',200,3)};
+    requireThat(input.quantity!==0,400,'INVALID_INPUT','Quantidade deve ser diferente de zero.');
+    return this.mutate(ctx,'STOCK_ADJUST',key,input,user => {
+      requireThat(user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente ajusta estoque.');
+      const product=this.one(`SELECT p.name,s.quantity FROM products p JOIN stock s ON s.tenant_id=p.tenant_id AND s.product_id=p.id
+        WHERE p.tenant_id=? AND s.store_id=? AND p.id=? AND p.active=1`,ctx.tenantId,input.storeId,input.productId);
+      requireThat(product,404,'PRODUCT_NOT_FOUND','Produto não disponível nesta loja.');
+      const changed=this.run(`UPDATE stock SET quantity=quantity+? WHERE tenant_id=? AND store_id=? AND product_id=? AND quantity+? BETWEEN 0 AND 1000000`,
+        input.quantity,ctx.tenantId,input.storeId,input.productId,input.quantity);
+      requireThat(changed.changes===1,409,'STOCK_LIMIT','Ajuste deixaria o estoque fora do limite permitido.');
+      this.run('INSERT INTO stock_movements VALUES(?,?,?,?,?,?,?,?,?,?)',ctx.tenantId,randomUUID(),input.storeId,input.productId,null,input.quantity,'ADJUSTMENT',input.reason,ctx.userId,now());
+      this.audit(ctx,input.storeId,'STOCK_ADJUSTED',input.productId,{quantity:input.quantity,reason:input.reason});
+      const updated=this.one('SELECT quantity FROM stock WHERE tenant_id=? AND store_id=? AND product_id=?',ctx.tenantId,input.storeId,input.productId);
+      return {productId:input.productId,name:product.name,quantity:updated.quantity,adjustment:input.quantity,reason:input.reason};
+    });
+  }
   openCash(ctx,key,raw) {
     object(raw,['storeId','terminalId','openingCents']);
     const input={storeId:id(raw.storeId),terminalId:id(raw.terminalId),openingCents:integer(raw.openingCents,'Fundo inicial')};

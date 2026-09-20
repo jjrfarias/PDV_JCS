@@ -93,10 +93,12 @@ CREATE TABLE payments (
 CREATE TABLE stock_movements (
   tenant_id TEXT NOT NULL, id TEXT NOT NULL, store_id TEXT NOT NULL, product_id TEXT NOT NULL,
   sale_id TEXT, quantity INTEGER NOT NULL CHECK(quantity<>0),
-  kind TEXT NOT NULL CHECK(kind IN('INITIAL','SALE')), reason TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN('INITIAL','SALE','ADJUSTMENT')), reason TEXT NOT NULL,
   actor_id TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(tenant_id,id),
   UNIQUE(tenant_id,sale_id,product_id),
-  CHECK((kind='SALE' AND quantity<0 AND sale_id IS NOT NULL) OR (kind='INITIAL' AND quantity>0 AND sale_id IS NULL)),
+  CHECK((kind='SALE' AND quantity<0 AND sale_id IS NOT NULL)
+     OR (kind='INITIAL' AND quantity>0 AND sale_id IS NULL)
+     OR (kind='ADJUSTMENT' AND sale_id IS NULL)),
   FOREIGN KEY(tenant_id,store_id,product_id) REFERENCES stock(tenant_id,store_id,product_id),
   FOREIGN KEY(tenant_id,store_id,sale_id) REFERENCES sales(tenant_id,store_id,id),
   FOREIGN KEY(tenant_id,actor_id) REFERENCES users(tenant_id,id)

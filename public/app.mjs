@@ -40,6 +40,7 @@ function lock(){
   document.querySelectorAll('[data-payment-method]').forEach(el=>{el.disabled=locked;});
   $('new-product').hidden=!manager();
   $('new-user').hidden=!manager();
+  $('adjust-stock').hidden=!manager();
   $('password-open').disabled=locked;
   $('logout').disabled=locked;
 }
@@ -165,7 +166,7 @@ function renderManagement(){
   if(state.tab==='history'){const rows=d.sales.filter(s=>includes([date(s.created_at),s.id,s.operator_name,s.terminal_name,brl(s.discount_cents),brl(s.total_cents)],query));renderSummary([['Vendas',rows.length],['Total vendido',brl(rows.reduce((n,s)=>n+s.total_cents,0))],['Descontos',brl(rows.reduce((n,s)=>n+s.discount_cents,0))]]);content=table(['Data','Venda','Operador','Terminal','Desconto','Total','Comprovante'],rows.map(s=>{
     const b=element('button','Abrir');b.type='button';b.addEventListener('click',()=>run(async()=>showReceipt(await api(`/api/sales/${s.id}`))));
     return [date(s.created_at),s.id.slice(0,8),s.operator_name,s.terminal_name,brl(s.discount_cents),brl(s.total_cents),b];}));}
-  if(state.tab==='stock'){const rows=d.stockMovements.filter(m=>includes([date(m.created_at),m.name,m.kind,m.kind==='SALE'?'Venda':'Entrada inicial',m.quantity,m.reason],query));renderSummary([['Movimentos',rows.length],['Entradas',rows.filter(m=>m.quantity>0).reduce((n,m)=>n+m.quantity,0)],['Saídas',Math.abs(rows.filter(m=>m.quantity<0).reduce((n,m)=>n+m.quantity,0))]]);content=table(['Data','Produto','Movimento','Quantidade','Motivo'],rows.map(m=>[date(m.created_at),m.name,m.kind==='SALE'?'Venda':'Entrada inicial',m.quantity,m.reason]));}
+  if(state.tab==='stock'){const movementName=m=>({SALE:'Venda',INITIAL:'Entrada inicial',ADJUSTMENT:'Ajuste'}[m.kind]??m.kind);const rows=d.stockMovements.filter(m=>includes([date(m.created_at),m.name,m.kind,movementName(m),m.quantity,m.reason],query));renderSummary([['Movimentos',rows.length],['Entradas',rows.filter(m=>m.quantity>0).reduce((n,m)=>n+m.quantity,0)],['Saídas',Math.abs(rows.filter(m=>m.quantity<0).reduce((n,m)=>n+m.quantity,0))]]);content=table(['Data','Produto','Movimento','Quantidade','Motivo'],rows.map(m=>[date(m.created_at),m.name,movementName(m),m.quantity,m.reason]));}
   if(state.tab==='closures'){const rows=d.cashHistory.filter(c=>{const terminal=d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id;return includes([date(c.closed_at),terminal,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)],query);});renderSummary([['Fechamentos',rows.length],['Esperado',brl(rows.reduce((n,c)=>n+c.expected_cents,0))],['Diferença',brl(rows.reduce((n,c)=>n+c.difference_cents,0))]]);content=table(['Data','Terminal','Esperado','Contado','Diferença'],rows.map(c=>[date(c.closed_at),d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)]));}
   $('management-content').replaceChildren(content);
 }
@@ -199,6 +200,7 @@ async function submitPending(){
     document.querySelectorAll('dialog[open]').forEach(d=>d.close());
     if(pending.path==='/api/sales'){state.cart=[];$('discount').value='0';$('discount-reason').value='';$('tendered').value='';showReceipt(result.data);}
     if(pending.path==='/api/products')$('product-form').reset();
+    if(pending.path==='/api/stock/adjust')$('stock-form').reset();
     if(pending.path==='/api/users')$('user-form').reset();
     updateMoneyPreviews();
     message(result.replayed?'Operação recuperada. Nenhum registro foi duplicado.':'Operação confirmada.');
@@ -266,6 +268,8 @@ $('close-cash').addEventListener('click',()=>{$('close-description').textContent
 $('close-form').addEventListener('submit',event=>{event.preventDefault();run(()=>command('/api/cash/close',{storeId:storeId(),cashSessionId:currentCash().id,countedCents:cents(event.target.counted.value),reason:event.target.reason.value||null}));});
 $('new-product').addEventListener('click',()=>$('product-dialog').showModal());
 $('product-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/products',{storeId:storeId(),sku:f.sku,barcode:f.barcode||null,name:f.name,priceCents:cents(f.price),initialQuantity:Number(f.quantity)});});});
+$('adjust-stock').addEventListener('click',()=>{const select=$('stock-form').productId;select.replaceChildren(...state.data.products.map(product=>{const option=element('option',`${product.sku} · ${product.name} · saldo ${product.quantity}`);option.value=product.id;return option;}));$('stock-form').reset();$('stock-dialog').showModal();});
+$('stock-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/stock/adjust',{storeId:storeId(),productId:f.productId,quantity:Number(f.quantity),reason:f.reason});});});
 $('new-user').addEventListener('click',()=>$('user-dialog').showModal());
 $('user-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/users',{storeId:storeId(),email:f.email,name:f.name,role:f.role,temporaryPassword:f.temporaryPassword});});});
 $('recover').addEventListener('click',()=>run(submitPending));
