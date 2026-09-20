@@ -12,7 +12,7 @@ const PAYMENT_METHODS = new Set(['CASH', 'PIX', 'CARD']);
 function cashInteger(value) {
   // PostgreSQL SUM(integer) is bigint and pg returns it as text by default.
   const result = Number(value);
-  requireThat(Number.isSafeInteger(result) && result >= 0, 500, 'INVALID_CASH_BALANCE', 'Saldo do caixa invÃ¡lido.');
+  requireThat(Number.isSafeInteger(result) && result >= 0, 500, 'INVALID_CASH_BALANCE', 'Saldo do caixa inválido.');
   return result;
 }
 
@@ -31,7 +31,7 @@ class TransactionPos {
   async user(ctx) {
     const user = await this.one(`SELECT id,name,email,role FROM users
       WHERE tenant_id=$1 AND id=$2 AND active=1${this.readOnly ? '' : ' FOR SHARE'}`, ctx.tenantId, ctx.userId);
-    requireThat(user, 401, 'AUTH_REQUIRED', 'FaÃ§a login novamente.');
+    requireThat(user, 401, 'AUTH_REQUIRED', 'Faça login novamente.');
     return user;
   }
 
@@ -40,7 +40,7 @@ class TransactionPos {
     const membership = await this.one(`SELECT 1 FROM memberships
       WHERE tenant_id=$1 AND user_id=$2 AND store_id=$3${this.readOnly ? '' : ' FOR SHARE'}`,
     ctx.tenantId, ctx.userId, storeId);
-    requireThat(membership, 403, 'STORE_FORBIDDEN', 'VocÃª nÃ£o tem acesso a esta loja.');
+    requireThat(membership, 403, 'STORE_FORBIDDEN', 'Você não tem acesso a esta loja.');
     return user;
   }
 
@@ -64,7 +64,7 @@ class TransactionPos {
     operationKey(key);
     const op = await this.one('SELECT * FROM operations WHERE tenant_id=$1 AND key=$2 AND user_id=$3',
       ctx.tenantId, key, ctx.userId);
-    requireThat(op, 404, 'NOT_FOUND', 'OperaÃ§Ã£o nÃ£o encontrada para este usuÃ¡rio.');
+    requireThat(op, 404, 'NOT_FOUND', 'Operação não encontrada para este usuário.');
     await this.authorize(ctx, op.store_id);
     return { data: JSON.parse(op.response_json), replayed: true, kind: op.kind };
   }
@@ -72,7 +72,7 @@ class TransactionPos {
   async cash(ctx, cashId, { lock = false } = {}) {
     const cash = await this.one(`SELECT * FROM cash_sessions
       WHERE tenant_id=$1 AND id=$2${lock ? ' FOR UPDATE' : ''}`, ctx.tenantId, id(cashId));
-    requireThat(cash, 404, 'CASH_NOT_FOUND', 'Caixa nÃ£o encontrado.');
+    requireThat(cash, 404, 'CASH_NOT_FOUND', 'Caixa não encontrado.');
     await this.authorize(ctx, cash.store_id);
     const sums = await this.one(`SELECT COALESCE(SUM(amount_cents),0) expected,
       COALESCE(SUM(CASE WHEN kind='SALE' THEN amount_cents ELSE 0 END),0) sales
@@ -82,7 +82,7 @@ class TransactionPos {
 
   async receipt(ctx, saleId) {
     const sale = await this.one('SELECT * FROM sales WHERE tenant_id=$1 AND id=$2', ctx.tenantId, id(saleId));
-    requireThat(sale, 404, 'SALE_NOT_FOUND', 'Venda nÃ£o encontrada.');
+    requireThat(sale, 404, 'SALE_NOT_FOUND', 'Venda não encontrada.');
     await this.authorize(ctx, sale.store_id);
     const store = await this.one('SELECT name FROM stores WHERE tenant_id=$1 AND id=$2', ctx.tenantId, sale.store_id);
     const operator = await this.one('SELECT name FROM users WHERE tenant_id=$1 AND id=$2', ctx.tenantId, sale.operator_id);
@@ -132,7 +132,7 @@ export class PostgresPos {
 
   async #transaction(ctx, readOnly, work) {
     requireThat(ctx && typeof ctx.tenantId === 'string' && typeof ctx.userId === 'string',
-      401, 'AUTH_REQUIRED', 'FaÃ§a login novamente.');
+      401, 'AUTH_REQUIRED', 'Faça login novamente.');
     return withPostgresTransaction(this.pool,
       client => work(new TransactionPos(client, { readOnly })),
       { tenantId: ctx.tenantId, userId: ctx.userId, readOnly });
@@ -156,7 +156,7 @@ export class PostgresPos {
       if (previous) {
         requireThat(previous.user_id === ctx.userId && previous.store_id === input.storeId &&
           previous.kind === kind && previous.payload_hash === payloadHash,
-        409, 'IDEMPOTENCY_CONFLICT', 'Esta chave jÃ¡ foi usada em outra operaÃ§Ã£o ou com outros dados.');
+        409, 'IDEMPOTENCY_CONFLICT', 'Esta chave já foi usada em outra operação ou com outros dados.');
         return { data: JSON.parse(previous.response_json), replayed: true };
       }
       const data = await work(tx, user);
@@ -171,9 +171,9 @@ export class PostgresPos {
   async createProduct(ctx, key, raw) {
     object(raw, ['storeId', 'sku', 'barcode', 'name', 'priceCents', 'initialQuantity']);
     const input = {
-      storeId: id(raw.storeId), sku: text(raw.sku, 'CÃ³digo', 40).toUpperCase(),
-      barcode: raw.barcode ? text(raw.barcode, 'CÃ³digo de barras', 48) : null,
-      name: text(raw.name, 'Nome'), priceCents: integer(raw.priceCents, 'PreÃ§o', 1),
+      storeId: id(raw.storeId), sku: text(raw.sku, 'Código', 40).toUpperCase(),
+      barcode: raw.barcode ? text(raw.barcode, 'Código de barras', 48) : null,
+      name: text(raw.name, 'Nome'), priceCents: integer(raw.priceCents, 'Preço', 1),
       initialQuantity: integer(raw.initialQuantity, 'Estoque', 0, 1_000_000)
     };
     return this.#mutate(ctx, 'PRODUCT_CREATE', key, input, async (tx, user) => {
@@ -182,7 +182,7 @@ export class PostgresPos {
       const inserted = await tx.run(`INSERT INTO products(tenant_id,id,sku,barcode,name,price_cents)
         VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,
       ctx.tenantId, productId, input.sku, input.barcode, input.name, input.priceCents);
-      requireThat(inserted.changes === 1, 409, 'DUPLICATE_PRODUCT', 'CÃ³digo interno ou cÃ³digo de barras jÃ¡ cadastrado.');
+      requireThat(inserted.changes === 1, 409, 'DUPLICATE_PRODUCT', 'Código interno ou código de barras já cadastrado.');
       await tx.run('INSERT INTO stock(tenant_id,store_id,product_id,quantity) VALUES($1,$2,$3,$4)',
         ctx.tenantId, input.storeId, productId, input.initialQuantity);
       if (input.initialQuantity > 0) {
@@ -204,19 +204,19 @@ export class PostgresPos {
       email: text(raw.email, 'E-mail', 120).toLowerCase(),
       name: text(raw.name, 'Nome', 120),
       role: text(raw.role, 'Perfil', 20),
-      temporaryPassword: text(raw.temporaryPassword, 'Senha temporÃ¡ria', 200, 12)
+      temporaryPassword: text(raw.temporaryPassword, 'Senha temporária', 200, 12)
     };
-    requireThat(['MANAGER', 'CASHIER'].includes(input.role), 400, 'INVALID_ROLE', 'Perfil invÃ¡lido.');
-    requireThat(/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(input.email), 400, 'INVALID_EMAIL', 'E-mail invÃ¡lido.');
+    requireThat(['MANAGER', 'CASHIER'].includes(input.role), 400, 'INVALID_ROLE', 'Perfil inválido.');
+    requireThat(/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(input.email), 400, 'INVALID_EMAIL', 'E-mail inválido.');
     requireThat(/[A-Z]/.test(input.temporaryPassword) && /[a-z]/.test(input.temporaryPassword) && /\d/.test(input.temporaryPassword),
-      400, 'WEAK_PASSWORD', 'A senha temporÃ¡ria deve ter 12 caracteres, com letras maiÃºsculas, minÃºsculas e nÃºmero.');
+      400, 'WEAK_PASSWORD', 'A senha temporária deve ter 12 caracteres, com letras maiúsculas, minúsculas e número.');
     return this.#mutate(ctx, 'USER_CREATE', key, input, async (tx, user) => {
-      requireThat(user.role === 'MANAGER', 403, 'MANAGER_REQUIRED', 'Somente gerente cadastra usuÃ¡rios.');
+      requireThat(user.role === 'MANAGER', 403, 'MANAGER_REQUIRED', 'Somente gerente cadastra usuários.');
       const userId = randomUUID();
       const inserted = await tx.run(`INSERT INTO users(tenant_id,id,email,name,password_hash,role,active)
         VALUES($1,$2,$3,$4,$5,$6,1) ON CONFLICT DO NOTHING`,
       ctx.tenantId, userId, input.email, input.name, hashPassword(input.temporaryPassword), input.role);
-      requireThat(inserted.changes === 1, 409, 'DUPLICATE_USER', 'E-mail jÃ¡ cadastrado.');
+      requireThat(inserted.changes === 1, 409, 'DUPLICATE_USER', 'E-mail já cadastrado.');
       await tx.run('INSERT INTO memberships(tenant_id,user_id,store_id) VALUES($1,$2,$3)',
         ctx.tenantId, userId, input.storeId);
       await tx.audit(ctx, input.storeId, 'USER_CREATED', userId, { email: input.email, role: input.role });
@@ -230,10 +230,10 @@ export class PostgresPos {
     return this.#mutate(ctx, 'CASH_OPEN', key, input, async tx => {
       const terminal = await tx.one(`SELECT 1 FROM terminals
         WHERE tenant_id=$1 AND store_id=$2 AND id=$3 FOR UPDATE`, ctx.tenantId, input.storeId, input.terminalId);
-      requireThat(terminal, 404, 'TERMINAL_NOT_FOUND', 'Terminal nÃ£o encontrado nesta loja.');
+      requireThat(terminal, 404, 'TERMINAL_NOT_FOUND', 'Terminal não encontrado nesta loja.');
       const open = await tx.one(`SELECT 1 FROM cash_sessions
         WHERE tenant_id=$1 AND terminal_id=$2 AND status='OPEN'`, ctx.tenantId, input.terminalId);
-      requireThat(!open, 409, 'CASH_ALREADY_OPEN', 'Este terminal jÃ¡ tem um caixa aberto.');
+      requireThat(!open, 409, 'CASH_ALREADY_OPEN', 'Este terminal já tem um caixa aberto.');
       const cashId = randomUUID();
       await tx.run(`INSERT INTO cash_sessions(tenant_id,id,store_id,terminal_id,operator_id,status,opening_cents,opened_at)
         VALUES($1,$2,$3,$4,$5,'OPEN',$6,$7)`,
@@ -257,9 +257,9 @@ export class PostgresPos {
       const cash = await tx.cash(ctx, input.cashSessionId, { lock: true });
       requireThat(cash.store_id === input.storeId, 409, 'CASH_STORE_MISMATCH', 'Caixa de outra loja.');
       requireThat(cash.operator_id === ctx.userId, 403, 'CASH_OWNER_REQUIRED', 'O fechamento deve ser feito pelo operador que abriu este caixa.');
-      requireThat(cash.status === 'OPEN', 409, 'CASH_CLOSED', 'Este caixa jÃ¡ foi fechado.');
+      requireThat(cash.status === 'OPEN', 409, 'CASH_CLOSED', 'Este caixa já foi fechado.');
       const difference = input.countedCents - cash.expected_cents;
-      requireThat(difference === 0 || (input.reason?.length ?? 0) >= 3, 400, 'CLOSE_REASON_REQUIRED', 'Informe o motivo da diferenÃ§a de caixa.');
+      requireThat(difference === 0 || (input.reason?.length ?? 0) >= 3, 400, 'CLOSE_REASON_REQUIRED', 'Informe o motivo da diferença de caixa.');
       await tx.run(`UPDATE cash_sessions SET status='CLOSED',counted_cents=$1,expected_cents=$2,
         difference_cents=$3,close_reason=$4,closed_at=$5 WHERE tenant_id=$6 AND id=$7`,
       input.countedCents, cash.expected_cents, difference, input.reason, now(), ctx.tenantId, input.cashSessionId);
@@ -279,7 +279,7 @@ export class PostgresPos {
       return { productId: id(item.productId), quantity: integer(item.quantity, 'Quantidade', 1, 10_000) };
     }).sort((a, b) => a.productId.localeCompare(b.productId));
     requireThat(new Set(items.map(item => item.productId)).size === items.length,
-      400, 'DUPLICATE_ITEM', 'Agrupe a quantidade do mesmo produto em uma Ãºnica linha.');
+      400, 'DUPLICATE_ITEM', 'Agrupe a quantidade do mesmo produto em uma única linha.');
     const paymentMethod = text(raw.paymentMethod ?? 'CASH', 'Forma de pagamento', 20).toUpperCase();
     requireThat(PAYMENT_METHODS.has(paymentMethod), 400, 'INVALID_PAYMENT_METHOD', 'Forma de pagamento invalida.');
     const input = {
@@ -292,22 +292,22 @@ export class PostgresPos {
       // This row serializes selling/closing only this till, including balance-limit checks.
       const cash = await tx.cash(ctx, input.cashSessionId, { lock: true });
       requireThat(cash.store_id === input.storeId, 409, 'CASH_STORE_MISMATCH', 'Caixa de outra loja.');
-      requireThat(cash.operator_id === ctx.userId, 403, 'CASH_OWNER_REQUIRED', 'Use um caixa aberto pelo seu usuÃ¡rio.');
+      requireThat(cash.operator_id === ctx.userId, 403, 'CASH_OWNER_REQUIRED', 'Use um caixa aberto pelo seu usuário.');
       requireThat(cash.status === 'OPEN', 409, 'CASH_CLOSED', 'Abra o caixa antes de vender.');
       const lines = [];
       // A stable product order avoids lock-order deadlocks across different tills.
       for (const item of input.items) {
         const product = await tx.products.findForSale(ctx.tenantId, input.storeId, item.productId, { lock: true });
-        requireThat(product, 404, 'PRODUCT_NOT_FOUND', 'Produto nÃ£o disponÃ­vel nesta loja.');
+        requireThat(product, 404, 'PRODUCT_NOT_FOUND', 'Produto não disponível nesta loja.');
         requireThat(product.stock_quantity >= item.quantity, 409, 'INSUFFICIENT_STOCK', `Estoque insuficiente: ${product.name}.`);
         lines.push({ ...item, sku: product.sku, name: product.name, priceCents: product.price_cents,
           lineCents: integer(product.price_cents * item.quantity, 'Total do item', 1) });
       }
       const subtotal = integer(lines.reduce((sum, line) => sum + line.lineCents, 0), 'Subtotal', 1);
       if (input.discountCents > 0) {
-        requireThat(user.role === 'MANAGER', 403, 'DISCOUNT_FORBIDDEN', 'Este operador nÃ£o tem permissÃ£o para desconto.');
+        requireThat(user.role === 'MANAGER', 403, 'DISCOUNT_FORBIDDEN', 'Este operador não tem permissão para desconto.');
         requireThat((input.discountReason?.length ?? 0) >= 3, 400, 'DISCOUNT_REASON_REQUIRED', 'Informe o motivo do desconto.');
-        requireThat(input.discountCents * 100 <= subtotal * 20, 400, 'DISCOUNT_LIMIT', 'Limite de desconto neste laboratÃ³rio: 20%.');
+        requireThat(input.discountCents * 100 <= subtotal * 20, 400, 'DISCOUNT_LIMIT', 'Limite de desconto neste laboratório: 20%.');
       }
       const total = subtotal - input.discountCents;
       const tenderedCents = input.paymentMethod === 'CASH' ? input.tenderedCents : total;

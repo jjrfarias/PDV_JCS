@@ -10,9 +10,9 @@ function message(value){
 async function api(path,options={}){
   let response;
   try{response=await fetch(path,{...options,credentials:'same-origin',signal:AbortSignal.timeout(12_000),headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf,...options.headers}});}
-  catch{throw Object.assign(new Error('Servidor indisponÃ­vel ou resposta nÃ£o recebida.'),{uncertain:true});}
-  let data;try{data=await response.json();}catch{throw Object.assign(new Error('Resposta invÃ¡lida. Confirme o resultado antes de repetir.'),{uncertain:true});}
-  if(!response.ok)throw Object.assign(new Error(data.error?.message??'Falha na operaÃ§Ã£o.'),{status:response.status,uncertain:response.status>=500});
+  catch{throw Object.assign(new Error('Servidor indisponível ou resposta não recebida.'),{uncertain:true});}
+  let data;try{data=await response.json();}catch{throw Object.assign(new Error('Resposta inválida. Confirme o resultado antes de repetir.'),{uncertain:true});}
+  if(!response.ok)throw Object.assign(new Error(data.error?.message??'Falha na operação.'),{status:response.status,uncertain:response.status>=500});
   return data;
 }
 const storeId=()=> $('store-select').value;
@@ -52,7 +52,7 @@ function renderCash(){
   $('cash-label').classList.toggle('closed',!cash||cash.operator_id!==state.me.user.id);
   $('cash-gate').hidden=Boolean(cash&&cash.operator_id===state.me.user.id);
   if(!cash){$('cash-gate-title').textContent='Caixa fechado';$('cash-gate-text').textContent='Abra o caixa antes de registrar vendas neste terminal.';}
-  else if(cash.operator_id!==state.me.user.id){$('cash-gate-title').textContent='Terminal em uso';$('cash-gate-text').textContent='Este caixa foi aberto por outro operador. Selecione outro terminal ou peÃ§a o fechamento.';}
+  else if(cash.operator_id!==state.me.user.id){$('cash-gate-title').textContent='Terminal em uso';$('cash-gate-text').textContent='Este caixa foi aberto por outro operador. Selecione outro terminal ou peça o fechamento.';}
   $('opening-value').textContent=brl(cash?.opening_cents??0);
   $('sales-value').textContent=brl(cash?.sales_cents??0);
   $('expected-value').textContent=brl(cash?.expected_cents??0);lock();
@@ -67,7 +67,7 @@ function renderSearch(){
   const query=$('search').value.trim().toLowerCase();$('search-results').replaceChildren();
   if(!query)return;
   const products=state.data.products.filter(p=>[p.sku,p.name,p.barcode??''].some(v=>v.toLowerCase().includes(query))).slice(0,6);
-  for(const product of products){const b=element('button',`${product.name} Â· ${brl(product.price_cents)} Â· saldo ${product.quantity}`);b.type='button';b.dataset.write='';b.addEventListener('click',()=>add(product));$('search-results').append(b);}
+  for(const product of products){const b=element('button',`${product.name} · ${brl(product.price_cents)} · saldo ${product.quantity}`);b.type='button';b.dataset.write='';b.addEventListener('click',()=>add(product));$('search-results').append(b);}
   if(!products.length)$('search-results').append(element('small','Nenhum produto encontrado.'));lock();
 }
 function add(product){
@@ -81,7 +81,7 @@ function renderCart(){
   for(const p of state.cart){
     const tr=element('tr'),name=element('td',p.name);name.append(element('small',p.sku));
     const quantity=element('td'),input=element('input');input.type='number';input.min='1';input.max='10000';input.step='1';input.value=p.units;input.dataset.edit='';input.setAttribute('aria-label',`Quantidade de ${p.name}`);
-    input.addEventListener('change',()=>{const n=Number(input.value);if(!Number.isInteger(n)||n<1||n>10000){input.value=p.units;message('Quantidade invÃ¡lida.');return;}p.units=n;renderCart();});quantity.append(input);
+    input.addEventListener('change',()=>{const n=Number(input.value);if(!Number.isInteger(n)||n<1||n>10000){input.value=p.units;message('Quantidade inválida.');return;}p.units=n;renderCart();});quantity.append(input);
     const action=element('td'),remove=element('button','Remover');remove.type='button';remove.dataset.write='';remove.addEventListener('click',()=>{state.cart=state.cart.filter(i=>i.id!==p.id);renderCart();});action.append(remove);
     tr.append(name,quantity,element('td',brl(p.price_cents),'number'),element('td',brl(p.price_cents*p.units),'number'),action);$('cart-body').append(tr);
   }
@@ -106,7 +106,7 @@ function updateMoneyPreviews(){
     const preview=input.parentElement.querySelector('.money-preview');
     if(!preview)return;
     try{preview.textContent=brl(cents(input.value||'0'));preview.classList.remove('invalid');}
-    catch{preview.textContent='Valor invÃ¡lido';preview.classList.add('invalid');}
+    catch{preview.textContent='Valor inválido';preview.classList.add('invalid');}
   });
 }
 function currentTotalCents(){
@@ -143,18 +143,18 @@ function renderSummary(cards){
 }
 function renderManagement(){
   const d=state.data,query=$('management-search').value.trim().toLowerCase();let content;
-  if(state.tab==='products'){const rows=d.products.filter(p=>includes([p.sku,p.name,p.barcode,brl(p.price_cents),p.quantity],query));renderSummary([['Produtos',rows.length],['Estoque total',rows.reduce((n,p)=>n+p.quantity,0)],['Valor em estoque',brl(rows.reduce((n,p)=>n+p.quantity*p.price_cents,0))]]);content=table(['CÃ³digo','Produto','CÃ³digo de barras','PreÃ§o','Estoque'],rows.map(p=>[p.sku,p.name,p.barcode??'â€”',brl(p.price_cents),p.quantity]));}
-  if(state.tab==='users'){const rows=(d.users??[]).filter(u=>includes([u.name,u.email,u.role,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo'],query));renderSummary([['UsuÃ¡rios',rows.length],['Ativos',rows.filter(u=>u.active===1).length],['Gerentes',rows.filter(u=>u.role==='MANAGER').length]]);content=table(['Nome','E-mail','Perfil','Status'],rows.map(u=>[u.name,u.email,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo']));}
+  if(state.tab==='products'){const rows=d.products.filter(p=>includes([p.sku,p.name,p.barcode,brl(p.price_cents),p.quantity],query));renderSummary([['Produtos',rows.length],['Estoque total',rows.reduce((n,p)=>n+p.quantity,0)],['Valor em estoque',brl(rows.reduce((n,p)=>n+p.quantity*p.price_cents,0))]]);content=table(['Código','Produto','Código de barras','Preço','Estoque'],rows.map(p=>[p.sku,p.name,p.barcode??'—',brl(p.price_cents),p.quantity]));}
+  if(state.tab==='users'){const rows=(d.users??[]).filter(u=>includes([u.name,u.email,u.role,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo'],query));renderSummary([['Usuários',rows.length],['Ativos',rows.filter(u=>u.active===1).length],['Gerentes',rows.filter(u=>u.role==='MANAGER').length]]);content=table(['Nome','E-mail','Perfil','Status'],rows.map(u=>[u.name,u.email,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo']));}
   if(state.tab==='history'){const rows=d.sales.filter(s=>includes([date(s.created_at),s.id,s.operator_name,s.terminal_name,brl(s.discount_cents),brl(s.total_cents)],query));renderSummary([['Vendas',rows.length],['Total vendido',brl(rows.reduce((n,s)=>n+s.total_cents,0))],['Descontos',brl(rows.reduce((n,s)=>n+s.discount_cents,0))]]);content=table(['Data','Venda','Operador','Terminal','Desconto','Total','Comprovante'],rows.map(s=>{
     const b=element('button','Abrir');b.type='button';b.addEventListener('click',()=>run(async()=>showReceipt(await api(`/api/sales/${s.id}`))));
     return [date(s.created_at),s.id.slice(0,8),s.operator_name,s.terminal_name,brl(s.discount_cents),brl(s.total_cents),b];}));}
-  if(state.tab==='stock'){const rows=d.stockMovements.filter(m=>includes([date(m.created_at),m.name,m.kind,m.kind==='SALE'?'Venda':'Entrada inicial',m.quantity,m.reason],query));renderSummary([['Movimentos',rows.length],['Entradas',rows.filter(m=>m.quantity>0).reduce((n,m)=>n+m.quantity,0)],['SaÃ­das',Math.abs(rows.filter(m=>m.quantity<0).reduce((n,m)=>n+m.quantity,0))]]);content=table(['Data','Produto','Movimento','Quantidade','Motivo'],rows.map(m=>[date(m.created_at),m.name,m.kind==='SALE'?'Venda':'Entrada inicial',m.quantity,m.reason]));}
-  if(state.tab==='closures'){const rows=d.cashHistory.filter(c=>{const terminal=d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id;return includes([date(c.closed_at),terminal,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)],query);});renderSummary([['Fechamentos',rows.length],['Esperado',brl(rows.reduce((n,c)=>n+c.expected_cents,0))],['DiferenÃ§a',brl(rows.reduce((n,c)=>n+c.difference_cents,0))]]);content=table(['Data','Terminal','Esperado','Contado','DiferenÃ§a'],rows.map(c=>[date(c.closed_at),d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)]));}
+  if(state.tab==='stock'){const rows=d.stockMovements.filter(m=>includes([date(m.created_at),m.name,m.kind,m.kind==='SALE'?'Venda':'Entrada inicial',m.quantity,m.reason],query));renderSummary([['Movimentos',rows.length],['Entradas',rows.filter(m=>m.quantity>0).reduce((n,m)=>n+m.quantity,0)],['Saídas',Math.abs(rows.filter(m=>m.quantity<0).reduce((n,m)=>n+m.quantity,0))]]);content=table(['Data','Produto','Movimento','Quantidade','Motivo'],rows.map(m=>[date(m.created_at),m.name,m.kind==='SALE'?'Venda':'Entrada inicial',m.quantity,m.reason]));}
+  if(state.tab==='closures'){const rows=d.cashHistory.filter(c=>{const terminal=d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id;return includes([date(c.closed_at),terminal,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)],query);});renderSummary([['Fechamentos',rows.length],['Esperado',brl(rows.reduce((n,c)=>n+c.expected_cents,0))],['Diferença',brl(rows.reduce((n,c)=>n+c.difference_cents,0))]]);content=table(['Data','Terminal','Esperado','Contado','Diferença'],rows.map(c=>[date(c.closed_at),d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)]));}
   $('management-content').replaceChildren(content);
 }
 function showReceipt(sale){
   state.lastReceipt=sale;const root=$('receipt');root.replaceChildren();
-  root.append(element('h2','JCS Â· COMPROVANTE DE TESTE'),element('div','TESTE â€” SEM VALOR FISCAL','receipt-warning'));
+  root.append(element('h2','JCS · COMPROVANTE DE TESTE'),element('div','TESTE — SEM VALOR FISCAL','receipt-warning'));
   root.append(element('p',`${sale.store_name} | ${sale.operator_name}`),element('p',`Venda ${sale.id}\n${date(sale.created_at)}`));
   root.append(table(['Produto','Qtd.','Total'],sale.items.map(i=>[`${i.name_snapshot} (${brl(i.price_cents)})`,i.quantity,brl(i.line_cents)])));
   root.append(element('p',`Subtotal: ${brl(sale.subtotal_cents)} | Desconto: ${brl(sale.discount_cents)}`));
@@ -165,11 +165,11 @@ function showReceipt(sale){
   if(!$('receipt-dialog').open)$('receipt-dialog').showModal();
 }
 async function run(work){try{await work();}catch(error){message(error.message);}}
-// A pendÃªncia Ã© gravada ANTES do envio e sÃ³ Ã© removida apÃ³s resposta conclusiva.
+// A pendência é gravada ANTES do envio e só é removida após resposta conclusiva.
 async function command(path,body){
-  if(state.pending)throw new Error('Recupere a operaÃ§Ã£o pendente primeiro.');
+  if(state.pending)throw new Error('Recupere a operação pendente primeiro.');
   const pending={path,body,key:crypto.randomUUID()};
-  try{localStorage.setItem(scope(),JSON.stringify(pending));}catch{throw new Error('Armazenamento local indisponÃ­vel. Venda bloqueada para evitar perda da chave de recuperaÃ§Ã£o.');}
+  try{localStorage.setItem(scope(),JSON.stringify(pending));}catch{throw new Error('Armazenamento local indisponível. Venda bloqueada para evitar perda da chave de recuperação.');}
   state.pending=pending;await submitPending();
 }
 async function submitPending(){
@@ -184,16 +184,16 @@ async function submitPending(){
     if(pending.path==='/api/products')$('product-form').reset();
     if(pending.path==='/api/users')$('user-form').reset();
     updateMoneyPreviews();
-    message(result.replayed?'OperaÃ§Ã£o recuperada. Nenhum registro foi duplicado.':'OperaÃ§Ã£o confirmada.');
+    message(result.replayed?'Operação recuperada. Nenhum registro foi duplicado.':'Operação confirmada.');
     await refresh();
   }catch(error){
-    // 4xx Ã© recusa explÃ­cita; falhas de rede/5xx preservam a pendÃªncia para repetir a mesma chave.
-    // 401/403 mantÃªm a pendÃªncia: recarregue, entre no mesmo usuÃ¡rio e recupere.
+    // 4xx é recusa explícita; falhas de rede/5xx preservam a pendência para repetir a mesma chave.
+    // 401/403 mantêm a pendência: recarregue, entre no mesmo usuário e recupere.
     if(error.status>=400&&error.status<500&&![401,403,408,429].includes(error.status)){
       localStorage.removeItem(scope());state.pending=null;
     }
     if(state.pending)document.querySelectorAll('dialog[open]:not(#receipt-dialog)').forEach(d=>d.close());
-    message(error.message+(state.pending?' Use Recuperar operaÃ§Ã£o.':''));
+    message(error.message+(state.pending?' Use Recuperar operação.':''));
   }finally{state.busy=false;lock();}
 }
 async function boot(){
@@ -211,20 +211,20 @@ $('login-form').addEventListener('submit',async event=>{
   try{await api('/api/login',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(event.target)))});$('login-error').textContent='';event.target.password.value='';await boot();}
   catch(error){$('login-error').textContent=error.message;}finally{button.disabled=false;}
 });
-$('logout').addEventListener('click',()=>run(async()=>{if(state.pending)throw new Error('Resolva a pendÃªncia antes de sair.');await api('/api/logout',{method:'POST',body:'{}'});location.reload();}));
+$('logout').addEventListener('click',()=>run(async()=>{if(state.pending)throw new Error('Resolva a pendência antes de sair.');await api('/api/logout',{method:'POST',body:'{}'});location.reload();}));
 $('password-open').addEventListener('click',()=>$('password-dialog').showModal());
 $('password-form').addEventListener('submit',event=>{event.preventDefault();run(async()=>{
   const data=Object.fromEntries(new FormData(event.target));
-  if(data.newPassword!==data.confirmPassword)throw new Error('A confirmaÃ§Ã£o da nova senha nÃ£o confere.');
+  if(data.newPassword!==data.confirmPassword)throw new Error('A confirmação da nova senha não confere.');
   await api('/api/me/password',{method:'POST',body:JSON.stringify({currentPassword:data.currentPassword,newPassword:data.newPassword})});
-  event.target.reset();$('password-dialog').close();message('Senha alterada. Outras sessÃµes deste usuÃ¡rio foram encerradas.');
+  event.target.reset();$('password-dialog').close();message('Senha alterada. Outras sessões deste usuário foram encerradas.');
 });});
 $('store-select').addEventListener('change',()=>run(async()=>{state.cart=[];await refresh();}));
 $('terminal-select').addEventListener('change',()=>{state.cart=[];renderCash();renderCart();});
 $('refresh').addEventListener('click',()=>run(refresh));
 $('search').addEventListener('input',renderSearch);
 $('search-form').addEventListener('submit',event=>{event.preventDefault();const q=$('search').value.trim().toLowerCase();const exact=state.data.products.find(p=>p.sku.toLowerCase()===q||p.barcode===q);
-  const matches=state.data.products.filter(p=>p.name.toLowerCase().includes(q));if(exact)add(exact);else if(q&&matches.length===1)add(matches[0]);else message('Selecione um produto da busca ou informe um cÃ³digo cadastrado.');});
+  const matches=state.data.products.filter(p=>p.name.toLowerCase().includes(q));if(exact)add(exact);else if(q&&matches.length===1)add(matches[0]);else message('Selecione um produto da busca ou informe um código cadastrado.');});
 document.querySelectorAll('.money-input').forEach(input=>input.addEventListener('input',()=>{updateMoneyPreviews();if(input.id==='discount'||input.id==='tendered')renderTotals();}));
 $('sale-form').addEventListener('submit',event=>{event.preventDefault();run(async()=>{
   const cash=currentCash();if(!cash)throw new Error('Abra o caixa primeiro.');
@@ -233,9 +233,9 @@ $('sale-form').addEventListener('submit',event=>{event.preventDefault();run(asyn
 $('cancel-sale').addEventListener('click',clearSale);
 document.querySelectorAll('[data-tendered]').forEach(button=>button.addEventListener('click',()=>fillTendered(button.dataset.tendered)));
 document.querySelectorAll('[data-payment-method]').forEach(button=>button.addEventListener('click',()=>{state.paymentMethod=button.dataset.paymentMethod;if(state.paymentMethod!=='CASH')$('tendered').value='';renderTotals();}));
-$('open-cash').addEventListener('click',()=>{$('open-description').textContent=`${$('store-select').selectedOptions[0].textContent} Â· ${$('terminal-select').selectedOptions[0].textContent}`;$('open-dialog').showModal();});
+$('open-cash').addEventListener('click',()=>{$('open-description').textContent=`${$('store-select').selectedOptions[0].textContent} · ${$('terminal-select').selectedOptions[0].textContent}`;$('open-dialog').showModal();});
 $('open-form').addEventListener('submit',event=>{event.preventDefault();run(()=>command('/api/cash/open',{storeId:storeId(),terminalId:terminalId(),openingCents:cents(event.target.opening.value)}));});
-$('close-cash').addEventListener('click',()=>{$('close-description').textContent=`Dinheiro esperado: ${brl(currentCash().expected_cents)}. Informe a contagem fÃ­sica.`;$('close-dialog').showModal();});
+$('close-cash').addEventListener('click',()=>{$('close-description').textContent=`Dinheiro esperado: ${brl(currentCash().expected_cents)}. Informe a contagem física.`;$('close-dialog').showModal();});
 $('close-form').addEventListener('submit',event=>{event.preventDefault();run(()=>command('/api/cash/close',{storeId:storeId(),cashSessionId:currentCash().id,countedCents:cents(event.target.counted.value),reason:event.target.reason.value||null}));});
 $('new-product').addEventListener('click',()=>$('product-dialog').showModal());
 $('product-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/products',{storeId:storeId(),sku:f.sku,barcode:f.barcode||null,name:f.name,priceCents:cents(f.price),initialQuantity:Number(f.quantity)});});});

@@ -1,4 +1,4 @@
-﻿# EvidÃªncias de validaÃ§Ã£o â€” 18/09/2026
+﻿# Evidências de validação — 18/09/2026
 
 ## Resultado executado
 
@@ -12,53 +12,53 @@ npm test
 node --test --test-concurrency=1 'tests/*.test.mjs'
 ```
 
-O terceiro comando tambÃ©m verificou o glob sem depender da expansÃ£o de `*` pelo shell. NÃ£o Ã© uma execuÃ§Ã£o no Windows.
+O terceiro comando também verificou o glob sem depender da expansão de `*` pelo shell. Não é uma execução no Windows.
 
-A saÃ­da integral da execuÃ§Ã£o principal estÃ¡ em `TESTES.tap`. A verificaÃ§Ã£o de sintaxe estÃ¡ em `CHECK.log`. O cÃ³digo nÃ£o possui dependÃªncias npm externas.
+A saída integral da execução principal está em `TESTES.tap`. A verificação de sintaxe está em `CHECK.log`. O código não possui dependências npm externas.
 
-Ambiente real: Linux x64, Node.js **22.16.0**, SQLite **3.49.1** fornecido pelo `node:sqlite`. O aviso experimental do SQLite foi preservado no log. NÃ£o foi executado Node.js 24 neste ambiente; a linha 24 LTS Ã© a recomendaÃ§Ã£o de instalaÃ§Ã£o para o usuÃ¡rio, nÃ£o uma versÃ£o que estamos alegando ter testado.
+Ambiente real: Linux x64, Node.js **22.16.0**, SQLite **3.49.1** fornecido pelo `node:sqlite`. O aviso experimental do SQLite foi preservado no log. Não foi executado Node.js 24 neste ambiente; a linha 24 LTS é a recomendação de instalação para o usuário, não uma versão que estamos alegando ter testado.
 
-## DomÃ­nio e banco â€” 31 testes
+## Domínio e banco — 31 testes
 
-Foram executados os cenÃ¡rios numerados no arquivo `tests/pos.test.mjs`:
+Foram executados os cenários numerados no arquivo `tests/pos.test.mjs`:
 
-- CenÃ¡rio principal R$100 de abertura, R$50 de subtotal, R$5 de desconto, R$45 de venda, R$5 de troco, estoque final 8, caixa R$145 e fechamento sem diferenÃ§a.
-- RepetiÃ§Ã£o da mesma chave, conflito de payload, consulta apÃ³s resposta perdida e rollback antes do commit com conferÃªncia das tabelas afetadas.
+- Cenário principal R$100 de abertura, R$50 de subtotal, R$5 de desconto, R$45 de venda, R$5 de troco, estoque final 8, caixa R$145 e fechamento sem diferença.
+- Repetição da mesma chave, conflito de payload, consulta após resposta perdida e rollback antes do commit com conferência das tabelas afetadas.
 - Estoque insuficiente, caixa fechado, desconto proibido, motivo/limite de desconto, dinheiro insuficiente, PIX/cartão manual sem alterar dinheiro esperado do caixa e bloqueio de campos financeiros vindos da tela.
-- AutorizaÃ§Ã£o por loja, isolamento entre contratantes, referÃªncia cruzada de produto/caixa e impossibilidade de outro usuÃ¡rio recuperar a operaÃ§Ã£o privada do autor.
-- ValidaÃ§Ã£o de quantidades e valores, abertura/fechamento idempotentes, responsabilidade do operador e registro de diferenÃ§a.
-- Cadastro com movimento inicial, cÃ³digo duplicado, snapshots comerciais, gatilhos de imutabilidade e chaves estrangeiras compostas.
-- Fechar e reabrir a conexÃ£o do banco em disco preserva venda e saldo; seed nÃ£o repÃµe estoque. Este Ã© teste de reinÃ­cio de conexÃ£o, nÃ£o de corte de energia.
-- Duas conexÃµes SQLite independentes, em workers liberados por uma barreira comum, disputam a Ãºltima unidade: exatamente uma confirma, outra recebe estoque insuficiente, saldo fica zero e hÃ¡ uma venda.
-- RejeiÃ§Ã£o de callback assÃ­ncrono no invÃ³lucro de transaÃ§Ã£o.
+- Autorização por loja, isolamento entre contratantes, referência cruzada de produto/caixa e impossibilidade de outro usuário recuperar a operação privada do autor.
+- Validação de quantidades e valores, abertura/fechamento idempotentes, responsabilidade do operador e registro de diferença.
+- Cadastro com movimento inicial, código duplicado, snapshots comerciais, gatilhos de imutabilidade e chaves estrangeiras compostas.
+- Fechar e reabrir a conexão do banco em disco preserva venda e saldo; seed não repõe estoque. Este é teste de reinício de conexão, não de corte de energia.
+- Duas conexões SQLite independentes, em workers liberados por uma barreira comum, disputam a última unidade: exatamente uma confirma, outra recebe estoque insuficiente, saldo fica zero e há uma venda.
+- Rejeição de callback assíncrono no invólucro de transação.
 
-## HTTP e autenticaÃ§Ã£o â€” 13 testes
+## HTTP e autenticação — 13 testes
 
-RequisiÃ§Ãµes reais via TCP loopback para a aplicaÃ§Ã£o, sem framework mockando a API:
+Requisições reais via TCP loopback para a aplicação, sem framework mockando a API:
 
-- Login, cookie HttpOnly/SameSite, usuÃ¡rio e lojas autorizadas.
-- AutenticaÃ§Ã£o obrigatÃ³ria, validaÃ§Ã£o de Origin e CSRF.
-- Abertura/venda/recuperaÃ§Ã£o idempotente pela API.
-- Bloqueio de loja nÃ£o autorizada, logout e expiraÃ§Ã£o de sessÃ£o.
-- Senha invÃ¡lida sem enumeraÃ§Ã£o explÃ­cita de conta e limite de tentativas.
-- Bloqueio de Host arbitrÃ¡rio, arquivos privados nÃ£o publicados, limite de corpo e Content-Type.
+- Login, cookie HttpOnly/SameSite, usuário e lojas autorizadas.
+- Autenticação obrigatória, validação de Origin e CSRF.
+- Abertura/venda/recuperação idempotente pela API.
+- Bloqueio de loja não autorizada, logout e expiração de sessão.
+- Senha inválida sem enumeração explícita de conta e limite de tentativas.
+- Bloqueio de Host arbitrário, arquivos privados não publicados, limite de corpo e Content-Type.
 
-TambÃ©m foi iniciado o servidor real com diretÃ³rio de dados de teste separado; `/health` retornou `status: ok`, `mode: local-test`, `fiscal: false`.
+Também foi iniciado o servidor real com diretório de dados de teste separado; `/health` retornou `status: ok`, `mode: local-test`, `fiscal: false`.
 
-## NÃ£o executado / nÃ£o aprovado
+## Não executado / não aprovado
 
-**Interface no navegador:** o Chromium disponÃ­vel recusou a navegaÃ§Ã£o ao endereÃ§o local por polÃ­tica administrativa (`ERR_BLOCKED_BY_ADMINISTRATOR`). A automaÃ§Ã£o parou antes do login; logo, nÃ£o alegamos teste visual, venda pela interface ou recuperaÃ§Ã£o apÃ³s recarga do navegador como concluÃ­dos. NÃ£o desativamos a polÃ­tica do navegador. Os scripts de interface passaram somente pela verificaÃ§Ã£o de sintaxe nesta preparaÃ§Ã£o. O roteiro manual do README precisa ser executado no computador do usuÃ¡rio.
+**Interface no navegador:** o Chromium disponível recusou a navegação ao endereço local por política administrativa (`ERR_BLOCKED_BY_ADMINISTRATOR`). A automação parou antes do login; logo, não alegamos teste visual, venda pela interface ou recuperação após recarga do navegador como concluídos. Não desativamos a política do navegador. Os scripts de interface passaram somente pela verificação de sintaxe nesta preparação. O roteiro manual do README precisa ser executado no computador do usuário.
 
-**Windows e arquivo BAT:** nÃ£o executados em Windows. O sistema de testes foi Linux. A inicializaÃ§Ã£o por `INICIAR-PDV.bat` foi fornecida como conveniÃªncia, nÃ£o como instalador homologado.
+**Windows e arquivo BAT:** não executados em Windows. O sistema de testes foi Linux. A inicialização por `INICIAR-PDV.bat` foi fornecida como conveniência, não como instalador homologado.
 
-**Hardware:** nenhuma impressora, gaveta, balanÃ§a, leitor fÃ­sico ou maquininha foi conectado. Leitura por cÃ³digo na interface nÃ£o equivale a equipamento homologado.
+**Hardware:** nenhuma impressora, gaveta, balança, leitor físico ou maquininha foi conectado. Leitura por código na interface não equivale a equipamento homologado.
 
-**Fiscal/pagamento:** nenhuma emissÃ£o fiscal, cobranÃ§a PIX, cartÃ£o, TEF, API financeira ou certificado foi testado, pois nÃ£o estÃ¡ implementado.
+**Fiscal/pagamento:** nenhuma emissão fiscal, cobrança PIX, cartão, TEF, API financeira ou certificado foi testado, pois não está implementado.
 
-**Infraestrutura comercial:** nÃ£o foram testados PostgreSQL, RLS, Railway, multi-instÃ¢ncia distribuÃ­da, sincronizaÃ§Ã£o offline, backups/restauraÃ§Ã£o, falta de energia, disco cheio/defeituoso, latÃªncia WAN ou carga de produÃ§Ã£o.
+**Infraestrutura comercial:** não foram testados PostgreSQL, RLS, Railway, multi-instância distribuída, sincronização offline, backups/restauração, falta de energia, disco cheio/defeituoso, latência WAN ou carga de produção.
 
-**SeguranÃ§a:** nÃ£o houve auditoria externa/pentest. Os controles implementados e os testes aprovados nÃ£o sÃ£o garantia de seguranÃ§a completa.
+**Segurança:** não houve auditoria externa/pentest. Os controles implementados e os testes aprovados não são garantia de segurança completa.
 
-## CritÃ©rio de uso
+## Critério de uso
 
-Resultado suficiente para estudo e desenvolvimento local com dados fictÃ­cios. **Insuficiente para liberar um caixa de cliente em produÃ§Ã£o.**
+Resultado suficiente para estudo e desenvolvimento local com dados fictícios. **Insuficiente para liberar um caixa de cliente em produção.**
