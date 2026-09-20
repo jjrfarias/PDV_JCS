@@ -52,11 +52,12 @@ Falha de conexão, timeout, 500 ou 503 deve ser tratada como resultado incerto: 
   "discountCents":500,
   "discountReason":"Desconto de teste autorizado",
   "paymentMethod":"CASH",
-  "tenderedCents":5000
+  "tenderedCents":5000,
+  "customerId":null
 }
 ```
 
-Subtotal, preço e total são calculados no servidor. `paymentMethod` aceita `CASH`, `PIX` ou `CARD`; quando omitido, assume `CASH`. PIX/cartão são apenas registro manual após confirmação externa, sem TEF/gateway. `priceCents`, `totalCents`, `tenantId` e outros campos desconhecidos são recusados. O gerente pode conceder desconto até 20%; operador não pode. Quantidades repetidas do mesmo produto devem estar agrupadas em uma linha.
+Subtotal, preço e total são calculados no servidor. `customerId` é opcional; quando informado, deve ser cliente ativo da loja da venda. `paymentMethod` aceita `CASH`, `PIX` ou `CARD`; quando omitido, assume `CASH`. PIX/cartão são apenas registro manual após confirmação externa, sem TEF/gateway. `priceCents`, `totalCents`, `tenantId` e outros campos desconhecidos são recusados. O gerente pode conceder desconto até 20%; operador não pode. Quantidades repetidas do mesmo produto devem estar agrupadas em uma linha.
 
 ## Cancelar venda
 

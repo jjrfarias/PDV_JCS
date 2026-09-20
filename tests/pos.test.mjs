@@ -273,6 +273,20 @@ test('22h - documento de cliente nao duplica no tenant e loja nao autorizada e b
   fails(()=>pos.createCustomer(DEMO.manager,key(),{...body,name:'Cliente Dois'}),'DUPLICATE_CUSTOMER');
   fails(()=>pos.createCustomer(DEMO.cashier,key(),{...body,storeId:DEMO.storeB,document:'22345678901'}),'STORE_FORBIDDEN');
 });
+test('22i - cliente na venda e opcional e nao grava PII na resposta idempotente',t=>{
+  const {pos,db}=fixture(t);const cash=open(pos);
+  const anonymous=pos.sell(DEMO.manager,key(),saleInput(cash,{discountCents:0,discountReason:null,tenderedCents:5000})).data;
+  assert.equal(anonymous.customer_id,null);
+  const customer=pos.createCustomer(DEMO.manager,key(),{storeId:DEMO.storeA,name:'Cliente Venda',document:'12345678901',phone:null,email:'venda@jcs.local',note:null}).data;
+  const saleKey=key();
+  const sale=pos.sell(DEMO.manager,saleKey,saleInput(cash,{items:[{productId:DEMO.product,quantity:1}],discountCents:0,discountReason:null,tenderedCents:2500,customerId:customer.id})).data;
+  assert.equal(sale.customer_id,customer.id);
+  assert.equal(pos.receipt(DEMO.manager,sale.id).customer_id,customer.id);
+  const response=db.prepare('SELECT response_json FROM operations WHERE kind=? AND key=?').get('SALE',saleKey).response_json;
+  assert.equal(response.includes('Cliente Venda'),false);
+  assert.equal(response.includes('venda@jcs.local'),false);
+  fails(()=>pos.sell(DEMO.manager,key(),saleInput(cash,{items:[{productId:DEMO.product,quantity:1}],discountCents:0,discountReason:null,tenderedCents:2500,customerId:'missing-customer'})),'CUSTOMER_NOT_FOUND');
+});
 test('23 · alteração posterior de cadastro não muda snapshot de venda',t=>{
   const {pos,db}=fixture(t);const cash=open(pos),sale=pos.sell(DEMO.manager,key(),saleInput(cash)).data;
   db.prepare('UPDATE products SET price_cents=9999,name=? WHERE tenant_id=? AND id=?').run('Nome alterado em teste',DEMO.manager.tenantId,DEMO.product);

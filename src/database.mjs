@@ -9,13 +9,13 @@ export function connect(filename) {
   const db = new DatabaseSync(filename);
   db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 6) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
+  if (version > 7) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
   if (version === 0) {
     transaction(db, () => {
       if (db.prepare('PRAGMA user_version').get().user_version !== 0) return;
       db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
       createImmutableTriggers(db);
-      db.exec('PRAGMA user_version=6;');
+      db.exec('PRAGMA user_version=7;');
     });
   }
   if (version === 1) {
@@ -124,6 +124,13 @@ export function connect(filename) {
         CREATE UNIQUE INDEX customer_document_unique ON customers(tenant_id,document_hash) WHERE document_hash IS NOT NULL;
         CREATE INDEX customer_store_list ON customers(tenant_id,store_id,active,updated_at);`);
       db.exec('PRAGMA user_version=6;');
+    });
+  }
+  if (version <= 6) {
+    transaction(db, () => {
+      if (db.prepare('PRAGMA user_version').get().user_version !== 6) return;
+      db.exec('ALTER TABLE sales ADD COLUMN customer_id TEXT;');
+      db.exec('PRAGMA user_version=7;');
     });
   }
   return db;

@@ -54,6 +54,10 @@ async function refresh(){
   const prior=terminalId();$('terminal-select').replaceChildren();
   for(const terminal of state.data.terminals){const option=element('option',terminal.name);option.value=terminal.id;$('terminal-select').append(option);}
   if(state.data.terminals.some(t=>t.id===prior))$('terminal-select').value=prior;
+  const customer=$('sale-customer').value;$('sale-customer').replaceChildren();
+  const empty=element('option','Sem cliente');empty.value='';$('sale-customer').append(empty);
+  for(const entry of (state.data.customers??[]).filter(c=>c.active===1)){const option=element('option',entry.name);option.value=entry.id;$('sale-customer').append(option);}
+  if((state.data.customers??[]).some(c=>c.id===customer&&c.active===1))$('sale-customer').value=customer;
   if(state.tab==='reports')await loadReport();
   renderCash();renderSearch();renderManagement();renderCart();
 }
@@ -179,7 +183,7 @@ function fillTendered(mode){
 function clearSale(){
   if(!state.cart.length)return;
   if(!confirm('Cancelar a venda atual e limpar todos os itens?'))return;
-  state.cart=[];$('discount').value='0';$('discount-reason').value='';$('tendered').value='';
+  state.cart=[];$('discount').value='0';$('discount-reason').value='';$('tendered').value='';$('sale-customer').value='';
   renderSearch();renderCart();updateMoneyPreviews();message('Venda cancelada.');$('search').focus();
 }
 function table(headers,rows){
@@ -190,6 +194,7 @@ function table(headers,rows){
 }
 const date=value=>new Date(value).toLocaleString('pt-BR');
 const includes=(values,query)=>!query||values.some(value=>String(value??'').toLowerCase().includes(query));
+const customerName=id=>id?state.data?.customers?.find(customer=>customer.id===id)?.name??'Cliente vinculado':'';
 function renderCashMovements(){
   if(!$('cash-movement-table')||!state.data)return;
   const names={OPENING:'Fundo inicial',SALE:'Venda em dinheiro',SUPPLY:'Suprimento',WITHDRAWAL:'Sangria'};
@@ -248,11 +253,11 @@ function renderManagement(){
     const actions=element('div',undefined,'row-actions'),edit=element('button','Editar');edit.type='button';edit.dataset.customerAction='edit';edit.addEventListener('click',()=>openCustomerEdit(c));actions.append(edit);
     return [c.name,c.document??'—',c.phone??'—',c.email??'—',c.active===1?'Ativo':'Inativo',actions];
   }));}
-  if(state.tab==='history'){const rows=d.sales.filter(s=>includes([date(s.created_at),s.id,s.operator_name,s.terminal_name,brl(s.discount_cents),brl(s.total_cents),s.canceled_at?'Cancelada':'Confirmada',s.cancel_reason],query));const active=rows.filter(s=>!s.canceled_at);renderSummary([['Vendas',rows.length],['Total ativo',brl(active.reduce((n,s)=>n+s.total_cents,0))],['Canceladas',rows.filter(s=>s.canceled_at).length]]);content=table(['Data','Venda','Operador','Terminal','Status','Desconto','Total','Ações'],rows.map(s=>{
+  if(state.tab==='history'){const rows=d.sales.filter(s=>includes([date(s.created_at),s.id,s.operator_name,s.terminal_name,customerName(s.customer_id),brl(s.discount_cents),brl(s.total_cents),s.canceled_at?'Cancelada':'Confirmada',s.cancel_reason],query));const active=rows.filter(s=>!s.canceled_at);renderSummary([['Vendas',rows.length],['Total ativo',brl(active.reduce((n,s)=>n+s.total_cents,0))],['Canceladas',rows.filter(s=>s.canceled_at).length]]);content=table(['Data','Venda','Cliente','Operador','Terminal','Status','Desconto','Total','Ações'],rows.map(s=>{
     const b=element('button','Abrir');b.type='button';b.addEventListener('click',()=>run(async()=>showReceipt(await api(`/api/sales/${s.id}`))));
     const actions=element('div',undefined,'row-actions');actions.append(b);
     if(manager()&&!s.canceled_at){const c=element('button','Cancelar');c.type='button';c.dataset.cancelSale=s.id;c.addEventListener('click',()=>openSaleCancel(s));actions.append(c);}
-    return [date(s.created_at),s.id.slice(0,8),s.operator_name,s.terminal_name,s.canceled_at?'Cancelada':'Confirmada',brl(s.discount_cents),brl(s.total_cents),actions];}));}
+    return [date(s.created_at),s.id.slice(0,8),customerName(s.customer_id)||'—',s.operator_name,s.terminal_name,s.canceled_at?'Cancelada':'Confirmada',brl(s.discount_cents),brl(s.total_cents),actions];}));}
   if(state.tab==='stock'){const movementName=m=>({SALE:'Venda',INITIAL:'Entrada inicial',ADJUSTMENT:'Ajuste'}[m.kind]??m.kind);const rows=d.stockMovements.filter(m=>includes([date(m.created_at),m.name,m.kind,movementName(m),m.quantity,m.reason],query));renderSummary([['Movimentos',rows.length],['Entradas',rows.filter(m=>m.quantity>0).reduce((n,m)=>n+m.quantity,0)],['Saídas',Math.abs(rows.filter(m=>m.quantity<0).reduce((n,m)=>n+m.quantity,0))]]);content=table(['Data','Produto','Movimento','Quantidade','Motivo'],rows.map(m=>[date(m.created_at),m.name,movementName(m),m.quantity,m.reason]));}
   if(state.tab==='closures'){const rows=d.cashHistory.filter(c=>{const terminal=d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id;return includes([date(c.closed_at),terminal,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)],query);});renderSummary([['Fechamentos',rows.length],['Esperado',brl(rows.reduce((n,c)=>n+c.expected_cents,0))],['Diferença',brl(rows.reduce((n,c)=>n+c.difference_cents,0))]]);content=table(['Data','Terminal','Esperado','Contado','Diferença'],rows.map(c=>[date(c.closed_at),d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)]));}
   if(state.tab==='reports'){
@@ -269,7 +274,7 @@ function renderManagement(){
       if(state.reportSection==='pagamentos')content.append(element('h2','Pagamentos'),table(['Forma','Vendas','Valor'],report.payments.filter(p=>includes([p.method,p.sale_count,brl(p.amount_cents)],query)).map(p=>[p.method,p.sale_count,brl(p.amount_cents)])));
       if(state.reportSection==='produtos')content.append(element('h2','Produtos vendidos'),table(['Código','Produto','Quantidade','Total'],report.products.filter(p=>includes([p.sku,p.name,p.quantity,brl(p.total_cents)],query)).map(p=>[p.sku,p.name,p.quantity,brl(p.total_cents)])));
       if(state.reportSection==='operadores')content.append(element('h2','Operadores'),table(['Operador','Vendas','Total'],report.operators.filter(o=>includes([o.operator_name,o.sale_count,brl(o.total_cents)],query)).map(o=>[o.operator_name,o.sale_count,brl(o.total_cents)])));
-      if(state.reportSection==='vendas')content.append(element('h2','Vendas do período'),table(['Data','Venda','Operador','Terminal','Forma','Status','Total'],report.sales.filter(s=>includes([date(s.created_at),s.id,s.operator_name,s.terminal_name,s.method,s.canceled_at?'Cancelada':'Confirmada'],query)).map(s=>[date(s.created_at),s.id.slice(0,8),s.operator_name,s.terminal_name,s.method,s.canceled_at?'Cancelada':'Confirmada',brl(s.total_cents)])));
+      if(state.reportSection==='vendas')content.append(element('h2','Vendas do período'),table(['Data','Venda','Cliente','Operador','Terminal','Forma','Status','Total'],report.sales.filter(s=>includes([date(s.created_at),s.id,customerName(s.customer_id),s.operator_name,s.terminal_name,s.method,s.canceled_at?'Cancelada':'Confirmada'],query)).map(s=>[date(s.created_at),s.id.slice(0,8),customerName(s.customer_id)||'—',s.operator_name,s.terminal_name,s.method,s.canceled_at?'Cancelada':'Confirmada',brl(s.total_cents)])));
       if(state.reportSection==='fechamentos')content.append(element('h2','Fechamentos'),table(['Data','Terminal','Esperado','Contado','Diferença'],report.cashClosures.filter(c=>includes([date(c.closed_at),c.terminal_name,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)],query)).map(c=>[date(c.closed_at),c.terminal_name,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)])));
     }
   }
@@ -279,6 +284,7 @@ function showReceipt(sale){
   state.lastReceipt=sale;const root=$('receipt');root.replaceChildren();
   root.append(element('h2','JCS · COMPROVANTE DE TESTE'),element('div','TESTE — SEM VALOR FISCAL','receipt-warning'));
   root.append(element('p',`${sale.store_name} | ${sale.operator_name}`),element('p',`Venda ${sale.id}\n${date(sale.created_at)}`));
+  if(sale.customer_id)root.append(element('p',`Cliente: ${customerName(sale.customer_id)}`));
   root.append(table(['Produto','Qtd.','Total'],sale.items.map(i=>[`${i.name_snapshot} (${brl(i.price_cents)})`,i.quantity,brl(i.line_cents)])));
   root.append(element('p',`Subtotal: ${brl(sale.subtotal_cents)} | Desconto: ${brl(sale.discount_cents)}`));
   const total=element('div',undefined,'grand-total');total.append(element('span','Total da venda'),element('strong',brl(sale.total_cents)));root.append(total);
@@ -304,7 +310,7 @@ async function submitPending(){
     const result=await api(pending.path,{method:'POST',body:JSON.stringify(pending.body),headers:{'Idempotency-Key':pending.key}});
     localStorage.removeItem(scope());state.pending=null;
     document.querySelectorAll('dialog[open]').forEach(d=>d.close());
-    if(pending.path==='/api/sales'){state.cart=[];$('discount').value='0';$('discount-reason').value='';$('tendered').value='';showReceipt(result.data);}
+    if(pending.path==='/api/sales'){state.cart=[];$('discount').value='0';$('discount-reason').value='';$('tendered').value='';$('sale-customer').value='';showReceipt(result.data);}
     if(pending.path==='/api/products')$('product-form').reset();
     if(pending.path==='/api/products/update')$('product-edit-form').reset();
     if(pending.path==='/api/stock/adjust')$('stock-form').reset();
@@ -358,7 +364,7 @@ $('search-form').addEventListener('submit',event=>{event.preventDefault();const 
 document.querySelectorAll('.money-input').forEach(input=>input.addEventListener('input',()=>{updateMoneyPreviews();if(input.id==='discount'||input.id==='tendered')renderTotals();}));
 $('sale-form').addEventListener('submit',event=>{event.preventDefault();run(async()=>{
   const cash=currentCash();if(!cash)throw new Error('Abra o caixa primeiro.');
-  await command('/api/sales',{storeId:storeId(),cashSessionId:cash.id,items:state.cart.map(p=>({productId:p.id,quantity:p.units})),discountCents:cents($('discount').value||'0'),discountReason:$('discount-reason').value||null,paymentMethod:state.paymentMethod,tenderedCents:state.paymentMethod==='CASH'?cents($('tendered').value):0});
+  await command('/api/sales',{storeId:storeId(),cashSessionId:cash.id,items:state.cart.map(p=>({productId:p.id,quantity:p.units})),discountCents:cents($('discount').value||'0'),discountReason:$('discount-reason').value||null,paymentMethod:state.paymentMethod,tenderedCents:state.paymentMethod==='CASH'?cents($('tendered').value):0,customerId:$('sale-customer').value||null});
 });});
 $('cancel-sale').addEventListener('click',clearSale);
 document.querySelectorAll('[data-tendered]').forEach(button=>button.addEventListener('click',()=>fillTendered(button.dataset.tendered)));

@@ -2,7 +2,7 @@
 
 ## Resultado executado
 
-**65 testes passaram; zero falhas, cancelamentos ou testes ignorados.**
+**66 testes passaram; zero falhas, cancelamentos ou testes ignorados.**
 
 Comandos realmente executados na pasta do projeto:
 
@@ -18,7 +18,7 @@ A suíte atual foi executada nesta rodada com `npm test`. Logs antigos em arquiv
 
 Ambiente real: Linux x64, Node.js **22.16.0**, SQLite **3.49.1** fornecido pelo `node:sqlite`. O aviso experimental do SQLite foi preservado no log. Não foi executado Node.js 24 neste ambiente; a linha 24 LTS é a recomendação de instalação para o usuário, não uma versão que estamos alegando ter testado.
 
-## Domínio e banco — 44 testes
+## Domínio e banco — 45 testes
 
 Foram executados os cenários numerados no arquivo `tests/pos.test.mjs`:
 
@@ -30,6 +30,7 @@ Foram executados os cenários numerados no arquivo `tests/pos.test.mjs`:
 - Cadastro com movimento inicial, edição/inativação gerencial de produto, código duplicado, snapshots comerciais, gatilhos de imutabilidade e chaves estrangeiras compostas.
 - Edição gerencial de usuário, reset de senha temporária com hash no servidor, invalidação de sessões, bloqueio para operador alterar usuários e proteção contra o gerente inativar ou remover seu próprio perfil de gerente.
 - Cadastro e edição de clientes por loja, com campos pessoais criptografados em repouso, resposta idempotente sem PII em texto e bloqueio de documento duplicado.
+- Venda com cliente opcional: venda sem cliente continua válida; venda com cliente grava apenas o vínculo autorizado e a resposta idempotente não guarda PII em texto.
 - Fechar e reabrir a conexão do banco em disco preserva venda e saldo; seed não repõe estoque. Este é teste de reinício de conexão, não de corte de energia.
 - Duas conexões SQLite independentes, em workers liberados por uma barreira comum, disputam a última unidade: exatamente uma confirma, outra recebe estoque insuficiente, saldo fica zero e há uma venda.
 - Rejeição de callback assíncrono no invólucro de transação.

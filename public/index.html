@@ -28,6 +28,7 @@
         <div class="shortcuts">F2 Buscar produto <span>F9 Confirmar venda</span> <span>Esc Cancelar venda</span> <span>F10 Imprimir último comprovante</span></div>
       </section>
       <aside class="payment-panel"><h2>Pagamento</h2><div class="pay-methods" role="radiogroup" aria-label="Forma de pagamento"><button type="button" class="selected" data-payment-method="CASH">Dinheiro</button><button type="button" data-payment-method="PIX">PIX</button><button type="button" data-payment-method="CARD">Cartão</button></div><form id="sale-form"><fieldset data-edit>
+        <label>Cliente da venda<select id="sale-customer"><option value="">Sem cliente</option></select></label>
         <div class="total-line"><span>Subtotal</span><strong id="subtotal">R$ 0,00</strong></div>
         <details class="discount-box"><summary>Desconto gerencial</summary><label>Desconto em centavos<input id="discount" class="money-input" value="0" inputmode="numeric" pattern="[0-9]*" placeholder="Ex.: 500 = R$ 5,00"><span class="money-preview" data-preview-for="discount">R$ 0,00</span></label><small id="discount-help">Digite só números. Somente gerente. Limite de teste: 20%.</small><label>Motivo do desconto<input id="discount-reason" maxlength="200" placeholder="Obrigatório quando houver desconto"></label></details>
         <div class="grand-total"><span>Total da venda</span><strong id="total">R$ 0,00</strong></div>

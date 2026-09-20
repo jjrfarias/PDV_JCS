@@ -156,7 +156,7 @@ class TransactionPos {
         WHERE tenant_id=$1 AND store_id=$2 ORDER BY updated_at DESC LIMIT 100`, ctx.tenantId, storeId))
         .map(row => this.customerRow(row)),
       cash,
-      sales: await this.all(`SELECT s.id,s.total_cents,s.discount_cents,s.created_at,u.name operator_name,c.terminal_id,t.name terminal_name,
+      sales: await this.all(`SELECT s.id,s.customer_id,s.total_cents,s.discount_cents,s.created_at,u.name operator_name,c.terminal_id,t.name terminal_name,
           x.created_at canceled_at,x.reason cancel_reason
         FROM sales s
         JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.operator_id
@@ -180,7 +180,7 @@ class TransactionPos {
     id(storeId);
     await this.authorize(ctx, storeId);
     const range = reportRange(from, to);
-    const sales = await this.all(`SELECT s.id,s.created_at,s.total_cents,s.discount_cents,p.method,u.name operator_name,t.name terminal_name,
+    const sales = await this.all(`SELECT s.id,s.created_at,s.customer_id,s.total_cents,s.discount_cents,p.method,u.name operator_name,t.name terminal_name,
         x.created_at canceled_at,x.reason cancel_reason
       FROM sales s
       JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
@@ -574,22 +574,24 @@ export class PostgresPos {
   }
 
   async sell(ctx, key, raw) {
-    object(raw, ['storeId', 'cashSessionId', 'items', 'discountCents', 'discountReason', 'tenderedCents', 'paymentMethod']);
-    requireThat(Array.isArray(raw.items) && raw.items.length > 0 && raw.items.length <= 100,
+    const body = { customerId: null, ...raw };
+    object(body, ['storeId', 'cashSessionId', 'items', 'discountCents', 'discountReason', 'tenderedCents', 'paymentMethod', 'customerId']);
+    requireThat(Array.isArray(body.items) && body.items.length > 0 && body.items.length <= 100,
       400, 'INVALID_ITEMS', 'Informe entre 1 e 100 produtos.');
-    const items = raw.items.map(item => {
+    const items = body.items.map(item => {
       object(item, ['productId', 'quantity']);
       return { productId: id(item.productId), quantity: integer(item.quantity, 'Quantidade', 1, 10_000) };
     }).sort((a, b) => a.productId.localeCompare(b.productId));
     requireThat(new Set(items.map(item => item.productId)).size === items.length,
       400, 'DUPLICATE_ITEM', 'Agrupe a quantidade do mesmo produto em uma única linha.');
-    const paymentMethod = text(raw.paymentMethod ?? 'CASH', 'Forma de pagamento', 20).toUpperCase();
+    const paymentMethod = text(body.paymentMethod ?? 'CASH', 'Forma de pagamento', 20).toUpperCase();
     requireThat(PAYMENT_METHODS.has(paymentMethod), 400, 'INVALID_PAYMENT_METHOD', 'Forma de pagamento invalida.');
     const input = {
-      storeId: id(raw.storeId), cashSessionId: id(raw.cashSessionId), items, paymentMethod,
-      discountCents: integer(raw.discountCents ?? 0, 'Desconto'),
-      discountReason: raw.discountReason ? text(raw.discountReason, 'Motivo', 200) : null,
-      tenderedCents: paymentMethod === 'CASH' ? integer(raw.tenderedCents, 'Valor entregue', 1) : 0
+      storeId: id(body.storeId), cashSessionId: id(body.cashSessionId), items, paymentMethod,
+      customerId: body.customerId ? id(body.customerId) : null,
+      discountCents: integer(body.discountCents ?? 0, 'Desconto'),
+      discountReason: body.discountReason ? text(body.discountReason, 'Motivo', 200) : null,
+      tenderedCents: paymentMethod === 'CASH' ? integer(body.tenderedCents, 'Valor entregue', 1) : 0
     };
     return this.#mutate(ctx, 'SALE', key, input, async (tx, user) => {
       // This row serializes selling/closing only this till, including balance-limit checks.
@@ -597,6 +599,12 @@ export class PostgresPos {
       requireThat(cash.store_id === input.storeId, 409, 'CASH_STORE_MISMATCH', 'Caixa de outra loja.');
       requireThat(cash.operator_id === ctx.userId, 403, 'CASH_OWNER_REQUIRED', 'Use um caixa aberto pelo seu usuário.');
       requireThat(cash.status === 'OPEN', 409, 'CASH_CLOSED', 'Abra o caixa antes de vender.');
+      if (input.customerId) {
+        const customer = await tx.one(`SELECT 1 FROM customers
+          WHERE tenant_id=$1 AND store_id=$2 AND id=$3 AND active=1 FOR SHARE`,
+        ctx.tenantId, input.storeId, input.customerId);
+        requireThat(customer, 404, 'CUSTOMER_NOT_FOUND', 'Cliente não encontrado nesta loja.');
+      }
       const lines = [];
       // A stable product order avoids lock-order deadlocks across different tills.
       for (const item of input.items) {
@@ -619,10 +627,10 @@ export class PostgresPos {
       requireThat(input.paymentMethod !== 'CASH' || cash.expected_cents + total <= MAX_MONEY, 409, 'CASH_LIMIT', 'Limite monetario do caixa atingido neste laboratorio.');
       const saleId = randomUUID();
       await tx.run(`INSERT INTO sales
-        (tenant_id,id,store_id,cash_session_id,operator_id,subtotal_cents,discount_cents,discount_reason,
+        (tenant_id,id,store_id,cash_session_id,operator_id,customer_id,subtotal_cents,discount_cents,discount_reason,
           discount_author_id,total_cents,status,fiscal_status,created_at)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'CONFIRMED','TEST_NOT_ISSUED',$11)`,
-      ctx.tenantId, saleId, input.storeId, input.cashSessionId, ctx.userId, subtotal, input.discountCents,
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'CONFIRMED','TEST_NOT_ISSUED',$12)`,
+      ctx.tenantId, saleId, input.storeId, input.cashSessionId, ctx.userId, input.customerId, subtotal, input.discountCents,
       input.discountCents > 0 ? input.discountReason : null, input.discountCents > 0 ? ctx.userId : null, total, now());
       for (const line of lines) {
         const changed = await tx.products.decrementStock(ctx.tenantId, input.storeId, line.productId, line.quantity);
@@ -646,7 +654,8 @@ export class PostgresPos {
         ctx.tenantId, randomUUID(), input.storeId, input.cashSessionId, saleId, total, ctx.userId, now());
       }
       await tx.audit(ctx, input.storeId, 'SALE_CONFIRMED', saleId,
-        { totalCents: total, paymentMethod: input.paymentMethod, discountCents: input.discountCents, discountReason: input.discountReason });
+        { totalCents: total, paymentMethod: input.paymentMethod, discountCents: input.discountCents,
+          discountReason: input.discountReason, hasCustomer: Boolean(input.customerId) });
       return tx.receipt(ctx, saleId);
     });
   }

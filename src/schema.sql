@@ -73,7 +73,7 @@ CREATE TABLE cash_sessions (
 CREATE UNIQUE INDEX one_open_cash ON cash_sessions(tenant_id,terminal_id) WHERE status='OPEN';
 CREATE TABLE sales (
   tenant_id TEXT NOT NULL, id TEXT NOT NULL, store_id TEXT NOT NULL, cash_session_id TEXT NOT NULL,
-  operator_id TEXT NOT NULL, subtotal_cents INTEGER NOT NULL CHECK(subtotal_cents BETWEEN 1 AND 100000000),
+  operator_id TEXT NOT NULL, customer_id TEXT, subtotal_cents INTEGER NOT NULL CHECK(subtotal_cents BETWEEN 1 AND 100000000),
   discount_cents INTEGER NOT NULL CHECK(discount_cents>=0), discount_reason TEXT,
   discount_author_id TEXT, total_cents INTEGER NOT NULL CHECK(total_cents>0),
   status TEXT NOT NULL CHECK(status='CONFIRMED'),
@@ -83,6 +83,7 @@ CREATE TABLE sales (
   CHECK((discount_cents=0 AND discount_author_id IS NULL) OR (discount_cents>0 AND discount_author_id IS NOT NULL AND length(discount_reason)>=3)),
   FOREIGN KEY(tenant_id,store_id,cash_session_id) REFERENCES cash_sessions(tenant_id,store_id,id),
   FOREIGN KEY(tenant_id,operator_id) REFERENCES users(tenant_id,id),
+  FOREIGN KEY(tenant_id,customer_id) REFERENCES customers(tenant_id,id),
   FOREIGN KEY(tenant_id,discount_author_id) REFERENCES users(tenant_id,id)
 ) STRICT;
 CREATE TABLE sale_items (

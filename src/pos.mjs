@@ -295,23 +295,27 @@ export class Pos {
     });
   }
   sell(ctx,key,raw) {
-    object(raw,['storeId','cashSessionId','items','discountCents','discountReason','tenderedCents','paymentMethod']);
-    requireThat(Array.isArray(raw.items)&&raw.items.length>0&&raw.items.length<=100,400,'INVALID_ITEMS','Informe entre 1 e 100 produtos.');
-    const items=raw.items.map(item => {
+    const body={customerId:null,...raw};
+    object(body,['storeId','cashSessionId','items','discountCents','discountReason','tenderedCents','paymentMethod','customerId']);
+    requireThat(Array.isArray(body.items)&&body.items.length>0&&body.items.length<=100,400,'INVALID_ITEMS','Informe entre 1 e 100 produtos.');
+    const items=body.items.map(item => {
       object(item,['productId','quantity']);
       return {productId:id(item.productId),quantity:integer(item.quantity,'Quantidade',1,10_000)};
     }).sort((a,b)=>a.productId.localeCompare(b.productId));
     requireThat(new Set(items.map(i=>i.productId)).size===items.length,400,'DUPLICATE_ITEM','Agrupe a quantidade do mesmo produto em uma única linha.');
-    const paymentMethod=text(raw.paymentMethod??'CASH','Forma de pagamento',20).toUpperCase();
+    const paymentMethod=text(body.paymentMethod??'CASH','Forma de pagamento',20).toUpperCase();
     requireThat(PAYMENT_METHODS.has(paymentMethod),400,'INVALID_PAYMENT_METHOD','Forma de pagamento invalida.');
-    const input={storeId:id(raw.storeId),cashSessionId:id(raw.cashSessionId),items,paymentMethod,
-      discountCents:integer(raw.discountCents??0,'Desconto'),discountReason:raw.discountReason?text(raw.discountReason,'Motivo',200):null,
-      tenderedCents:paymentMethod==='CASH'?integer(raw.tenderedCents,'Valor entregue',1):0};
+    const input={storeId:id(body.storeId),cashSessionId:id(body.cashSessionId),items,paymentMethod,
+      customerId:body.customerId?id(body.customerId):null,
+      discountCents:integer(body.discountCents??0,'Desconto'),discountReason:body.discountReason?text(body.discountReason,'Motivo',200):null,
+      tenderedCents:paymentMethod==='CASH'?integer(body.tenderedCents,'Valor entregue',1):0};
     return this.mutate(ctx,'SALE',key,input,user => {
       const cash=this.cash(ctx,input.cashSessionId);
       requireThat(cash.store_id===input.storeId,409,'CASH_STORE_MISMATCH','Caixa de outra loja.');
       requireThat(cash.operator_id===ctx.userId,403,'CASH_OWNER_REQUIRED','Use um caixa aberto pelo seu usuário.');
       requireThat(cash.status==='OPEN',409,'CASH_CLOSED','Abra o caixa antes de vender.');
+      if(input.customerId) requireThat(this.one('SELECT 1 FROM customers WHERE tenant_id=? AND store_id=? AND id=? AND active=1',
+        ctx.tenantId,input.storeId,input.customerId),404,'CUSTOMER_NOT_FOUND','Cliente não encontrado nesta loja.');
       const lines=input.items.map(item => {
         const product=this.one(`SELECT p.*,s.quantity stock_quantity FROM products p JOIN stock s ON s.tenant_id=p.tenant_id AND s.product_id=p.id
           WHERE p.tenant_id=? AND s.store_id=? AND p.id=? AND p.active=1`,ctx.tenantId,input.storeId,item.productId);
@@ -331,7 +335,8 @@ export class Pos {
       requireThat(total>0&&(input.paymentMethod!=='CASH'||input.tenderedCents>=total),400,'INSUFFICIENT_CASH','Valor entregue menor que o total da venda.');
       requireThat(input.paymentMethod!=='CASH'||cash.expected_cents+total<=MAX_MONEY,409,'CASH_LIMIT','Limite monetario do caixa atingido neste laboratorio.');
       const saleId=randomUUID();
-      this.run(`INSERT INTO sales VALUES(?,?,?,?,?,?,?,?,?,?,'CONFIRMED','TEST_NOT_ISSUED',?)`,ctx.tenantId,saleId,input.storeId,input.cashSessionId,ctx.userId,
+      this.run(`INSERT INTO sales(tenant_id,id,store_id,cash_session_id,operator_id,customer_id,subtotal_cents,discount_cents,discount_reason,discount_author_id,total_cents,status,fiscal_status,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,'CONFIRMED','TEST_NOT_ISSUED',?)`,ctx.tenantId,saleId,input.storeId,input.cashSessionId,ctx.userId,input.customerId,
         subtotal,input.discountCents,input.discountCents>0?input.discountReason:null,input.discountCents>0?ctx.userId:null,total,now());
       for (const line of lines) {
         // BEGIN IMMEDIATE serializa escritores. A condição de saldo é uma defesa adicional.
@@ -343,7 +348,7 @@ export class Pos {
       }
       this.run("INSERT INTO payments VALUES(?,?,?,'CONFIRMED',?,?,?)",ctx.tenantId,saleId,input.paymentMethod,total,tenderedCents,changeCents);
       if(input.paymentMethod==='CASH') this.run("INSERT INTO cash_movements VALUES(?,?,?,?,?,'SALE',?,?,?,?)",ctx.tenantId,randomUUID(),input.storeId,input.cashSessionId,saleId,total,'Venda em dinheiro',ctx.userId,now());
-      this.audit(ctx,input.storeId,'SALE_CONFIRMED',saleId,{totalCents:total,paymentMethod:input.paymentMethod,discountCents:input.discountCents,discountReason:input.discountReason});
+      this.audit(ctx,input.storeId,'SALE_CONFIRMED',saleId,{totalCents:total,paymentMethod:input.paymentMethod,discountCents:input.discountCents,discountReason:input.discountReason,hasCustomer:Boolean(input.customerId)});
       return this.receipt(ctx,saleId);
     });
   }
@@ -388,7 +393,7 @@ export class Pos {
   }
   report(ctx,storeId,from,to) {
     id(storeId);this.authorize(ctx,storeId);const range=reportRange(from,to);
-    const sales=this.all(`SELECT s.id,s.created_at,s.total_cents,s.discount_cents,p.method,u.name operator_name,t.name terminal_name,
+    const sales=this.all(`SELECT s.id,s.created_at,s.customer_id,s.total_cents,s.discount_cents,p.method,u.name operator_name,t.name terminal_name,
         x.created_at canceled_at,x.reason cancel_reason
       FROM sales s
       JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
@@ -443,7 +448,7 @@ export class Pos {
       cashMovements:this.all(`SELECT m.id,m.cash_session_id,m.kind,m.amount_cents,m.reason,m.created_at,u.name actor_name
         FROM cash_movements m JOIN users u ON u.tenant_id=m.tenant_id AND u.id=m.actor_id
         WHERE m.tenant_id=? AND m.store_id=? ORDER BY m.created_at DESC LIMIT 50`,ctx.tenantId,storeId),
-      sales:this.all(`SELECT s.id,s.total_cents,s.discount_cents,s.created_at,u.name operator_name,c.terminal_id,t.name terminal_name,
+      sales:this.all(`SELECT s.id,s.customer_id,s.total_cents,s.discount_cents,s.created_at,u.name operator_name,c.terminal_id,t.name terminal_name,
           x.created_at canceled_at,x.reason cancel_reason
         FROM sales s
         JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.operator_id
