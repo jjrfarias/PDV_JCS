@@ -34,6 +34,7 @@ function lock(){
   $('cash-supply').disabled=locked||!cash||cash.operator_id!==state.me?.user.id;
   $('cash-withdrawal').disabled=locked||!cash||cash.operator_id!==state.me?.user.id;
   $('close-cash').disabled=locked||!cash||cash.operator_id!==state.me?.user.id;
+  document.querySelectorAll('[data-cancel-sale]').forEach(el=>{el.disabled=locked;});
   $('confirm-sale').disabled=locked||!cash||cash.operator_id!==state.me?.user.id||state.cart.length===0;
   $('cancel-sale').disabled=locked||state.cart.length===0;
   document.querySelectorAll('[data-tendered]').forEach(el=>{el.disabled=locked||state.cart.length===0;});
@@ -166,9 +167,11 @@ function renderManagement(){
   const d=state.data,query=$('management-search').value.trim().toLowerCase();let content;
   if(state.tab==='products'){const rows=d.products.filter(p=>includes([p.sku,p.name,p.barcode,brl(p.price_cents),p.quantity],query));renderSummary([['Produtos',rows.length],['Estoque total',rows.reduce((n,p)=>n+p.quantity,0)],['Valor em estoque',brl(rows.reduce((n,p)=>n+p.quantity*p.price_cents,0))]]);content=table(['Código','Produto','Código de barras','Preço','Estoque'],rows.map(p=>[p.sku,p.name,p.barcode??'—',brl(p.price_cents),p.quantity]));}
   if(state.tab==='users'){const rows=(d.users??[]).filter(u=>includes([u.name,u.email,u.role,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo'],query));renderSummary([['Usuários',rows.length],['Ativos',rows.filter(u=>u.active===1).length],['Gerentes',rows.filter(u=>u.role==='MANAGER').length]]);content=table(['Nome','E-mail','Perfil','Status'],rows.map(u=>[u.name,u.email,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo']));}
-  if(state.tab==='history'){const rows=d.sales.filter(s=>includes([date(s.created_at),s.id,s.operator_name,s.terminal_name,brl(s.discount_cents),brl(s.total_cents)],query));renderSummary([['Vendas',rows.length],['Total vendido',brl(rows.reduce((n,s)=>n+s.total_cents,0))],['Descontos',brl(rows.reduce((n,s)=>n+s.discount_cents,0))]]);content=table(['Data','Venda','Operador','Terminal','Desconto','Total','Comprovante'],rows.map(s=>{
+  if(state.tab==='history'){const rows=d.sales.filter(s=>includes([date(s.created_at),s.id,s.operator_name,s.terminal_name,brl(s.discount_cents),brl(s.total_cents),s.canceled_at?'Cancelada':'Confirmada',s.cancel_reason],query));const active=rows.filter(s=>!s.canceled_at);renderSummary([['Vendas',rows.length],['Total ativo',brl(active.reduce((n,s)=>n+s.total_cents,0))],['Canceladas',rows.filter(s=>s.canceled_at).length]]);content=table(['Data','Venda','Operador','Terminal','Status','Desconto','Total','Ações'],rows.map(s=>{
     const b=element('button','Abrir');b.type='button';b.addEventListener('click',()=>run(async()=>showReceipt(await api(`/api/sales/${s.id}`))));
-    return [date(s.created_at),s.id.slice(0,8),s.operator_name,s.terminal_name,brl(s.discount_cents),brl(s.total_cents),b];}));}
+    const actions=element('div',undefined,'row-actions');actions.append(b);
+    if(manager()&&!s.canceled_at){const c=element('button','Cancelar');c.type='button';c.dataset.cancelSale=s.id;c.addEventListener('click',()=>openSaleCancel(s));actions.append(c);}
+    return [date(s.created_at),s.id.slice(0,8),s.operator_name,s.terminal_name,s.canceled_at?'Cancelada':'Confirmada',brl(s.discount_cents),brl(s.total_cents),actions];}));}
   if(state.tab==='stock'){const movementName=m=>({SALE:'Venda',INITIAL:'Entrada inicial',ADJUSTMENT:'Ajuste'}[m.kind]??m.kind);const rows=d.stockMovements.filter(m=>includes([date(m.created_at),m.name,m.kind,movementName(m),m.quantity,m.reason],query));renderSummary([['Movimentos',rows.length],['Entradas',rows.filter(m=>m.quantity>0).reduce((n,m)=>n+m.quantity,0)],['Saídas',Math.abs(rows.filter(m=>m.quantity<0).reduce((n,m)=>n+m.quantity,0))]]);content=table(['Data','Produto','Movimento','Quantidade','Motivo'],rows.map(m=>[date(m.created_at),m.name,movementName(m),m.quantity,m.reason]));}
   if(state.tab==='closures'){const rows=d.cashHistory.filter(c=>{const terminal=d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id;return includes([date(c.closed_at),terminal,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)],query);});renderSummary([['Fechamentos',rows.length],['Esperado',brl(rows.reduce((n,c)=>n+c.expected_cents,0))],['Diferença',brl(rows.reduce((n,c)=>n+c.difference_cents,0))]]);content=table(['Data','Terminal','Esperado','Contado','Diferença'],rows.map(c=>[date(c.closed_at),d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)]));}
   $('management-content').replaceChildren(content);
@@ -182,6 +185,7 @@ function showReceipt(sale){
   const total=element('div',undefined,'grand-total');total.append(element('span','Total da venda'),element('strong',brl(sale.total_cents)));root.append(total);
   const method={CASH:'Dinheiro',PIX:'PIX',CARD:'Cartao'}[sale.payment.method]??sale.payment.method;
   const paymentText=sale.payment.method==='CASH'?`Pagamento: ${method} | Entregue: ${brl(sale.payment.tendered_cents)} | Troco: ${brl(sale.payment.change_cents)}`:`Pagamento: ${method} confirmado manualmente`;
+  if(sale.cancellation)root.append(element('p',`Venda cancelada em ${date(sale.cancellation.created_at)} por ${sale.cancellation.actor_name}. Motivo: ${sale.cancellation.reason}`,'receipt-warning'));
   root.append(element('p',paymentText),element('p','Emissao fiscal nao implementada. Este comprovante nao substitui documento fiscal.'));
   if(!$('receipt-dialog').open)$('receipt-dialog').showModal();
 }
@@ -204,6 +208,7 @@ async function submitPending(){
     if(pending.path==='/api/sales'){state.cart=[];$('discount').value='0';$('discount-reason').value='';$('tendered').value='';showReceipt(result.data);}
     if(pending.path==='/api/products')$('product-form').reset();
     if(pending.path==='/api/stock/adjust')$('stock-form').reset();
+    if(pending.path==='/api/sales/cancel')$('sale-cancel-form').reset();
     if(pending.path==='/api/users')$('user-form').reset();
     updateMoneyPreviews();
     message(result.replayed?'Operação recuperada. Nenhum registro foi duplicado.':'Operação confirmada.');
@@ -273,6 +278,12 @@ $('new-product').addEventListener('click',()=>$('product-dialog').showModal());
 $('product-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/products',{storeId:storeId(),sku:f.sku,barcode:f.barcode||null,name:f.name,priceCents:cents(f.price),initialQuantity:Number(f.quantity)});});});
 $('adjust-stock').addEventListener('click',()=>{const select=$('stock-form').productId;select.replaceChildren(...state.data.products.map(product=>{const option=element('option',`${product.sku} · ${product.name} · saldo ${product.quantity}`);option.value=product.id;return option;}));$('stock-form').reset();$('stock-dialog').showModal();});
 $('stock-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/stock/adjust',{storeId:storeId(),productId:f.productId,quantity:Number(f.quantity),reason:f.reason});});});
+function openSaleCancel(sale){
+  $('sale-cancel-form').saleId.value=sale.id;$('sale-cancel-form').reason.value='';
+  $('sale-cancel-description').textContent=`Venda ${sale.id.slice(0,8)} no valor de ${brl(sale.total_cents)}. O estoque será devolvido e dinheiro será estornado se o pagamento foi em dinheiro.`;
+  $('sale-cancel-dialog').showModal();
+}
+$('sale-cancel-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/sales/cancel',{storeId:storeId(),saleId:f.saleId,reason:f.reason});});});
 $('new-user').addEventListener('click',()=>$('user-dialog').showModal());
 $('user-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/users',{storeId:storeId(),email:f.email,name:f.name,role:f.role,temporaryPassword:f.temporaryPassword});});});
 $('recover').addEventListener('click',()=>run(submitPending));

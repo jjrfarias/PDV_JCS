@@ -58,6 +58,16 @@ Falha de conexão, timeout, 500 ou 503 deve ser tratada como resultado incerto: 
 
 Subtotal, preço e total são calculados no servidor. `paymentMethod` aceita `CASH`, `PIX` ou `CARD`; quando omitido, assume `CASH`. PIX/cartão são apenas registro manual após confirmação externa, sem TEF/gateway. `priceCents`, `totalCents`, `tenantId` e outros campos desconhecidos são recusados. O gerente pode conceder desconto até 20%; operador não pode. Quantidades repetidas do mesmo produto devem estar agrupadas em uma linha.
 
+## Cancelar venda
+
+`POST /api/sales/cancel`
+
+```json
+{"storeId":"store-a","saleId":"ID_DA_VENDA","reason":"Cliente desistiu da compra"}
+```
+
+Somente gerente. O cancelamento não apaga a venda original: grava o cancelamento, devolve estoque por movimento de ajuste, registra auditoria e, se o pagamento foi em dinheiro, lança uma saída no caixa aberto da venda. A operação é idempotente por `Idempotency-Key`; tentar cancelar de novo com outra chave retorna conflito.
+
 ## Movimentar dinheiro do caixa
 
 `POST /api/cash/move`
@@ -102,9 +112,9 @@ Somente gerente. `quantity` pode ser positivo ou negativo, mas não zero. O ajus
 
 | Rota | Retorno |
 |---|---|
-| `GET /api/stores/:storeId/state` | Produtos e saldo, terminais, caixas abertos com totais por forma de pagamento, últimas 30 vendas, 50 movimentos de estoque, 50 movimentos de caixa e 20 fechamentos |
+| `GET /api/stores/:storeId/state` | Produtos e saldo, terminais, caixas abertos com totais por forma de pagamento, últimas 30 vendas com status de cancelamento, 50 movimentos de estoque, 50 movimentos de caixa e 20 fechamentos |
 | `GET /api/sales/:saleId` | Venda com snapshots, pagamento e dados de comprovante de teste |
 | `GET /api/operations/:key` | Resultado persistido de uma operação do próprio usuário |
 | `GET /health` | Estado local, `mode=local-test`, `fiscal=false` |
 
-A consulta de operação não expõe a resposta de outro operador. A visualização de venda depende de autorização para sua loja. Não há rotas de cancelamento, devolução ou emissão fiscal. Não há integração PIX, cartão, TEF ou maquininha; apenas registro manual do método de pagamento.
+A consulta de operação não expõe a resposta de outro operador. A visualização de venda depende de autorização para sua loja. Não há devolução parcial, troca ou emissão fiscal. Não há integração PIX, cartão, TEF ou maquininha; apenas registro manual do método de pagamento.

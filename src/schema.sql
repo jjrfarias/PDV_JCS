@@ -90,6 +90,14 @@ CREATE TABLE payments (
   PRIMARY KEY(tenant_id,sale_id), CHECK(tendered_cents-change_cents=amount_cents),
   FOREIGN KEY(tenant_id,sale_id) REFERENCES sales(tenant_id,id)
 ) STRICT;
+CREATE TABLE sale_cancellations (
+  tenant_id TEXT NOT NULL, sale_id TEXT NOT NULL, store_id TEXT NOT NULL,
+  cash_session_id TEXT NOT NULL, reason TEXT NOT NULL, actor_id TEXT NOT NULL, created_at TEXT NOT NULL,
+  PRIMARY KEY(tenant_id,sale_id),
+  FOREIGN KEY(tenant_id,store_id,sale_id) REFERENCES sales(tenant_id,store_id,id),
+  FOREIGN KEY(tenant_id,store_id,cash_session_id) REFERENCES cash_sessions(tenant_id,store_id,id),
+  FOREIGN KEY(tenant_id,actor_id,store_id) REFERENCES memberships(tenant_id,user_id,store_id)
+) STRICT;
 CREATE TABLE stock_movements (
   tenant_id TEXT NOT NULL, id TEXT NOT NULL, store_id TEXT NOT NULL, product_id TEXT NOT NULL,
   sale_id TEXT, quantity INTEGER NOT NULL CHECK(quantity<>0),

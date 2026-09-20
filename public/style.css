@@ -23,6 +23,8 @@ button:hover{background:#f3f6f9}
 button:disabled{cursor:not-allowed;opacity:.45}
 .primary{background:var(--brand);color:#fff;border-color:var(--brand)}
 .primary:hover{background:var(--brand-strong)}
+.danger-action{background:#b91c1c;border-color:#b91c1c;color:#fff}
+.danger-action:hover{background:#991b1b}
 .ghost{background:transparent}
 .ghost:hover{background:#f8fafc}
 input,select{display:block;width:100%;border:1px solid var(--line);border-radius:8px;padding:11px 12px;background:#fff;color:var(--ink)}
@@ -101,6 +103,7 @@ td{padding:14px 18px;border-bottom:1px solid #edf1f5;vertical-align:middle}
 td small{display:block;color:#748295;font-size:11px;margin-top:2px}
 td input{width:74px;padding:7px}
 td button{font-size:11px;padding:7px 10px;color:#475569}
+.row-actions{display:flex;gap:6px;flex-wrap:wrap}
 td.number,th.number{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .empty{text-align:center;margin:auto;padding:26px 20px;color:#64748b}
 .empty strong{display:block;font-size:22px;font-weight:900;margin-bottom:10px;color:#334155}

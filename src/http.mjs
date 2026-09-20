@@ -81,7 +81,7 @@ export function createApp(db) {
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/stores\/([\w-]+)\/state$/))) return send(res,200,await pos.state(ctx,match[1]));
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/sales\/([\w-]+)$/))) return send(res,200,await pos.receipt(ctx,match[1]));
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/operations\/([\w-]+)$/))) return send(res,200,await pos.operation(ctx,match[1]));
-      const routes={'/api/products':'createProduct','/api/users':'createUser','/api/stock/adjust':'adjustStock','/api/cash/open':'openCash','/api/cash/close':'closeCash','/api/cash/move':'moveCash','/api/sales':'sell'};
+      const routes={'/api/products':'createProduct','/api/users':'createUser','/api/stock/adjust':'adjustStock','/api/cash/open':'openCash','/api/cash/close':'closeCash','/api/cash/move':'moveCash','/api/sales':'sell','/api/sales/cancel':'cancelSale'};
       if(req.method==='POST'&&routes[url.pathname]) {
         const result=await pos[routes[url.pathname]](ctx,req.headers['idempotency-key'],await json(req));
         return send(res,result.replayed?200:201,result);

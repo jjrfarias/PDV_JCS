@@ -2,20 +2,20 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-const IMMUTABLE_TABLES = ['sales','sale_items','payments','stock_movements','cash_movements','operations','audit_events'];
+const IMMUTABLE_TABLES = ['sales','sale_items','payments','sale_cancellations','stock_movements','cash_movements','operations','audit_events'];
 
 export function connect(filename) {
   if (filename !== ':memory:') mkdirSync(dirname(filename), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(filename);
   db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 4) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
+  if (version > 5) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
   if (version === 0) {
     transaction(db, () => {
       if (db.prepare('PRAGMA user_version').get().user_version !== 0) return;
       db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
       createImmutableTriggers(db);
-      db.exec('PRAGMA user_version=4;');
+      db.exec('PRAGMA user_version=5;');
     });
   }
   if (version === 1) {
@@ -92,6 +92,21 @@ export function connect(filename) {
         DROP TABLE stock_movements_old;`);
       createImmutableTriggers(db, ['stock_movements']);
       db.exec('PRAGMA user_version=4;');
+    });
+  }
+  if (version <= 4) {
+    transaction(db, () => {
+      if (db.prepare('PRAGMA user_version').get().user_version !== 4) return;
+      db.exec(`CREATE TABLE sale_cancellations (
+          tenant_id TEXT NOT NULL, sale_id TEXT NOT NULL, store_id TEXT NOT NULL,
+          cash_session_id TEXT NOT NULL, reason TEXT NOT NULL, actor_id TEXT NOT NULL, created_at TEXT NOT NULL,
+          PRIMARY KEY(tenant_id,sale_id),
+          FOREIGN KEY(tenant_id,store_id,sale_id) REFERENCES sales(tenant_id,store_id,id),
+          FOREIGN KEY(tenant_id,store_id,cash_session_id) REFERENCES cash_sessions(tenant_id,store_id,id),
+          FOREIGN KEY(tenant_id,actor_id,store_id) REFERENCES memberships(tenant_id,user_id,store_id)
+        ) STRICT;`);
+      createImmutableTriggers(db, ['sale_cancellations']);
+      db.exec('PRAGMA user_version=5;');
     });
   }
   return db;

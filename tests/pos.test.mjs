@@ -119,6 +119,30 @@ test('17c - caixa resume vendas por forma de pagamento no backend',t=>{
   assert.equal(current.total_sales_cents,10000);
   assert.equal(current.expected_cents,15000);
 });
+test('17d - gerente cancela venda, devolve estoque e estorna dinheiro do caixa',t=>{
+  const {pos,db}=fixture(t);const cash=open(pos);
+  const sale=pos.sell(DEMO.manager,key(),saleInput(cash,{discountCents:0,discountReason:null,tenderedCents:5000})).data;
+  const canceled=pos.cancelSale(DEMO.manager,key(),{storeId:DEMO.storeA,saleId:sale.id,reason:'cliente desistiu'}).data;
+  assert.equal(canceled.cancellation.reason,'cliente desistiu');
+  assert.equal(pos.state(DEMO.manager,DEMO.storeA).products[0].quantity,10);
+  const current=pos.cash(DEMO.manager,cash.id);
+  assert.equal(current.expected_cents,10000);
+  assert.equal(current.cash_sales_cents,0);
+  assert.equal(current.total_sales_cents,0);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM sale_cancellations").get().n,1);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM stock_movements WHERE kind='ADJUSTMENT'").get().n,1);
+  assert.equal(db.prepare("SELECT amount_cents FROM cash_movements WHERE kind='WITHDRAWAL'").get().amount_cents,-5000);
+  assert.equal(pos.state(DEMO.manager,DEMO.storeA).sales[0].canceled_at!==null,true);
+});
+test('17e - cancelamento exige gerente, motivo e impede duplicidade',t=>{
+  const {pos}=fixture(t);const cash=open(pos);
+  const sale=pos.sell(DEMO.manager,key(),saleInput(cash,{paymentMethod:'PIX',discountCents:0,discountReason:null,tenderedCents:0})).data;
+  fails(()=>pos.cancelSale(DEMO.cashier,key(),{storeId:DEMO.storeA,saleId:sale.id,reason:'cliente desistiu'}),'MANAGER_REQUIRED');
+  fails(()=>pos.cancelSale(DEMO.manager,key(),{storeId:DEMO.storeA,saleId:sale.id,reason:'ok'}),'INVALID_INPUT');
+  pos.cancelSale(DEMO.manager,key(),{storeId:DEMO.storeA,saleId:sale.id,reason:'cliente desistiu'});
+  fails(()=>pos.cancelSale(DEMO.manager,key(),{storeId:DEMO.storeA,saleId:sale.id,reason:'segunda tentativa'}),'SALE_ALREADY_CANCELED');
+  assert.equal(pos.cash(DEMO.manager,cash.id).expected_cents,10000);
+});
 test('18 · reabertura simultânea do mesmo terminal não cria dois caixas',t=>{
   const {pos}=fixture(t);open(pos);fails(()=>open(pos),'CASH_ALREADY_OPEN');
 });

@@ -29,6 +29,21 @@ test('HTTP 01 · login emite cookie HttpOnly/SameSite e sessão não vai ao JSON
   assert.match(header,/HttpOnly/);assert.match(header,/SameSite=Strict/);assert.equal(result.data.token,undefined);
   const me=await w.call('/api/me');assert.equal(me.data.user.role,'MANAGER');assert.equal(me.data.stores.length,2);
 });
+
+test('HTTP 17 - gerente cancela venda confirmada por rota idempotente',async t=>{
+  const w=await web(t);await w.login();
+  const cash=await w.call('/api/cash/open',{method:'POST',headers:{'Idempotency-Key':key()},body:{storeId:DEMO.storeA,terminalId:DEMO.terminalA,openingCents:10000}});
+  const sale=await w.call('/api/sales',{method:'POST',headers:{'Idempotency-Key':key()},body:{storeId:DEMO.storeA,cashSessionId:cash.data.data.id,items:[{productId:DEMO.product,quantity:1}],discountCents:0,discountReason:null,paymentMethod:'CASH',tenderedCents:2500}});
+  const cancelKey=key(),body={storeId:DEMO.storeA,saleId:sale.data.data.id,reason:'cliente desistiu'};
+  const first=await w.call('/api/sales/cancel',{method:'POST',headers:{'Idempotency-Key':cancelKey},body});
+  assert.equal(first.response.status,201);assert.equal(first.data.data.cancellation.reason,body.reason);
+  const second=await w.call('/api/sales/cancel',{method:'POST',headers:{'Idempotency-Key':cancelKey},body});
+  assert.equal(second.response.status,200);assert.equal(second.data.replayed,true);
+  const state=await w.call('/api/stores/store-a/state');
+  assert.equal(state.data.products[0].quantity,10);
+  assert.equal(state.data.cash[0].expected_cents,10000);
+  assert.equal(state.data.sales[0].canceled_at!==null,true);
+});
 test('HTTP 02 · rota exige autenticação',async t=>{
   const w=await web(t);assert.equal((await w.call('/api/stores/store-a/state')).response.status,401);
 });

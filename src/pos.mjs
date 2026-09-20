@@ -142,7 +142,8 @@ export class Pos {
       COALESCE(SUM(CASE WHEN p.method='PIX' THEN p.amount_cents ELSE 0 END),0) pix_total,
       COALESCE(SUM(CASE WHEN p.method='CARD' THEN p.amount_cents ELSE 0 END),0) card_total
       FROM sales s JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
-      WHERE s.tenant_id=? AND s.cash_session_id=?`,ctx.tenantId,cashId);
+      LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
+      WHERE s.tenant_id=? AND s.cash_session_id=? AND x.sale_id IS NULL`,ctx.tenantId,cashId);
     return {...cash,expected_cents:sums.expected,sales_cents:sums.sales,
       total_sales_cents:payments.total,cash_sales_cents:payments.cash_total,pix_sales_cents:payments.pix_total,card_sales_cents:payments.card_total};
   }
@@ -237,11 +238,40 @@ export class Pos {
       return this.receipt(ctx,saleId);
     });
   }
+  cancelSale(ctx,key,raw) {
+    object(raw,['storeId','saleId','reason']);
+    const input={storeId:id(raw.storeId),saleId:id(raw.saleId),reason:text(raw.reason,'Motivo',200,3)};
+    return this.mutate(ctx,'SALE_CANCEL',key,input,user => {
+      requireThat(user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente cancela venda confirmada.');
+      const sale=this.one(`SELECT s.*,p.method,p.amount_cents FROM sales s JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
+        WHERE s.tenant_id=? AND s.store_id=? AND s.id=?`,ctx.tenantId,input.storeId,input.saleId);
+      requireThat(sale,404,'SALE_NOT_FOUND','Venda não encontrada nesta loja.');
+      requireThat(!this.one('SELECT 1 FROM sale_cancellations WHERE tenant_id=? AND sale_id=?',ctx.tenantId,input.saleId),409,'SALE_ALREADY_CANCELED','Venda já cancelada.');
+      const cash=this.cash(ctx,sale.cash_session_id);
+      requireThat(cash.status==='OPEN',409,'CASH_CLOSED','Abra o caixa da venda antes de cancelar.');
+      requireThat(cash.operator_id===ctx.userId,403,'CASH_OWNER_REQUIRED','O cancelamento deve ser feito pelo operador do caixa aberto.');
+      for(const item of this.all('SELECT product_id,quantity FROM sale_items WHERE tenant_id=? AND sale_id=? ORDER BY product_id',ctx.tenantId,input.saleId)) {
+        const changed=this.run(`UPDATE stock SET quantity=quantity+? WHERE tenant_id=? AND store_id=? AND product_id=? AND quantity+? BETWEEN 0 AND 1000000`,
+          item.quantity,ctx.tenantId,input.storeId,item.product_id,item.quantity);
+        requireThat(changed.changes===1,409,'STOCK_LIMIT','Cancelamento deixaria o estoque fora do limite permitido.');
+        this.run('INSERT INTO stock_movements VALUES(?,?,?,?,?,?,?,?,?,?)',ctx.tenantId,randomUUID(),input.storeId,item.product_id,null,item.quantity,'ADJUSTMENT',`Cancelamento de venda: ${input.reason}`,ctx.userId,now());
+      }
+      if(sale.method==='CASH') {
+        requireThat(cash.expected_cents-sale.amount_cents>=0,409,'CASH_NEGATIVE','Dinheiro esperado insuficiente para estornar esta venda.');
+        this.run('INSERT INTO cash_movements VALUES(?,?,?,?,?,?,?,?,?,?)',ctx.tenantId,randomUUID(),input.storeId,sale.cash_session_id,null,'WITHDRAWAL',-sale.amount_cents,`Cancelamento de venda: ${input.reason}`,ctx.userId,now());
+      }
+      this.run('INSERT INTO sale_cancellations VALUES(?,?,?,?,?,?,?)',ctx.tenantId,input.saleId,input.storeId,sale.cash_session_id,input.reason,ctx.userId,now());
+      this.audit(ctx,input.storeId,'SALE_CANCELED',input.saleId,{reason:input.reason,paymentMethod:sale.method,totalCents:sale.total_cents});
+      return this.receipt(ctx,input.saleId);
+    });
+  }
   receipt(ctx,saleId) {
     const sale=this.one('SELECT * FROM sales WHERE tenant_id=? AND id=?',ctx.tenantId,id(saleId));
     requireThat(sale,404,'SALE_NOT_FOUND','Venda não encontrada.');
     this.authorize(ctx,sale.store_id);
     return {...sale,
+      cancellation:this.one(`SELECT reason,created_at,u.name actor_name FROM sale_cancellations c JOIN users u ON u.tenant_id=c.tenant_id AND u.id=c.actor_id
+        WHERE c.tenant_id=? AND c.sale_id=?`,ctx.tenantId,saleId),
       store_name:this.one('SELECT name FROM stores WHERE tenant_id=? AND id=?',ctx.tenantId,sale.store_id).name,
       operator_name:this.one('SELECT name FROM users WHERE tenant_id=? AND id=?',ctx.tenantId,sale.operator_id).name,
       items:this.all('SELECT product_id,sku_snapshot,name_snapshot,quantity,price_cents,line_cents FROM sale_items WHERE tenant_id=? AND sale_id=? ORDER BY sku_snapshot',ctx.tenantId,saleId),
@@ -262,11 +292,13 @@ export class Pos {
       cashMovements:this.all(`SELECT m.id,m.cash_session_id,m.kind,m.amount_cents,m.reason,m.created_at,u.name actor_name
         FROM cash_movements m JOIN users u ON u.tenant_id=m.tenant_id AND u.id=m.actor_id
         WHERE m.tenant_id=? AND m.store_id=? ORDER BY m.created_at DESC LIMIT 50`,ctx.tenantId,storeId),
-      sales:this.all(`SELECT s.id,s.total_cents,s.discount_cents,s.created_at,u.name operator_name,c.terminal_id,t.name terminal_name
+      sales:this.all(`SELECT s.id,s.total_cents,s.discount_cents,s.created_at,u.name operator_name,c.terminal_id,t.name terminal_name,
+          x.created_at canceled_at,x.reason cancel_reason
         FROM sales s
         JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.operator_id
         JOIN cash_sessions c ON c.tenant_id=s.tenant_id AND c.id=s.cash_session_id
         JOIN terminals t ON t.tenant_id=c.tenant_id AND t.id=c.terminal_id
+        LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
         WHERE s.tenant_id=? AND s.store_id=? ORDER BY s.created_at DESC LIMIT 30`,ctx.tenantId,storeId),
       stockMovements:this.all(`SELECT m.product_id,p.name,m.kind,m.quantity,m.reason,m.created_at FROM stock_movements m JOIN products p ON p.tenant_id=m.tenant_id AND p.id=m.product_id
         WHERE m.tenant_id=? AND m.store_id=? ORDER BY m.created_at DESC LIMIT 50`,ctx.tenantId,storeId),

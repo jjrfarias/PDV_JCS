@@ -84,7 +84,8 @@ class TransactionPos {
       COALESCE(SUM(CASE WHEN p.method='PIX' THEN p.amount_cents ELSE 0 END),0) pix_total,
       COALESCE(SUM(CASE WHEN p.method='CARD' THEN p.amount_cents ELSE 0 END),0) card_total
       FROM sales s JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
-      WHERE s.tenant_id=$1 AND s.cash_session_id=$2`, ctx.tenantId, cashId);
+      LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
+      WHERE s.tenant_id=$1 AND s.cash_session_id=$2 AND x.sale_id IS NULL`, ctx.tenantId, cashId);
     return { ...cash, expected_cents: cashInteger(sums.expected), sales_cents: cashInteger(sums.sales),
       total_sales_cents: cashInteger(payments.total), cash_sales_cents: cashInteger(payments.cash_total),
       pix_sales_cents: cashInteger(payments.pix_total), card_sales_cents: cashInteger(payments.card_total) };
@@ -98,6 +99,9 @@ class TransactionPos {
     const operator = await this.one('SELECT name FROM users WHERE tenant_id=$1 AND id=$2', ctx.tenantId, sale.operator_id);
     return {
       ...sale, store_name: store.name, operator_name: operator.name,
+      cancellation: await this.one(`SELECT reason,created_at,u.name actor_name FROM sale_cancellations c
+        JOIN users u ON u.tenant_id=c.tenant_id AND u.id=c.actor_id
+        WHERE c.tenant_id=$1 AND c.sale_id=$2`, ctx.tenantId, saleId),
       items: await this.all(`SELECT product_id,sku_snapshot,name_snapshot,quantity,price_cents,line_cents
         FROM sale_items WHERE tenant_id=$1 AND sale_id=$2 ORDER BY sku_snapshot`, ctx.tenantId, saleId),
       payment: await this.one(`SELECT method,status,amount_cents,tendered_cents,change_cents
@@ -121,11 +125,13 @@ class TransactionPos {
           WHERE u.tenant_id=$1 AND m.store_id=$2 ORDER BY u.name`, ctx.tenantId, storeId)
         : [],
       cash,
-      sales: await this.all(`SELECT s.id,s.total_cents,s.discount_cents,s.created_at,u.name operator_name,c.terminal_id,t.name terminal_name
+      sales: await this.all(`SELECT s.id,s.total_cents,s.discount_cents,s.created_at,u.name operator_name,c.terminal_id,t.name terminal_name,
+          x.created_at canceled_at,x.reason cancel_reason
         FROM sales s
         JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.operator_id
         JOIN cash_sessions c ON c.tenant_id=s.tenant_id AND c.id=s.cash_session_id
         JOIN terminals t ON t.tenant_id=c.tenant_id AND t.id=c.terminal_id
+        LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
         WHERE s.tenant_id=$1 AND s.store_id=$2 ORDER BY s.created_at DESC LIMIT 30`, ctx.tenantId, storeId),
       stockMovements: await this.all(`SELECT m.product_id,p.name,m.kind,m.quantity,m.reason,m.created_at
         FROM stock_movements m JOIN products p ON p.tenant_id=m.tenant_id AND p.id=m.product_id
@@ -417,6 +423,51 @@ export class PostgresPos {
       await tx.audit(ctx, input.storeId, 'SALE_CONFIRMED', saleId,
         { totalCents: total, paymentMethod: input.paymentMethod, discountCents: input.discountCents, discountReason: input.discountReason });
       return tx.receipt(ctx, saleId);
+    });
+  }
+
+  async cancelSale(ctx, key, raw) {
+    object(raw, ['storeId', 'saleId', 'reason']);
+    const input = { storeId: id(raw.storeId), saleId: id(raw.saleId), reason: text(raw.reason, 'Motivo', 200, 3) };
+    return this.#mutate(ctx, 'SALE_CANCEL', key, input, async (tx, user) => {
+      requireThat(user.role === 'MANAGER', 403, 'MANAGER_REQUIRED', 'Somente gerente cancela venda confirmada.');
+      const sale = await tx.one(`SELECT s.*,p.method,p.amount_cents FROM sales s
+        JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
+        WHERE s.tenant_id=$1 AND s.store_id=$2 AND s.id=$3 FOR UPDATE OF s FOR SHARE OF p`,
+      ctx.tenantId, input.storeId, input.saleId);
+      requireThat(sale, 404, 'SALE_NOT_FOUND', 'Venda não encontrada nesta loja.');
+      const previous = await tx.one('SELECT 1 FROM sale_cancellations WHERE tenant_id=$1 AND sale_id=$2 FOR UPDATE',
+        ctx.tenantId, input.saleId);
+      requireThat(!previous, 409, 'SALE_ALREADY_CANCELED', 'Venda já cancelada.');
+      const cash = await tx.cash(ctx, sale.cash_session_id, { lock: true });
+      requireThat(cash.status === 'OPEN', 409, 'CASH_CLOSED', 'Abra o caixa da venda antes de cancelar.');
+      requireThat(cash.operator_id === ctx.userId, 403, 'CASH_OWNER_REQUIRED', 'O cancelamento deve ser feito pelo operador do caixa aberto.');
+      const items = await tx.all(`SELECT product_id,quantity FROM sale_items
+        WHERE tenant_id=$1 AND sale_id=$2 ORDER BY product_id`, ctx.tenantId, input.saleId);
+      for (const item of items) {
+        const changed = await tx.run(`UPDATE stock SET quantity=quantity+$1
+          WHERE tenant_id=$2 AND store_id=$3 AND product_id=$4 AND quantity+$1 BETWEEN 0 AND 1000000`,
+        item.quantity, ctx.tenantId, input.storeId, item.product_id);
+        requireThat(changed.changes === 1, 409, 'STOCK_LIMIT', 'Cancelamento deixaria o estoque fora do limite permitido.');
+        await tx.run(`INSERT INTO stock_movements
+          (tenant_id,id,store_id,product_id,sale_id,quantity,kind,reason,actor_id,created_at)
+          VALUES($1,$2,$3,$4,NULL,$5,'ADJUSTMENT',$6,$7,$8)`,
+        ctx.tenantId, randomUUID(), input.storeId, item.product_id, item.quantity, `Cancelamento de venda: ${input.reason}`, ctx.userId, now());
+      }
+      if (sale.method === 'CASH') {
+        requireThat(cash.expected_cents - cashInteger(sale.amount_cents) >= 0, 409, 'CASH_NEGATIVE', 'Dinheiro esperado insuficiente para estornar esta venda.');
+        await tx.run(`INSERT INTO cash_movements
+          (tenant_id,id,store_id,cash_session_id,sale_id,kind,amount_cents,reason,actor_id,created_at)
+          VALUES($1,$2,$3,$4,NULL,'WITHDRAWAL',$5,$6,$7,$8)`,
+        ctx.tenantId, randomUUID(), input.storeId, sale.cash_session_id, -cashInteger(sale.amount_cents), `Cancelamento de venda: ${input.reason}`, ctx.userId, now());
+      }
+      await tx.run(`INSERT INTO sale_cancellations
+        (tenant_id,sale_id,store_id,cash_session_id,reason,actor_id,created_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7)`,
+      ctx.tenantId, input.saleId, input.storeId, sale.cash_session_id, input.reason, ctx.userId, now());
+      await tx.audit(ctx, input.storeId, 'SALE_CANCELED', input.saleId,
+        { reason: input.reason, paymentMethod: sale.method, totalCents: cashInteger(sale.total_cents) });
+      return tx.receipt(ctx, input.saleId);
     });
   }
 }
