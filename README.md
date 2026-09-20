@@ -65,6 +65,7 @@ O operador `operador@jcs.local` tem acesso apenas à Loja A e não pode conceder
 - Resumo do caixa por forma de pagamento calculado no backend: dinheiro, PIX, cartão e total vendido.
 - Venda, itens, pagamento, movimentos, auditoria e chave de repetição confirmados na mesma transação local.
 - Cancelamento gerencial de venda confirmada, com motivo, devolução de estoque, estorno de dinheiro quando aplicável e registro auditável.
+- Devolução gerencial parcial ou total, com motivo, saldo devolvível por item, recomposição de estoque, estorno de dinheiro quando aplicável e registro auditável sem apagar a venda original.
 - Relatório por período com vendas, pagamentos, produtos, operadores, fechamentos e exportação compatível com Excel.
 - Bloqueio de saldo negativo e proteção para requisições com a mesma chave.
 - Histórico de vendas, movimentos de estoque, fechamentos e reabertura do comprovante existente.
@@ -73,7 +74,7 @@ O operador `operador@jcs.local` tem acesso apenas à Loja A e não pode conceder
 
 ## O que NÃO está entregue
 
-Não há emissão de NFC-e/NF-e, PIX automático, cartão integrado, TEF, integração de maquininha, certificado digital, impressora fiscal, contas a pagar/receber, troca, inventário completo, transferência entre lojas, sincronização com nuvem, gestão consolidada de várias máquinas, contingência fiscal, empacotamento Electron, instalador comercial, restauração/backup homologado nem atualização automática.
+Não há emissão de NFC-e/NF-e, PIX automático, cartão integrado, TEF, integração de maquininha, certificado digital, impressora fiscal, contas a pagar/receber, troca por outro produto no mesmo fluxo, inventário completo, transferência entre lojas, sincronização com nuvem, gestão consolidada de várias máquinas, contingência fiscal, empacotamento Electron, instalador comercial, restauração/backup homologado nem atualização automática.
 
 A autenticação não tem redefinição de senha por e-mail, troca obrigatória no primeiro login, MFA ou vínculo a múltiplas lojas pela tela. O usuário autenticado consegue alterar a própria senha, e gerentes conseguem administrar usuários da loja selecionada. Os usuários iniciais são criados por seed ou provisionamento operacional. A autorização do gerente significa **o próprio gerente autenticado concede o desconto**; não há fluxo de aprovação por senha do supervisor em uma venda de outro operador.
 
@@ -130,7 +131,7 @@ npm.cmd test
 
 Os testes usam memória ou diretórios temporários criados especificamente para a suíte. Não apontam para `data/pdv.sqlite` e não removem seu banco de demonstração.
 
-Foram executados 66 testes de domínio e HTTP, sem falhas, no ambiente de preparação. A navegação automatizada da interface não pode ser concluída porque o Chromium disponível bloqueou a abertura dos endereços de teste por política administrativa. Isso não é teste visual aprovado. Execute o roteiro manual acima no seu computador antes de demonstrar a interface.
+Foram executados 68 testes de domínio e HTTP, sem falhas, no ambiente de preparação. A navegação automatizada da interface não pode ser concluída porque o Chromium disponível bloqueou a abertura dos endereços de teste por política administrativa. Isso não é teste visual aprovado. Execute o roteiro manual acima no seu computador antes de demonstrar a interface.
 
 ## Persistência e manutenção local
 

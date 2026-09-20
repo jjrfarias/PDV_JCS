@@ -25,6 +25,19 @@ function customerInput(raw, { updating = false } = {}) {
     active:updating?integer(raw.active,'Status',0,1):1
   };
 }
+function saleReturnInput(raw) {
+  object(raw,['storeId','saleId','items','reason']);
+  requireThat(Array.isArray(raw.items)&&raw.items.length>0&&raw.items.length<=100,400,'INVALID_ITEMS','Informe os produtos para devolução.');
+  const items=raw.items.map(item => {
+    object(item,['productId','quantity']);
+    return {productId:id(item.productId),quantity:integer(item.quantity,'Quantidade',1,10_000)};
+  }).sort((a,b)=>a.productId.localeCompare(b.productId));
+  requireThat(new Set(items.map(i=>i.productId)).size===items.length,400,'DUPLICATE_ITEM','Agrupe a quantidade do mesmo produto em uma única linha.');
+  return {storeId:id(raw.storeId),saleId:id(raw.saleId),items,reason:text(raw.reason,'Motivo',200,3)};
+}
+function proratedReturnCents(sale, lineCents) {
+  return integer(Math.floor(lineCents*sale.total_cents/sale.subtotal_cents),'Total da devolução',1);
+}
 function reportRange(from, to) {
   const date = /^\d{4}-\d{2}-\d{2}$/;
   requireThat(date.test(from)&&date.test(to),400,'INVALID_PERIOD','Informe datas no formato AAAA-MM-DD.');
@@ -379,6 +392,53 @@ export class Pos {
       return this.receipt(ctx,input.saleId);
     });
   }
+  returnSale(ctx,key,raw) {
+    const input=saleReturnInput(raw);
+    return this.mutate(ctx,'SALE_RETURN',key,input,user => {
+      requireThat(user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente registra devolução.');
+      const sale=this.one(`SELECT s.*,p.method,p.amount_cents FROM sales s JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
+        WHERE s.tenant_id=? AND s.store_id=? AND s.id=?`,ctx.tenantId,input.storeId,input.saleId);
+      requireThat(sale,404,'SALE_NOT_FOUND','Venda não encontrada nesta loja.');
+      requireThat(!this.one('SELECT 1 FROM sale_cancellations WHERE tenant_id=? AND sale_id=?',ctx.tenantId,input.saleId),409,'SALE_CANCELED','Venda cancelada não aceita devolução.');
+      const cash=this.cash(ctx,sale.cash_session_id);
+      requireThat(cash.status==='OPEN',409,'CASH_CLOSED','Abra o caixa da venda antes de registrar devolução.');
+      requireThat(cash.operator_id===ctx.userId,403,'CASH_OWNER_REQUIRED','A devolução deve ser feita pelo operador do caixa aberto.');
+      const saleItems=new Map(this.all(`SELECT i.*,COALESCE(SUM(r.quantity),0) returned_quantity
+        FROM sale_items i
+        LEFT JOIN sale_return_items r ON r.tenant_id=i.tenant_id AND r.sale_id=i.sale_id AND r.product_id=i.product_id
+        WHERE i.tenant_id=? AND i.sale_id=?
+        GROUP BY i.tenant_id,i.sale_id,i.product_id,i.sku_snapshot,i.name_snapshot,i.quantity,i.price_cents,i.line_cents`,ctx.tenantId,input.saleId)
+        .map(row=>[row.product_id,row]));
+      const lines=input.items.map(item => {
+        const original=saleItems.get(item.productId);
+        requireThat(original,404,'SALE_ITEM_NOT_FOUND','Produto não pertence a esta venda.');
+        const available=original.quantity-original.returned_quantity;
+        requireThat(item.quantity<=available,409,'RETURN_QUANTITY_EXCEEDED','Quantidade maior que o saldo disponível para devolução.');
+        const lineCents=original.price_cents*item.quantity;
+        return {...item,sku:original.sku_snapshot,name:original.name_snapshot,priceCents:original.price_cents,amountCents:proratedReturnCents(sale,lineCents)};
+      });
+      const previousTotal=this.one('SELECT COALESCE(SUM(total_cents),0) total FROM sale_returns WHERE tenant_id=? AND sale_id=?',ctx.tenantId,input.saleId).total;
+      let total=lines.reduce((sum,line)=>sum+line.amountCents,0);
+      const returningAll=input.items.every(item => item.quantity===saleItems.get(item.productId).quantity-saleItems.get(item.productId).returned_quantity)
+        && [...saleItems.values()].every(item => input.items.some(line=>line.productId===item.product_id) || item.quantity===item.returned_quantity);
+      if(returningAll) total=sale.total_cents-previousTotal;
+      requireThat(total>0&&previousTotal+total<=sale.total_cents,409,'RETURN_TOTAL_EXCEEDED','Valor de devolução maior que o saldo da venda.');
+      if(sale.method==='CASH') requireThat(cash.expected_cents-total>=0,409,'CASH_NEGATIVE','Dinheiro esperado insuficiente para esta devolução.');
+      const returnId=randomUUID(),createdAt=now();
+      this.run(`INSERT INTO sale_returns(tenant_id,id,store_id,sale_id,cash_session_id,actor_id,payment_method,total_cents,reason,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?)`,ctx.tenantId,returnId,input.storeId,input.saleId,sale.cash_session_id,ctx.userId,sale.method,total,input.reason,createdAt);
+      for(const line of lines) {
+        const changed=this.run(`UPDATE stock SET quantity=quantity+? WHERE tenant_id=? AND store_id=? AND product_id=? AND quantity+? BETWEEN 0 AND 1000000`,
+          line.quantity,ctx.tenantId,input.storeId,line.productId,line.quantity);
+        requireThat(changed.changes===1,409,'STOCK_LIMIT','Devolução deixaria o estoque fora do limite permitido.');
+        this.run('INSERT INTO sale_return_items VALUES(?,?,?,?,?,?)',ctx.tenantId,returnId,input.saleId,line.productId,line.quantity,line.amountCents);
+        this.run('INSERT INTO stock_movements VALUES(?,?,?,?,?,?,?,?,?,?)',ctx.tenantId,randomUUID(),input.storeId,line.productId,null,line.quantity,'ADJUSTMENT',`Devolução de venda: ${input.reason}`,ctx.userId,createdAt);
+      }
+      if(sale.method==='CASH') this.run('INSERT INTO cash_movements VALUES(?,?,?,?,?,?,?,?,?,?)',ctx.tenantId,randomUUID(),input.storeId,sale.cash_session_id,null,'WITHDRAWAL',-total,`Devolução de venda: ${input.reason}`,ctx.userId,createdAt);
+      this.audit(ctx,input.storeId,'SALE_RETURNED',returnId,{saleId:input.saleId,totalCents:total,paymentMethod:sale.method,reason:input.reason});
+      return this.receipt(ctx,input.saleId);
+    });
+  }
   receipt(ctx,saleId) {
     const sale=this.one('SELECT * FROM sales WHERE tenant_id=? AND id=?',ctx.tenantId,id(saleId));
     requireThat(sale,404,'SALE_NOT_FOUND','Venda não encontrada.');
@@ -386,6 +446,12 @@ export class Pos {
     return {...sale,
       cancellation:this.one(`SELECT reason,created_at,u.name actor_name FROM sale_cancellations c JOIN users u ON u.tenant_id=c.tenant_id AND u.id=c.actor_id
         WHERE c.tenant_id=? AND c.sale_id=?`,ctx.tenantId,saleId),
+      returns:this.all(`SELECT r.id,r.total_cents,r.reason,r.payment_method,r.created_at,u.name actor_name
+        FROM sale_returns r JOIN users u ON u.tenant_id=r.tenant_id AND u.id=r.actor_id
+        WHERE r.tenant_id=? AND r.sale_id=? ORDER BY r.created_at`,ctx.tenantId,saleId),
+      return_items:this.all(`SELECT i.return_id,i.product_id,i.quantity,i.amount_cents,p.name_snapshot
+        FROM sale_return_items i JOIN sale_items p ON p.tenant_id=i.tenant_id AND p.sale_id=i.sale_id AND p.product_id=i.product_id
+        WHERE i.tenant_id=? AND i.sale_id=? ORDER BY p.sku_snapshot`,ctx.tenantId,saleId),
       store_name:this.one('SELECT name FROM stores WHERE tenant_id=? AND id=?',ctx.tenantId,sale.store_id).name,
       operator_name:this.one('SELECT name FROM users WHERE tenant_id=? AND id=?',ctx.tenantId,sale.operator_id).name,
       items:this.all('SELECT product_id,sku_snapshot,name_snapshot,quantity,price_cents,line_cents FROM sale_items WHERE tenant_id=? AND sale_id=? ORDER BY sku_snapshot',ctx.tenantId,saleId),
@@ -394,33 +460,42 @@ export class Pos {
   report(ctx,storeId,from,to) {
     id(storeId);this.authorize(ctx,storeId);const range=reportRange(from,to);
     const sales=this.all(`SELECT s.id,s.created_at,s.customer_id,s.total_cents,s.discount_cents,p.method,u.name operator_name,t.name terminal_name,
-        x.created_at canceled_at,x.reason cancel_reason
+        x.created_at canceled_at,x.reason cancel_reason,COALESCE(SUM(r.total_cents),0) returned_cents
       FROM sales s
       JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
       JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.operator_id
       JOIN cash_sessions c ON c.tenant_id=s.tenant_id AND c.id=s.cash_session_id
       JOIN terminals t ON t.tenant_id=c.tenant_id AND t.id=c.terminal_id
       LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
+      LEFT JOIN sale_returns r ON r.tenant_id=s.tenant_id AND r.sale_id=s.id
       WHERE s.tenant_id=? AND s.store_id=? AND s.created_at>=? AND s.created_at<?
+      GROUP BY s.id,s.created_at,s.customer_id,s.total_cents,s.discount_cents,p.method,u.name,t.name,x.created_at,x.reason
       ORDER BY s.created_at`,ctx.tenantId,storeId,range.start,range.end);
     const active=sales.filter(s=>!s.canceled_at);
     const summary={
       sale_count:sales.length,active_sale_count:active.length,canceled_sale_count:sales.length-active.length,
-      gross_cents:active.reduce((n,s)=>n+s.total_cents,0),
+      gross_cents:active.reduce((n,s)=>n+s.total_cents-s.returned_cents,0),
       discount_cents:active.reduce((n,s)=>n+s.discount_cents,0),
-      canceled_cents:sales.filter(s=>s.canceled_at).reduce((n,s)=>n+s.total_cents,0)
+      canceled_cents:sales.filter(s=>s.canceled_at).reduce((n,s)=>n+s.total_cents,0),
+      returned_cents:active.reduce((n,s)=>n+s.returned_cents,0)
     };
-    const payments=this.all(`SELECT p.method,COUNT(*) sale_count,COALESCE(SUM(p.amount_cents),0) amount_cents
+    const payments=this.all(`SELECT p.method,COUNT(*) sale_count,COALESCE(SUM(p.amount_cents-COALESCE(r.returned_cents,0)),0) amount_cents
       FROM sales s JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
       LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
+      LEFT JOIN (SELECT tenant_id,sale_id,SUM(total_cents) returned_cents FROM sale_returns GROUP BY tenant_id,sale_id) r
+        ON r.tenant_id=s.tenant_id AND r.sale_id=s.id
       WHERE s.tenant_id=? AND s.store_id=? AND s.created_at>=? AND s.created_at<? AND x.sale_id IS NULL
       GROUP BY p.method ORDER BY p.method`,ctx.tenantId,storeId,range.start,range.end);
-    const products=this.all(`SELECT i.product_id,i.sku_snapshot sku,i.name_snapshot name,COALESCE(SUM(i.quantity),0) quantity,
-        COALESCE(SUM(i.line_cents),0) total_cents
+    const products=this.all(`SELECT i.product_id,i.sku_snapshot sku,i.name_snapshot name,COALESCE(SUM(i.quantity-COALESCE(r.quantity,0)),0) quantity,
+        COALESCE(SUM(i.line_cents-COALESCE(r.amount_cents,0)),0) total_cents
       FROM sales s JOIN sale_items i ON i.tenant_id=s.tenant_id AND i.sale_id=s.id
       LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
+      LEFT JOIN (SELECT tenant_id,sale_id,product_id,SUM(quantity) quantity,SUM(amount_cents) amount_cents
+        FROM sale_return_items GROUP BY tenant_id,sale_id,product_id) r
+        ON r.tenant_id=i.tenant_id AND r.sale_id=i.sale_id AND r.product_id=i.product_id
       WHERE s.tenant_id=? AND s.store_id=? AND s.created_at>=? AND s.created_at<? AND x.sale_id IS NULL
-      GROUP BY i.product_id,i.sku_snapshot,i.name_snapshot ORDER BY total_cents DESC,name LIMIT 50`,ctx.tenantId,storeId,range.start,range.end);
+      GROUP BY i.product_id,i.sku_snapshot,i.name_snapshot HAVING COALESCE(SUM(i.quantity-COALESCE(r.quantity,0)),0)>0
+      ORDER BY total_cents DESC,name LIMIT 50`,ctx.tenantId,storeId,range.start,range.end);
     const operators=this.all(`SELECT u.name operator_name,COUNT(*) sale_count,COALESCE(SUM(s.total_cents),0) total_cents
       FROM sales s JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.operator_id
       LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
@@ -449,13 +524,16 @@ export class Pos {
         FROM cash_movements m JOIN users u ON u.tenant_id=m.tenant_id AND u.id=m.actor_id
         WHERE m.tenant_id=? AND m.store_id=? ORDER BY m.created_at DESC LIMIT 50`,ctx.tenantId,storeId),
       sales:this.all(`SELECT s.id,s.customer_id,s.total_cents,s.discount_cents,s.created_at,u.name operator_name,c.terminal_id,t.name terminal_name,
-          x.created_at canceled_at,x.reason cancel_reason
+          x.created_at canceled_at,x.reason cancel_reason,COALESCE(SUM(r.total_cents),0) returned_cents
         FROM sales s
         JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.operator_id
         JOIN cash_sessions c ON c.tenant_id=s.tenant_id AND c.id=s.cash_session_id
         JOIN terminals t ON t.tenant_id=c.tenant_id AND t.id=c.terminal_id
         LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
-        WHERE s.tenant_id=? AND s.store_id=? ORDER BY s.created_at DESC LIMIT 30`,ctx.tenantId,storeId),
+        LEFT JOIN sale_returns r ON r.tenant_id=s.tenant_id AND r.sale_id=s.id
+        WHERE s.tenant_id=? AND s.store_id=?
+        GROUP BY s.id,s.customer_id,s.total_cents,s.discount_cents,s.created_at,u.name,c.terminal_id,t.name,x.created_at,x.reason
+        ORDER BY s.created_at DESC LIMIT 30`,ctx.tenantId,storeId),
       stockMovements:this.all(`SELECT m.product_id,p.name,m.kind,m.quantity,m.reason,m.created_at FROM stock_movements m JOIN products p ON p.tenant_id=m.tenant_id AND p.id=m.product_id
         WHERE m.tenant_id=? AND m.store_id=? ORDER BY m.created_at DESC LIMIT 50`,ctx.tenantId,storeId),
       cashHistory:this.all("SELECT id,terminal_id,expected_cents,counted_cents,difference_cents,closed_at FROM cash_sessions WHERE tenant_id=? AND store_id=? AND status='CLOSED' ORDER BY closed_at DESC LIMIT 20",ctx.tenantId,storeId)

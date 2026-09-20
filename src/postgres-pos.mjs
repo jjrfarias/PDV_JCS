@@ -25,6 +25,21 @@ function customerInput(raw, { updating = false } = {}) {
     active: updating ? integer(raw.active, 'Status', 0, 1) : 1
   };
 }
+function saleReturnInput(raw) {
+  object(raw, ['storeId', 'saleId', 'items', 'reason']);
+  requireThat(Array.isArray(raw.items) && raw.items.length > 0 && raw.items.length <= 100,
+    400, 'INVALID_ITEMS', 'Informe os produtos para devolução.');
+  const items = raw.items.map(item => {
+    object(item, ['productId', 'quantity']);
+    return { productId: id(item.productId), quantity: integer(item.quantity, 'Quantidade', 1, 10_000) };
+  }).sort((a, b) => a.productId.localeCompare(b.productId));
+  requireThat(new Set(items.map(item => item.productId)).size === items.length,
+    400, 'DUPLICATE_ITEM', 'Agrupe a quantidade do mesmo produto em uma única linha.');
+  return { storeId: id(raw.storeId), saleId: id(raw.saleId), items, reason: text(raw.reason, 'Motivo', 200, 3) };
+}
+function proratedReturnCents(sale, lineCents) {
+  return integer(Math.floor(lineCents * cashInteger(sale.total_cents) / cashInteger(sale.subtotal_cents)), 'Total da devolução', 1);
+}
 function reportRange(from, to) {
   const date = /^\d{4}-\d{2}-\d{2}$/;
   requireThat(date.test(from) && date.test(to), 400, 'INVALID_PERIOD', 'Informe datas no formato AAAA-MM-DD.');
@@ -130,6 +145,14 @@ class TransactionPos {
       cancellation: await this.one(`SELECT reason,created_at,u.name actor_name FROM sale_cancellations c
         JOIN users u ON u.tenant_id=c.tenant_id AND u.id=c.actor_id
         WHERE c.tenant_id=$1 AND c.sale_id=$2`, ctx.tenantId, saleId),
+      returns: (await this.all(`SELECT r.id,r.total_cents,r.reason,r.payment_method,r.created_at,u.name actor_name
+        FROM sale_returns r JOIN users u ON u.tenant_id=r.tenant_id AND u.id=r.actor_id
+        WHERE r.tenant_id=$1 AND r.sale_id=$2 ORDER BY r.created_at`, ctx.tenantId, saleId))
+        .map(row => ({ ...row, total_cents: cashInteger(row.total_cents) })),
+      return_items: (await this.all(`SELECT i.return_id,i.product_id,i.quantity,i.amount_cents,p.name_snapshot
+        FROM sale_return_items i JOIN sale_items p ON p.tenant_id=i.tenant_id AND p.sale_id=i.sale_id AND p.product_id=i.product_id
+        WHERE i.tenant_id=$1 AND i.sale_id=$2 ORDER BY p.sku_snapshot`, ctx.tenantId, saleId))
+        .map(row => ({ ...row, quantity: cashInteger(row.quantity), amount_cents: cashInteger(row.amount_cents) })),
       items: await this.all(`SELECT product_id,sku_snapshot,name_snapshot,quantity,price_cents,line_cents
         FROM sale_items WHERE tenant_id=$1 AND sale_id=$2 ORDER BY sku_snapshot`, ctx.tenantId, saleId),
       payment: await this.one(`SELECT method,status,amount_cents,tendered_cents,change_cents
@@ -157,13 +180,16 @@ class TransactionPos {
         .map(row => this.customerRow(row)),
       cash,
       sales: await this.all(`SELECT s.id,s.customer_id,s.total_cents,s.discount_cents,s.created_at,u.name operator_name,c.terminal_id,t.name terminal_name,
-          x.created_at canceled_at,x.reason cancel_reason
+          x.created_at canceled_at,x.reason cancel_reason,COALESCE(SUM(r.total_cents),0) returned_cents
         FROM sales s
         JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.operator_id
         JOIN cash_sessions c ON c.tenant_id=s.tenant_id AND c.id=s.cash_session_id
         JOIN terminals t ON t.tenant_id=c.tenant_id AND t.id=c.terminal_id
         LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
-        WHERE s.tenant_id=$1 AND s.store_id=$2 ORDER BY s.created_at DESC LIMIT 30`, ctx.tenantId, storeId),
+        LEFT JOIN sale_returns r ON r.tenant_id=s.tenant_id AND r.sale_id=s.id
+        WHERE s.tenant_id=$1 AND s.store_id=$2
+        GROUP BY s.id,s.customer_id,s.total_cents,s.discount_cents,s.created_at,u.name,c.terminal_id,t.name,x.created_at,x.reason
+        ORDER BY s.created_at DESC LIMIT 30`, ctx.tenantId, storeId),
       stockMovements: await this.all(`SELECT m.product_id,p.name,m.kind,m.quantity,m.reason,m.created_at
         FROM stock_movements m JOIN products p ON p.tenant_id=m.tenant_id AND p.id=m.product_id
         WHERE m.tenant_id=$1 AND m.store_id=$2 ORDER BY m.created_at DESC LIMIT 50`, ctx.tenantId, storeId),
@@ -181,37 +207,47 @@ class TransactionPos {
     await this.authorize(ctx, storeId);
     const range = reportRange(from, to);
     const sales = await this.all(`SELECT s.id,s.created_at,s.customer_id,s.total_cents,s.discount_cents,p.method,u.name operator_name,t.name terminal_name,
-        x.created_at canceled_at,x.reason cancel_reason
+        x.created_at canceled_at,x.reason cancel_reason,COALESCE(SUM(r.total_cents),0) returned_cents
       FROM sales s
       JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
       JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.operator_id
       JOIN cash_sessions c ON c.tenant_id=s.tenant_id AND c.id=s.cash_session_id
       JOIN terminals t ON t.tenant_id=c.tenant_id AND t.id=c.terminal_id
       LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
+      LEFT JOIN sale_returns r ON r.tenant_id=s.tenant_id AND r.sale_id=s.id
       WHERE s.tenant_id=$1 AND s.store_id=$2 AND s.created_at>=$3 AND s.created_at<$4
+      GROUP BY s.id,s.created_at,s.customer_id,s.total_cents,s.discount_cents,p.method,u.name,t.name,x.created_at,x.reason
       ORDER BY s.created_at`, ctx.tenantId, storeId, range.start, range.end);
     const normalizedSales = sales.map(sale => ({ ...sale,
-      total_cents: cashInteger(sale.total_cents), discount_cents: cashInteger(sale.discount_cents) }));
+      total_cents: cashInteger(sale.total_cents), discount_cents: cashInteger(sale.discount_cents),
+      returned_cents: cashInteger(sale.returned_cents) }));
     const active = normalizedSales.filter(sale => !sale.canceled_at);
     const summary = {
       sale_count: normalizedSales.length, active_sale_count: active.length,
       canceled_sale_count: normalizedSales.length - active.length,
-      gross_cents: active.reduce((sum, sale) => sum + sale.total_cents, 0),
+      gross_cents: active.reduce((sum, sale) => sum + sale.total_cents - sale.returned_cents, 0),
       discount_cents: active.reduce((sum, sale) => sum + sale.discount_cents, 0),
-      canceled_cents: normalizedSales.filter(sale => sale.canceled_at).reduce((sum, sale) => sum + sale.total_cents, 0)
+      canceled_cents: normalizedSales.filter(sale => sale.canceled_at).reduce((sum, sale) => sum + sale.total_cents, 0),
+      returned_cents: active.reduce((sum, sale) => sum + sale.returned_cents, 0)
     };
-    const payments = (await this.all(`SELECT p.method,COUNT(*) sale_count,COALESCE(SUM(p.amount_cents),0) amount_cents
+    const payments = (await this.all(`SELECT p.method,COUNT(*) sale_count,COALESCE(SUM(p.amount_cents-COALESCE(r.returned_cents,0)),0) amount_cents
       FROM sales s JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
       LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
+      LEFT JOIN (SELECT tenant_id,sale_id,SUM(total_cents) returned_cents FROM sale_returns GROUP BY tenant_id,sale_id) r
+        ON r.tenant_id=s.tenant_id AND r.sale_id=s.id
       WHERE s.tenant_id=$1 AND s.store_id=$2 AND s.created_at>=$3 AND s.created_at<$4 AND x.sale_id IS NULL
       GROUP BY p.method ORDER BY p.method`, ctx.tenantId, storeId, range.start, range.end))
       .map(row => ({ ...row, sale_count: cashInteger(row.sale_count), amount_cents: cashInteger(row.amount_cents) }));
-    const products = (await this.all(`SELECT i.product_id,i.sku_snapshot sku,i.name_snapshot name,COALESCE(SUM(i.quantity),0) quantity,
-        COALESCE(SUM(i.line_cents),0) total_cents
+    const products = (await this.all(`SELECT i.product_id,i.sku_snapshot sku,i.name_snapshot name,COALESCE(SUM(i.quantity-COALESCE(r.quantity,0)),0) quantity,
+        COALESCE(SUM(i.line_cents-COALESCE(r.amount_cents,0)),0) total_cents
       FROM sales s JOIN sale_items i ON i.tenant_id=s.tenant_id AND i.sale_id=s.id
       LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
+      LEFT JOIN (SELECT tenant_id,sale_id,product_id,SUM(quantity) quantity,SUM(amount_cents) amount_cents
+        FROM sale_return_items GROUP BY tenant_id,sale_id,product_id) r
+        ON r.tenant_id=i.tenant_id AND r.sale_id=i.sale_id AND r.product_id=i.product_id
       WHERE s.tenant_id=$1 AND s.store_id=$2 AND s.created_at>=$3 AND s.created_at<$4 AND x.sale_id IS NULL
-      GROUP BY i.product_id,i.sku_snapshot,i.name_snapshot ORDER BY total_cents DESC,name LIMIT 50`,
+      GROUP BY i.product_id,i.sku_snapshot,i.name_snapshot HAVING COALESCE(SUM(i.quantity-COALESCE(r.quantity,0)),0)>0
+      ORDER BY total_cents DESC,name LIMIT 50`,
     ctx.tenantId, storeId, range.start, range.end))
       .map(row => ({ ...row, quantity: cashInteger(row.quantity), total_cents: cashInteger(row.total_cents) }));
     const operators = (await this.all(`SELECT u.name operator_name,COUNT(*) sale_count,COALESCE(SUM(s.total_cents),0) total_cents
@@ -701,6 +737,81 @@ export class PostgresPos {
       ctx.tenantId, input.saleId, input.storeId, sale.cash_session_id, input.reason, ctx.userId, now());
       await tx.audit(ctx, input.storeId, 'SALE_CANCELED', input.saleId,
         { reason: input.reason, paymentMethod: sale.method, totalCents: cashInteger(sale.total_cents) });
+      return tx.receipt(ctx, input.saleId);
+    });
+  }
+
+  async returnSale(ctx, key, raw) {
+    const input = saleReturnInput(raw);
+    return this.#mutate(ctx, 'SALE_RETURN', key, input, async (tx, user) => {
+      requireThat(user.role === 'MANAGER', 403, 'MANAGER_REQUIRED', 'Somente gerente registra devolução.');
+      const sale = await tx.one(`SELECT s.*,p.method,p.amount_cents FROM sales s
+        JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
+        WHERE s.tenant_id=$1 AND s.store_id=$2 AND s.id=$3 FOR UPDATE OF s FOR SHARE OF p`,
+      ctx.tenantId, input.storeId, input.saleId);
+      requireThat(sale, 404, 'SALE_NOT_FOUND', 'Venda não encontrada nesta loja.');
+      const canceled = await tx.one('SELECT 1 FROM sale_cancellations WHERE tenant_id=$1 AND sale_id=$2 FOR UPDATE',
+        ctx.tenantId, input.saleId);
+      requireThat(!canceled, 409, 'SALE_CANCELED', 'Venda cancelada não aceita devolução.');
+      const cash = await tx.cash(ctx, sale.cash_session_id, { lock: true });
+      requireThat(cash.status === 'OPEN', 409, 'CASH_CLOSED', 'Abra o caixa da venda antes de registrar devolução.');
+      requireThat(cash.operator_id === ctx.userId, 403, 'CASH_OWNER_REQUIRED', 'A devolução deve ser feita pelo operador do caixa aberto.');
+      const saleRows = await tx.all(`SELECT i.*,
+          COALESCE((SELECT SUM(r.quantity) FROM sale_return_items r
+            WHERE r.tenant_id=i.tenant_id AND r.sale_id=i.sale_id AND r.product_id=i.product_id),0) returned_quantity
+        FROM sale_items i
+        WHERE i.tenant_id=$1 AND i.sale_id=$2
+        ORDER BY i.product_id FOR UPDATE`, ctx.tenantId, input.saleId);
+      const saleItems = new Map(saleRows.map(row => [row.product_id, { ...row,
+        quantity: cashInteger(row.quantity), returned_quantity: cashInteger(row.returned_quantity),
+        price_cents: cashInteger(row.price_cents), line_cents: cashInteger(row.line_cents) }]));
+      const lines = input.items.map(item => {
+        const original = saleItems.get(item.productId);
+        requireThat(original, 404, 'SALE_ITEM_NOT_FOUND', 'Produto não pertence a esta venda.');
+        const available = original.quantity - original.returned_quantity;
+        requireThat(item.quantity <= available, 409, 'RETURN_QUANTITY_EXCEEDED', 'Quantidade maior que o saldo disponível para devolução.');
+        const lineCents = original.price_cents * item.quantity;
+        return { ...item, sku: original.sku_snapshot, name: original.name_snapshot,
+          priceCents: original.price_cents, amountCents: proratedReturnCents(sale, lineCents) };
+      });
+      const previous = await tx.one('SELECT COALESCE(SUM(total_cents),0) total FROM sale_returns WHERE tenant_id=$1 AND sale_id=$2',
+        ctx.tenantId, input.saleId);
+      const previousTotal = cashInteger(previous.total);
+      let total = lines.reduce((sum, line) => sum + line.amountCents, 0);
+      const returningAll = input.items.every(item => item.quantity === saleItems.get(item.productId).quantity - saleItems.get(item.productId).returned_quantity) &&
+        [...saleItems.values()].every(item => input.items.some(line => line.productId === item.product_id) || item.quantity === item.returned_quantity);
+      if (returningAll) total = cashInteger(sale.total_cents) - previousTotal;
+      requireThat(total > 0 && previousTotal + total <= cashInteger(sale.total_cents),
+        409, 'RETURN_TOTAL_EXCEEDED', 'Valor de devolução maior que o saldo da venda.');
+      if (sale.method === 'CASH') requireThat(cash.expected_cents - total >= 0, 409, 'CASH_NEGATIVE', 'Dinheiro esperado insuficiente para esta devolução.');
+      const returnId = randomUUID();
+      const createdAt = now();
+      await tx.run(`INSERT INTO sale_returns
+        (tenant_id,id,store_id,sale_id,cash_session_id,actor_id,payment_method,total_cents,reason,created_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      ctx.tenantId, returnId, input.storeId, input.saleId, sale.cash_session_id, ctx.userId, sale.method, total, input.reason, createdAt);
+      for (const line of lines) {
+        const changed = await tx.run(`UPDATE stock SET quantity=quantity+$1
+          WHERE tenant_id=$2 AND store_id=$3 AND product_id=$4 AND quantity+$1 BETWEEN 0 AND 1000000`,
+        line.quantity, ctx.tenantId, input.storeId, line.productId);
+        requireThat(changed.changes === 1, 409, 'STOCK_LIMIT', 'Devolução deixaria o estoque fora do limite permitido.');
+        await tx.run(`INSERT INTO sale_return_items
+          (tenant_id,return_id,sale_id,product_id,quantity,amount_cents)
+          VALUES($1,$2,$3,$4,$5,$6)`,
+        ctx.tenantId, returnId, input.saleId, line.productId, line.quantity, line.amountCents);
+        await tx.run(`INSERT INTO stock_movements
+          (tenant_id,id,store_id,product_id,sale_id,quantity,kind,reason,actor_id,created_at)
+          VALUES($1,$2,$3,$4,NULL,$5,'ADJUSTMENT',$6,$7,$8)`,
+        ctx.tenantId, randomUUID(), input.storeId, line.productId, line.quantity, `Devolução de venda: ${input.reason}`, ctx.userId, createdAt);
+      }
+      if (sale.method === 'CASH') {
+        await tx.run(`INSERT INTO cash_movements
+          (tenant_id,id,store_id,cash_session_id,sale_id,kind,amount_cents,reason,actor_id,created_at)
+          VALUES($1,$2,$3,$4,NULL,'WITHDRAWAL',$5,$6,$7,$8)`,
+        ctx.tenantId, randomUUID(), input.storeId, sale.cash_session_id, -total, `Devolução de venda: ${input.reason}`, ctx.userId, createdAt);
+      }
+      await tx.audit(ctx, input.storeId, 'SALE_RETURNED', returnId,
+        { saleId: input.saleId, totalCents: total, paymentMethod: sale.method, reason: input.reason });
       return tx.receipt(ctx, input.saleId);
     });
   }

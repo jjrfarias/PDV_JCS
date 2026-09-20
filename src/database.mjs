@@ -2,20 +2,20 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-const IMMUTABLE_TABLES = ['sales','sale_items','payments','sale_cancellations','stock_movements','cash_movements','operations','audit_events'];
+const IMMUTABLE_TABLES = ['sales','sale_items','payments','sale_cancellations','sale_returns','sale_return_items','stock_movements','cash_movements','operations','audit_events'];
 
 export function connect(filename) {
   if (filename !== ':memory:') mkdirSync(dirname(filename), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(filename);
   db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 7) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
+  if (version > 8) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
   if (version === 0) {
     transaction(db, () => {
       if (db.prepare('PRAGMA user_version').get().user_version !== 0) return;
       db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
       createImmutableTriggers(db);
-      db.exec('PRAGMA user_version=7;');
+      db.exec('PRAGMA user_version=8;');
     });
   }
   if (version === 1) {
@@ -131,6 +131,31 @@ export function connect(filename) {
       if (db.prepare('PRAGMA user_version').get().user_version !== 6) return;
       db.exec('ALTER TABLE sales ADD COLUMN customer_id TEXT;');
       db.exec('PRAGMA user_version=7;');
+    });
+  }
+  if (version <= 7) {
+    transaction(db, () => {
+      if (db.prepare('PRAGMA user_version').get().user_version !== 7) return;
+      db.exec(`CREATE TABLE sale_returns (
+          tenant_id TEXT NOT NULL, id TEXT NOT NULL, store_id TEXT NOT NULL, sale_id TEXT NOT NULL,
+          cash_session_id TEXT NOT NULL, actor_id TEXT NOT NULL, payment_method TEXT NOT NULL CHECK(payment_method IN('CASH','PIX','CARD')),
+          total_cents INTEGER NOT NULL CHECK(total_cents>0), reason TEXT NOT NULL, created_at TEXT NOT NULL,
+          PRIMARY KEY(tenant_id,id),
+          FOREIGN KEY(tenant_id,store_id,sale_id) REFERENCES sales(tenant_id,store_id,id),
+          FOREIGN KEY(tenant_id,store_id,cash_session_id) REFERENCES cash_sessions(tenant_id,store_id,id),
+          FOREIGN KEY(tenant_id,actor_id,store_id) REFERENCES memberships(tenant_id,user_id,store_id)
+        ) STRICT;
+        CREATE TABLE sale_return_items (
+          tenant_id TEXT NOT NULL, return_id TEXT NOT NULL, sale_id TEXT NOT NULL, product_id TEXT NOT NULL,
+          quantity INTEGER NOT NULL CHECK(quantity BETWEEN 1 AND 10000),
+          amount_cents INTEGER NOT NULL CHECK(amount_cents>0),
+          PRIMARY KEY(tenant_id,return_id,product_id),
+          FOREIGN KEY(tenant_id,return_id) REFERENCES sale_returns(tenant_id,id),
+          FOREIGN KEY(tenant_id,sale_id,product_id) REFERENCES sale_items(tenant_id,sale_id,product_id)
+        ) STRICT;
+        CREATE INDEX sale_return_history ON sale_returns(tenant_id,store_id,created_at);`);
+      createImmutableTriggers(db, ['sale_returns','sale_return_items']);
+      db.exec('PRAGMA user_version=8;');
     });
   }
   return db;

@@ -24,4 +24,4 @@ export function open(pos,ctx=DEMO.manager,terminalId=DEMO.terminalA){
 export function saleInput(cash,overrides={}) {
   return {storeId:cash.store_id,cashSessionId:cash.id,items:[{productId:DEMO.product,quantity:2}],discountCents:500,discountReason:'Teste de autorização',tenderedCents:5000,...overrides};
 }
-export function counts(db){return Object.fromEntries(['sales','sale_items','payments','sale_cancellations','stock_movements','cash_movements','operations','audit_events'].map(table=>[table,db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n]));}
+export function counts(db){return Object.fromEntries(['sales','sale_items','payments','sale_cancellations','sale_returns','sale_return_items','stock_movements','cash_movements','operations','audit_events'].map(table=>[table,db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n]));}

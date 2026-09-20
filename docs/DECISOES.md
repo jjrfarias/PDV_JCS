@@ -21,7 +21,7 @@ JavaScript ESM e SQLite são a escolha deste laboratório, não uma migração a
 11. Falha de impressão não executa venda. A impressão vem de um registro já confirmado.
 12. Venda, pagamento e fiscal possuem estados separados; o fiscal permanece `TEST_NOT_ISSUED`.
 13. Nenhuma chamada de rede ou `await` é permitida dentro da transação síncrona.
-14. Registros de venda, pagamento, movimentos, operação e auditoria não têm edição/remoção pela API e possuem gatilhos de imutabilidade. Futuras devoluções exigem novos eventos compensatórios.
+14. Registros de venda, pagamento, movimentos, devolução, operação e auditoria não têm edição/remoção pela API e possuem gatilhos de imutabilidade. Cancelamentos e devoluções são eventos compensatórios, sem alterar a venda original.
 
 ## Segurança e limites reais
 

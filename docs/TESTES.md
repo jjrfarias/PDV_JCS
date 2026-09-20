@@ -2,7 +2,7 @@
 
 ## Resultado executado
 
-**66 testes passaram; zero falhas, cancelamentos ou testes ignorados.**
+**68 testes passaram; zero falhas, cancelamentos ou testes ignorados.**
 
 Comandos realmente executados na pasta do projeto:
 
@@ -24,7 +24,7 @@ Foram executados os cenários numerados no arquivo `tests/pos.test.mjs`:
 
 - Cenário principal R$100 de abertura, R$50 de subtotal, R$5 de desconto, R$45 de venda, R$5 de troco, estoque final 8, caixa R$145 e fechamento sem diferença.
 - Repetição da mesma chave, conflito de payload, consulta após resposta perdida e rollback antes do commit com conferência das tabelas afetadas.
-- Estoque insuficiente, ajuste manual de estoque com motivo, caixa fechado, desconto proibido, motivo/limite de desconto, dinheiro insuficiente, PIX/cartão manual sem alterar dinheiro esperado do caixa, resumo por forma de pagamento calculado no backend, relatório operacional consolidado no backend, cancelamento gerencial de venda com estorno, sangria/suprimento com motivo e bloqueio de campos financeiros vindos da tela.
+- Estoque insuficiente, ajuste manual de estoque com motivo, caixa fechado, desconto proibido, motivo/limite de desconto, dinheiro insuficiente, PIX/cartão manual sem alterar dinheiro esperado do caixa, resumo por forma de pagamento calculado no backend, relatório operacional consolidado no backend, cancelamento gerencial de venda com estorno, devolução parcial com recomposição de estoque/caixa, sangria/suprimento com motivo e bloqueio de campos financeiros vindos da tela.
 - Autorização por loja, isolamento entre contratantes, referência cruzada de produto/caixa e impossibilidade de outro usuário recuperar a operação privada do autor.
 - Validação de quantidades e valores, abertura/fechamento idempotentes, responsabilidade do operador e registro de diferença.
 - Cadastro com movimento inicial, edição/inativação gerencial de produto, código duplicado, snapshots comerciais, gatilhos de imutabilidade e chaves estrangeiras compostas.

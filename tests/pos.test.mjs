@@ -160,6 +160,34 @@ test('17f - relatorio consolida vendas, pagamentos, produtos e cancelamentos no 
   assert.equal(report.products[0].total_cents,2500);
   assert.equal(report.sales.some(s=>s.canceled_at),true);
 });
+test('17g - gerente registra devolucao parcial com estoque, caixa e relatorio liquido',t=>{
+  const {pos,db}=fixture(t);const cash=open(pos);
+  const sale=pos.sell(DEMO.manager,key(),saleInput(cash,{discountCents:0,discountReason:null,tenderedCents:5000})).data;
+  const returnKey=key();
+  const returned=pos.returnSale(DEMO.manager,returnKey,{storeId:DEMO.storeA,saleId:sale.id,items:[{productId:DEMO.product,quantity:1}],reason:'cliente devolveu um item'}).data;
+  assert.equal(returned.returns[0].total_cents,2500);
+  assert.equal(returned.return_items[0].quantity,1);
+  assert.equal(pos.state(DEMO.manager,DEMO.storeA).products[0].quantity,9);
+  assert.equal(pos.cash(DEMO.manager,cash.id).expected_cents,12500);
+  assert.equal(pos.returnSale(DEMO.manager,returnKey,{storeId:DEMO.storeA,saleId:sale.id,items:[{productId:DEMO.product,quantity:1}],reason:'cliente devolveu um item'}).replayed,true);
+  fails(()=>pos.returnSale(DEMO.manager,key(),{storeId:DEMO.storeA,saleId:sale.id,items:[{productId:DEMO.product,quantity:2}],reason:'saldo maior'}),'RETURN_QUANTITY_EXCEEDED');
+  const today=new Date().toISOString().slice(0,10),report=pos.report(DEMO.manager,DEMO.storeA,today,today);
+  assert.equal(report.summary.gross_cents,2500);
+  assert.equal(report.summary.returned_cents,2500);
+  assert.equal(report.sales[0].returned_cents,2500);
+  assert.equal(report.payments.find(p=>p.method==='CASH').amount_cents,2500);
+  assert.equal(report.products[0].quantity,1);
+  assert.equal(report.products[0].total_cents,2500);
+  const op=db.prepare('SELECT response_json FROM operations WHERE kind=?').get('SALE_RETURN').response_json;
+  assert.equal(op.includes('Cliente'),false);
+});
+test('17h - devolucao exige gerente e nao aceita venda cancelada',t=>{
+  const {pos}=fixture(t);const cash=open(pos);
+  const sale=pos.sell(DEMO.manager,key(),saleInput(cash,{paymentMethod:'PIX',discountCents:0,discountReason:null,tenderedCents:0})).data;
+  fails(()=>pos.returnSale(DEMO.cashier,key(),{storeId:DEMO.storeA,saleId:sale.id,items:[{productId:DEMO.product,quantity:1}],reason:'devolucao'}),'MANAGER_REQUIRED');
+  pos.cancelSale(DEMO.manager,key(),{storeId:DEMO.storeA,saleId:sale.id,reason:'cliente desistiu'});
+  fails(()=>pos.returnSale(DEMO.manager,key(),{storeId:DEMO.storeA,saleId:sale.id,items:[{productId:DEMO.product,quantity:1}],reason:'devolucao'}),'SALE_CANCELED');
+});
 test('18 · reabertura simultânea do mesmo terminal não cria dois caixas',t=>{
   const {pos}=fixture(t);open(pos);fails(()=>open(pos),'CASH_ALREADY_OPEN');
 });

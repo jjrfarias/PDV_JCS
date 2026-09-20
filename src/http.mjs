@@ -31,15 +31,16 @@ function reportSections(report) {
       ['Vendas',report.summary.sale_count],
       ['Vendas ativas',report.summary.active_sale_count],
       ['Canceladas',report.summary.canceled_sale_count],
-      ['Total ativo',money(report.summary.gross_cents)],
+      ['Total liquido',money(report.summary.gross_cents)],
       ['Descontos ativos',money(report.summary.discount_cents)],
+      ['Total devolvido',money(report.summary.returned_cents)],
       ['Total cancelado',money(report.summary.canceled_cents)]
     ]),
     pagamentos: csvSection('Pagamentos',['Metodo','Vendas','Valor'],report.payments.map(row=>[row.method,row.sale_count,money(row.amount_cents)])),
     produtos: csvSection('Produtos',['SKU','Produto','Quantidade','Total'],report.products.map(row=>[row.sku,row.name,row.quantity,money(row.total_cents)])),
     operadores: csvSection('Operadores',['Operador','Vendas','Total'],report.operators.map(row=>[row.operator_name,row.sale_count,money(row.total_cents)])),
-    vendas: csvSection('Vendas',['Data','Venda','Operador','Terminal','Metodo','Status','Desconto','Total','Motivo cancelamento'],
-      report.sales.map(row=>[row.created_at,row.id,row.operator_name,row.terminal_name,row.method,row.canceled_at?'Cancelada':'Confirmada',money(row.discount_cents),money(row.total_cents),row.cancel_reason??''])),
+    vendas: csvSection('Vendas',['Data','Venda','Operador','Terminal','Metodo','Status','Desconto','Devolvido','Total','Motivo cancelamento'],
+      report.sales.map(row=>[row.created_at,row.id,row.operator_name,row.terminal_name,row.method,row.canceled_at?'Cancelada':(row.returned_cents?'Com devolucao':'Confirmada'),money(row.discount_cents),money(row.returned_cents),money(row.total_cents),row.cancel_reason??''])),
     fechamentos: csvSection('Fechamentos',['Data','Terminal','Esperado','Contado','Diferenca','Motivo'],
       report.cashClosures.map(row=>[row.closed_at,row.terminal_name,money(row.expected_cents),money(row.counted_cents),money(row.difference_cents),row.close_reason??'']))
   };
@@ -125,7 +126,7 @@ export function createApp(db) {
       }
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/sales\/([\w-]+)$/))) return send(res,200,await pos.receipt(ctx,match[1]));
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/operations\/([\w-]+)$/))) return send(res,200,await pos.operation(ctx,match[1]));
-      const routes={'/api/products':'createProduct','/api/products/update':'updateProduct','/api/users':'createUser','/api/users/update':'updateUser','/api/customers':'createCustomer','/api/customers/update':'updateCustomer','/api/stock/adjust':'adjustStock','/api/cash/open':'openCash','/api/cash/close':'closeCash','/api/cash/move':'moveCash','/api/sales':'sell','/api/sales/cancel':'cancelSale'};
+      const routes={'/api/products':'createProduct','/api/products/update':'updateProduct','/api/users':'createUser','/api/users/update':'updateUser','/api/customers':'createCustomer','/api/customers/update':'updateCustomer','/api/stock/adjust':'adjustStock','/api/cash/open':'openCash','/api/cash/close':'closeCash','/api/cash/move':'moveCash','/api/sales':'sell','/api/sales/cancel':'cancelSale','/api/sales/return':'returnSale'};
       if(req.method==='POST'&&routes[url.pathname]) {
         const result=await pos[routes[url.pathname]](ctx,req.headers['idempotency-key'],await json(req));
         return send(res,result.replayed?200:201,result);

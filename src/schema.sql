@@ -110,6 +110,23 @@ CREATE TABLE sale_cancellations (
   FOREIGN KEY(tenant_id,store_id,cash_session_id) REFERENCES cash_sessions(tenant_id,store_id,id),
   FOREIGN KEY(tenant_id,actor_id,store_id) REFERENCES memberships(tenant_id,user_id,store_id)
 ) STRICT;
+CREATE TABLE sale_returns (
+  tenant_id TEXT NOT NULL, id TEXT NOT NULL, store_id TEXT NOT NULL, sale_id TEXT NOT NULL,
+  cash_session_id TEXT NOT NULL, actor_id TEXT NOT NULL, payment_method TEXT NOT NULL CHECK(payment_method IN('CASH','PIX','CARD')),
+  total_cents INTEGER NOT NULL CHECK(total_cents>0), reason TEXT NOT NULL, created_at TEXT NOT NULL,
+  PRIMARY KEY(tenant_id,id),
+  FOREIGN KEY(tenant_id,store_id,sale_id) REFERENCES sales(tenant_id,store_id,id),
+  FOREIGN KEY(tenant_id,store_id,cash_session_id) REFERENCES cash_sessions(tenant_id,store_id,id),
+  FOREIGN KEY(tenant_id,actor_id,store_id) REFERENCES memberships(tenant_id,user_id,store_id)
+) STRICT;
+CREATE TABLE sale_return_items (
+  tenant_id TEXT NOT NULL, return_id TEXT NOT NULL, sale_id TEXT NOT NULL, product_id TEXT NOT NULL,
+  quantity INTEGER NOT NULL CHECK(quantity BETWEEN 1 AND 10000),
+  amount_cents INTEGER NOT NULL CHECK(amount_cents>0),
+  PRIMARY KEY(tenant_id,return_id,product_id),
+  FOREIGN KEY(tenant_id,return_id) REFERENCES sale_returns(tenant_id,id),
+  FOREIGN KEY(tenant_id,sale_id,product_id) REFERENCES sale_items(tenant_id,sale_id,product_id)
+) STRICT;
 CREATE TABLE stock_movements (
   tenant_id TEXT NOT NULL, id TEXT NOT NULL, store_id TEXT NOT NULL, product_id TEXT NOT NULL,
   sale_id TEXT, quantity INTEGER NOT NULL CHECK(quantity<>0),
@@ -151,4 +168,5 @@ CREATE TABLE audit_events (
   FOREIGN KEY(tenant_id,user_id,store_id) REFERENCES memberships(tenant_id,user_id,store_id)
 ) STRICT;
 CREATE INDEX sale_history ON sales(tenant_id,store_id,created_at);
+CREATE INDEX sale_return_history ON sale_returns(tenant_id,store_id,created_at);
 CREATE INDEX stock_history ON stock_movements(tenant_id,store_id,created_at);

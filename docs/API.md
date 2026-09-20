@@ -69,6 +69,16 @@ Subtotal, preço e total são calculados no servidor. `customerId` é opcional; 
 
 Somente gerente. O cancelamento não apaga a venda original: grava o cancelamento, devolve estoque por movimento de ajuste, registra auditoria e, se o pagamento foi em dinheiro, lança uma saída no caixa aberto da venda. A operação é idempotente por `Idempotency-Key`; tentar cancelar de novo com outra chave retorna conflito.
 
+## Devolver venda
+
+`POST /api/sales/return`
+
+```json
+{"storeId":"store-a","saleId":"ID_DA_VENDA","items":[{"productId":"product-25","quantity":1}],"reason":"Cliente devolveu um item"}
+```
+
+Somente gerente. A devolução pode ser parcial ou total, não apaga a venda original e não aceita venda já cancelada. O backend calcula o valor proporcional ao total pago, impede devolver quantidade acima do saldo disponível por item, recompõe estoque, audita o evento e, se a venda foi em dinheiro, lança uma saída no caixa aberto da venda. PIX/cartão permanecem como registro manual de estorno externo.
+
 ## Movimentar dinheiro do caixa
 
 `POST /api/cash/move`
@@ -153,7 +163,7 @@ Atualiza cadastro ou inativa o cliente com `active: 0`. Dados pessoais continuam
 
 `GET /api/stores/:storeId/report?from=AAAA-MM-DD&to=AAAA-MM-DD`
 
-Retorna totais por período calculados no backend: resumo de vendas, formas de pagamento, produtos vendidos, operadores, vendas com status e fechamentos de caixa. Vendas canceladas aparecem na lista, mas não entram nos totais ativos.
+Retorna totais por período calculados no backend: resumo de vendas, formas de pagamento, produtos vendidos, operadores, vendas com status, valores devolvidos e fechamentos de caixa. Vendas canceladas aparecem na lista, mas não entram nos totais ativos; devoluções reduzem o total líquido do resumo.
 
 `GET /api/stores/:storeId/report.csv?from=AAAA-MM-DD&to=AAAA-MM-DD&section=pagamentos`
 
@@ -163,11 +173,11 @@ Exporta o relatório selecionado em CSV com separador `;`, BOM UTF-8 e cabeçalh
 
 | Rota | Retorno |
 |---|---|
-| `GET /api/stores/:storeId/state` | Produtos e saldo, clientes da loja, terminais, caixas abertos com totais por forma de pagamento, últimas 30 vendas com status de cancelamento, 50 movimentos de estoque, 50 movimentos de caixa e 20 fechamentos |
+| `GET /api/stores/:storeId/state` | Produtos e saldo, clientes da loja, terminais, caixas abertos com totais por forma de pagamento, últimas 30 vendas com status de cancelamento/devolução, 50 movimentos de estoque, 50 movimentos de caixa e 20 fechamentos |
 | `GET /api/stores/:storeId/report` | Relatório operacional por período, com totais consolidados no backend |
 | `GET /api/stores/:storeId/report.csv` | Exportação CSV compatível com Excel |
 | `GET /api/sales/:saleId` | Venda com snapshots, pagamento e dados de comprovante de teste |
 | `GET /api/operations/:key` | Resultado persistido de uma operação do próprio usuário |
 | `GET /health` | Estado local, `mode=local-test`, `fiscal=false` |
 
-A consulta de operação não expõe a resposta de outro operador. A visualização de venda depende de autorização para sua loja. Não há devolução parcial, troca ou emissão fiscal. Não há integração PIX, cartão, TEF ou maquininha; apenas registro manual do método de pagamento.
+A consulta de operação não expõe a resposta de outro operador. A visualização de venda depende de autorização para sua loja. Não há troca por outro produto no mesmo fluxo nem emissão fiscal. Não há integração PIX, cartão, TEF ou maquininha; apenas registro manual do método de pagamento.

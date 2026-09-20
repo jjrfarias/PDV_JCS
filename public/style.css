@@ -167,6 +167,9 @@ dialog::backdrop{background:#0f172a99}
 .dialog-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:22px}
 .dialog-error{color:var(--danger);font-weight:800}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.return-items{display:grid;gap:8px;margin:12px 0}
+.return-item{display:grid;grid-template-columns:minmax(0,1fr) 96px;gap:10px;align-items:center}
+.return-item span{font-size:13px;color:#334155}
 #receipt{font:13px/1.5 ui-monospace,Consolas,monospace}
 #receipt h2{text-align:center;font-size:16px}
 #receipt .receipt-warning{text-align:center;font-weight:900;border-bottom:1px dashed #64748b;padding-bottom:12px;margin-bottom:12px}
