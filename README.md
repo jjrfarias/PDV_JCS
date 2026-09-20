@@ -58,7 +58,7 @@ O operador `operador@jcs.local` tem acesso apenas à Loja A e não pode conceder
 - Troca da própria senha com confirmação da senha atual e encerramento das demais sessões do mesmo usuário.
 - Cadastro, edição, ativação/inativação e reset de senha temporária por gerente, com vínculo à loja selecionada.
 - Cadastro, edição e inativação de clientes por loja. Nome, documento, telefone, e-mail e observação ficam criptografados no banco; hashes protegidos são usados apenas para duplicidade/busca interna.
-- Produtos por unidade, código interno, código de barras opcional, preço, saldo inicial, edição/inativação gerencial e ajuste manual de estoque com motivo.
+- Produtos por unidade, código interno, código de barras opcional, preço, saldo inicial, leitura assistida de QR/EAN no cadastro, edição/inativação gerencial e ajuste manual de estoque com motivo.
 - Seleção entre lojas e terminais fictícios. Estoque separado por loja, sem transferência ou sincronização de máquinas.
 - Abertura, sangria, suprimento e fechamento de caixa pelo próprio operador, com fundo inicial, valor contado, diferença e justificativa.
 - Venda com preço consultado no servidor, desconto autorizado até 20% e motivo. Dinheiro calcula valor entregue e troco; PIX/cartão são registrados manualmente após confirmação externa.

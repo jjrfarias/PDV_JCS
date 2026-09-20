@@ -125,6 +125,44 @@ function updateMoneyPreviews(){
     catch{preview.textContent='Valor inválido';preview.classList.add('invalid');}
   });
 }
+const codeValue=(data,names)=>names.map(name=>data[name]).find(value=>value!==undefined&&value!==null&&String(value).trim()!=='');
+function parseKeyValues(text){
+  const data={};
+  text.split(/[\r\n;|]+/).forEach(part=>{
+    const match=part.match(/^\s*([^:=]+)\s*[:=]\s*(.+?)\s*$/);
+    if(match)data[match[1].trim().toLowerCase()]=match[2].trim();
+  });
+  return data;
+}
+function parseProductScan(raw){
+  const text=String(raw??'').trim();
+  if(!text)return {};
+  let data={};
+  try{const parsed=JSON.parse(text);if(parsed&&typeof parsed==='object')data=Object.fromEntries(Object.entries(parsed).map(([k,v])=>[k.toLowerCase(),v]));}catch{}
+  if(!Object.keys(data).length){
+    try{const url=new URL(text);data=Object.fromEntries([...url.searchParams.entries()].map(([k,v])=>[k.toLowerCase(),v]));}catch{}
+  }
+  if(!Object.keys(data).length)data=parseKeyValues(text);
+  const gtin=text.match(/\(01\)\s*(\d{14})/)?.[1]??text.match(/^01(\d{14})/)?.[1];
+  const digits=text.replace(/\D/g,'');
+  const barcode=String(codeValue(data,['barcode','codigo_barras','codigo de barras','ean','gtin','code','codigo','código'])??gtin??(/^\d{8,14}$/.test(digits)?digits:'')).trim();
+  return {
+    barcode,
+    sku:String(codeValue(data,['sku','codigo_interno','codigo interno','referencia','referência'])??'').trim(),
+    name:String(codeValue(data,['name','nome','description','descricao','descrição','produto'])??'').trim(),
+    price:String(codeValue(data,['price','preco','preço','valor','pricecents','price_cents'])??'').trim()
+  };
+}
+function applyProductScan(form){
+  const parsed=parseProductScan(form.scan.value);
+  if(!parsed.barcode&&!parsed.sku&&!parsed.name&&!parsed.price)return;
+  if(parsed.barcode&&!form.barcode.value)form.barcode.value=parsed.barcode;
+  if((parsed.sku||parsed.barcode)&&!form.sku.value)form.sku.value=(parsed.sku||parsed.barcode).slice(0,40);
+  if(parsed.name&&!form.name.value)form.name.value=parsed.name.slice(0,120);
+  if(parsed.price&&!form.price.value)form.price.value=parsed.price;
+  updateMoneyPreviews();
+  if(!form.name.value)form.name.focus();else if(!form.price.value)form.price.focus();else form.quantity.focus();
+}
 function currentTotalCents(){
   const subtotal=state.cart.reduce((sum,p)=>sum+p.units*p.price_cents,0);
   let discount=0;try{discount=cents($('discount').value||'0');}catch{}
@@ -339,8 +377,10 @@ $('cash-withdrawal').addEventListener('click',()=>openCashMove('WITHDRAWAL'));
 $('cash-move-form').addEventListener('submit',event=>{event.preventDefault();run(()=>command('/api/cash/move',{storeId:storeId(),cashSessionId:currentCash().id,kind:event.target.kind.value,amountCents:cents(event.target.amount.value),reason:event.target.reason.value}));});
 $('close-cash').addEventListener('click',()=>{$('close-description').textContent=`Dinheiro esperado: ${brl(currentCash().expected_cents)}. Informe a contagem física.`;$('close-dialog').showModal();});
 $('close-form').addEventListener('submit',event=>{event.preventDefault();run(()=>command('/api/cash/close',{storeId:storeId(),cashSessionId:currentCash().id,countedCents:cents(event.target.counted.value),reason:event.target.reason.value||null}));});
-$('new-product').addEventListener('click',()=>$('product-dialog').showModal());
+$('new-product').addEventListener('click',()=>{$('product-dialog').showModal();setTimeout(()=>$('product-form').scan.focus(),0);});
 $('product-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/products',{storeId:storeId(),sku:f.sku,barcode:f.barcode||null,name:f.name,priceCents:cents(f.price),initialQuantity:Number(f.quantity)});});});
+$('product-form').scan.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();applyProductScan(event.target.form);}});
+$('product-form').scan.addEventListener('change',event=>applyProductScan(event.target.form));
 function openProductEdit(product){
   const form=$('product-edit-form');form.productId.value=product.id;form.name.value=product.name;form.sku.value=product.sku;form.barcode.value=product.barcode??'';form.price.value=String(product.price_cents);
   updateMoneyPreviews();$('product-edit-dialog').showModal();
