@@ -2,7 +2,7 @@
 
 ## Resultado executado
 
-**57 testes passaram; zero falhas, cancelamentos ou testes ignorados.**
+**59 testes passaram; zero falhas, cancelamentos ou testes ignorados.**
 
 Comandos realmente executados na pasta do projeto:
 
@@ -18,13 +18,13 @@ A suíte atual foi executada nesta rodada com `npm test`. Logs antigos em arquiv
 
 Ambiente real: Linux x64, Node.js **22.16.0**, SQLite **3.49.1** fornecido pelo `node:sqlite`. O aviso experimental do SQLite foi preservado no log. Não foi executado Node.js 24 neste ambiente; a linha 24 LTS é a recomendação de instalação para o usuário, não uma versão que estamos alegando ter testado.
 
-## Domínio e banco — 39 testes
+## Domínio e banco — 40 testes
 
 Foram executados os cenários numerados no arquivo `tests/pos.test.mjs`:
 
 - Cenário principal R$100 de abertura, R$50 de subtotal, R$5 de desconto, R$45 de venda, R$5 de troco, estoque final 8, caixa R$145 e fechamento sem diferença.
 - Repetição da mesma chave, conflito de payload, consulta após resposta perdida e rollback antes do commit com conferência das tabelas afetadas.
-- Estoque insuficiente, ajuste manual de estoque com motivo, caixa fechado, desconto proibido, motivo/limite de desconto, dinheiro insuficiente, PIX/cartão manual sem alterar dinheiro esperado do caixa, resumo por forma de pagamento calculado no backend, cancelamento gerencial de venda com estorno, sangria/suprimento com motivo e bloqueio de campos financeiros vindos da tela.
+- Estoque insuficiente, ajuste manual de estoque com motivo, caixa fechado, desconto proibido, motivo/limite de desconto, dinheiro insuficiente, PIX/cartão manual sem alterar dinheiro esperado do caixa, resumo por forma de pagamento calculado no backend, relatório operacional consolidado no backend, cancelamento gerencial de venda com estorno, sangria/suprimento com motivo e bloqueio de campos financeiros vindos da tela.
 - Autorização por loja, isolamento entre contratantes, referência cruzada de produto/caixa e impossibilidade de outro usuário recuperar a operação privada do autor.
 - Validação de quantidades e valores, abertura/fechamento idempotentes, responsabilidade do operador e registro de diferença.
 - Cadastro com movimento inicial, edição/inativação gerencial de produto, código duplicado, snapshots comerciais, gatilhos de imutabilidade e chaves estrangeiras compostas.
@@ -32,7 +32,7 @@ Foram executados os cenários numerados no arquivo `tests/pos.test.mjs`:
 - Duas conexões SQLite independentes, em workers liberados por uma barreira comum, disputam a última unidade: exatamente uma confirma, outra recebe estoque insuficiente, saldo fica zero e há uma venda.
 - Rejeição de callback assíncrono no invólucro de transação.
 
-## HTTP e autenticação — 18 testes
+## HTTP e autenticação — 19 testes
 
 Requisições reais via TCP loopback para a aplicação, sem framework mockando a API:
 
@@ -41,6 +41,7 @@ Requisições reais via TCP loopback para a aplicação, sem framework mockando 
 - Abertura/venda/recuperação idempotente pela API.
 - Cancelamento de venda por rota idempotente, com reposição de estoque e estorno de caixa.
 - Edição de produto por rota idempotente.
+- Relatório por período e exportação CSV compatível com Excel.
 - Bloqueio de loja não autorizada, logout e expiração de sessão.
 - Senha inválida sem enumeração explícita de conta e limite de tentativas.
 - Bloqueio de Host arbitrário, arquivos privados não publicados, limite de corpo e Content-Type.

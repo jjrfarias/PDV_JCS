@@ -143,6 +143,23 @@ test('17e - cancelamento exige gerente, motivo e impede duplicidade',t=>{
   fails(()=>pos.cancelSale(DEMO.manager,key(),{storeId:DEMO.storeA,saleId:sale.id,reason:'segunda tentativa'}),'SALE_ALREADY_CANCELED');
   assert.equal(pos.cash(DEMO.manager,cash.id).expected_cents,10000);
 });
+test('17f - relatorio consolida vendas, pagamentos, produtos e cancelamentos no backend',t=>{
+  const {pos}=fixture(t);const cash=open(pos);
+  const cashSale=pos.sell(DEMO.manager,key(),saleInput(cash,{discountCents:0,discountReason:null,tenderedCents:5000})).data;
+  pos.sell(DEMO.manager,key(),saleInput(cash,{paymentMethod:'PIX',items:[{productId:DEMO.product,quantity:1}],discountCents:0,discountReason:null,tenderedCents:0}));
+  pos.cancelSale(DEMO.manager,key(),{storeId:DEMO.storeA,saleId:cashSale.id,reason:'cliente desistiu'});
+  const today=new Date().toISOString().slice(0,10);
+  const report=pos.report(DEMO.manager,DEMO.storeA,today,today);
+  assert.equal(report.summary.sale_count,2);
+  assert.equal(report.summary.active_sale_count,1);
+  assert.equal(report.summary.canceled_sale_count,1);
+  assert.equal(report.summary.gross_cents,2500);
+  assert.equal(report.summary.canceled_cents,5000);
+  assert.equal(report.payments.find(p=>p.method==='PIX').amount_cents,2500);
+  assert.equal(report.products[0].quantity,1);
+  assert.equal(report.products[0].total_cents,2500);
+  assert.equal(report.sales.some(s=>s.canceled_at),true);
+});
 test('18 · reabertura simultânea do mesmo terminal não cria dois caixas',t=>{
   const {pos}=fixture(t);open(pos);fails(()=>open(pos),'CASH_ALREADY_OPEN');
 });

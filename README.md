@@ -64,6 +64,7 @@ O operador `operador@jcs.local` tem acesso apenas à Loja A e não pode conceder
 - Resumo do caixa por forma de pagamento calculado no backend: dinheiro, PIX, cartão e total vendido.
 - Venda, itens, pagamento, movimentos, auditoria e chave de repetição confirmados na mesma transação local.
 - Cancelamento gerencial de venda confirmada, com motivo, devolução de estoque, estorno de dinheiro quando aplicável e registro auditável.
+- Relatório por período com vendas, pagamentos, produtos, operadores, fechamentos e exportação compatível com Excel.
 - Bloqueio de saldo negativo e proteção para requisições com a mesma chave.
 - Histórico de vendas, movimentos de estoque, fechamentos e reabertura do comprovante existente.
 - Comando de impressão do navegador. Não existe driver ESC/POS, impressão silenciosa ou homologação de impressora.
@@ -126,7 +127,7 @@ npm.cmd test
 
 Os testes usam memória ou diretórios temporários criados especificamente para a suíte. Não apontam para `data/pdv.sqlite` e não removem seu banco de demonstração.
 
-Foram executados 57 testes de domínio e HTTP, sem falhas, no ambiente de preparação. A navegação automatizada da interface não pode ser concluída porque o Chromium disponível bloqueou a abertura dos endereços de teste por política administrativa. Isso não é teste visual aprovado. Execute o roteiro manual acima no seu computador antes de demonstrar a interface.
+Foram executados 59 testes de domínio e HTTP, sem falhas, no ambiente de preparação. A navegação automatizada da interface não pode ser concluída porque o Chromium disponível bloqueou a abertura dos endereços de teste por política administrativa. Isso não é teste visual aprovado. Execute o roteiro manual acima no seu computador antes de demonstrar a interface.
 
 ## Persistência e manutenção local
 

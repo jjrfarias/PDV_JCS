@@ -9,6 +9,18 @@ const now = () => new Date().toISOString();
 const MAX_MONEY = 100_000_000;
 const PAYMENT_METHODS = new Set(['CASH', 'PIX', 'CARD']);
 const CASH_ADJUSTMENTS = new Set(['SUPPLY', 'WITHDRAWAL']);
+function reportRange(from, to) {
+  const date = /^\d{4}-\d{2}-\d{2}$/;
+  requireThat(date.test(from) && date.test(to), 400, 'INVALID_PERIOD', 'Informe datas no formato AAAA-MM-DD.');
+  const start = new Date(`${from}T00:00:00.000Z`);
+  const endDay = new Date(`${to}T00:00:00.000Z`);
+  requireThat(!Number.isNaN(start.getTime()) && !Number.isNaN(endDay.getTime()) && endDay >= start,
+    400, 'INVALID_PERIOD', 'Período inválido.');
+  const days = Math.floor((endDay - start) / 86_400_000) + 1;
+  requireThat(days <= 366, 400, 'PERIOD_TOO_LONG', 'Relatório limitado a 366 dias.');
+  const end = new Date(endDay.getTime() + 86_400_000);
+  return { from, to, start: start.toISOString(), end: end.toISOString() };
+}
 
 function cashInteger(value) {
   // PostgreSQL SUM(integer) is bigint and pg returns it as text by default.
@@ -144,6 +156,59 @@ class TransactionPos {
         ORDER BY closed_at DESC LIMIT 20`, ctx.tenantId, storeId)
     };
   }
+
+  async report(ctx, storeId, from, to) {
+    id(storeId);
+    await this.authorize(ctx, storeId);
+    const range = reportRange(from, to);
+    const sales = await this.all(`SELECT s.id,s.created_at,s.total_cents,s.discount_cents,p.method,u.name operator_name,t.name terminal_name,
+        x.created_at canceled_at,x.reason cancel_reason
+      FROM sales s
+      JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
+      JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.operator_id
+      JOIN cash_sessions c ON c.tenant_id=s.tenant_id AND c.id=s.cash_session_id
+      JOIN terminals t ON t.tenant_id=c.tenant_id AND t.id=c.terminal_id
+      LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
+      WHERE s.tenant_id=$1 AND s.store_id=$2 AND s.created_at>=$3 AND s.created_at<$4
+      ORDER BY s.created_at`, ctx.tenantId, storeId, range.start, range.end);
+    const normalizedSales = sales.map(sale => ({ ...sale,
+      total_cents: cashInteger(sale.total_cents), discount_cents: cashInteger(sale.discount_cents) }));
+    const active = normalizedSales.filter(sale => !sale.canceled_at);
+    const summary = {
+      sale_count: normalizedSales.length, active_sale_count: active.length,
+      canceled_sale_count: normalizedSales.length - active.length,
+      gross_cents: active.reduce((sum, sale) => sum + sale.total_cents, 0),
+      discount_cents: active.reduce((sum, sale) => sum + sale.discount_cents, 0),
+      canceled_cents: normalizedSales.filter(sale => sale.canceled_at).reduce((sum, sale) => sum + sale.total_cents, 0)
+    };
+    const payments = (await this.all(`SELECT p.method,COUNT(*) sale_count,COALESCE(SUM(p.amount_cents),0) amount_cents
+      FROM sales s JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
+      LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
+      WHERE s.tenant_id=$1 AND s.store_id=$2 AND s.created_at>=$3 AND s.created_at<$4 AND x.sale_id IS NULL
+      GROUP BY p.method ORDER BY p.method`, ctx.tenantId, storeId, range.start, range.end))
+      .map(row => ({ ...row, sale_count: cashInteger(row.sale_count), amount_cents: cashInteger(row.amount_cents) }));
+    const products = (await this.all(`SELECT i.product_id,i.sku_snapshot sku,i.name_snapshot name,COALESCE(SUM(i.quantity),0) quantity,
+        COALESCE(SUM(i.line_cents),0) total_cents
+      FROM sales s JOIN sale_items i ON i.tenant_id=s.tenant_id AND i.sale_id=s.id
+      LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
+      WHERE s.tenant_id=$1 AND s.store_id=$2 AND s.created_at>=$3 AND s.created_at<$4 AND x.sale_id IS NULL
+      GROUP BY i.product_id,i.sku_snapshot,i.name_snapshot ORDER BY total_cents DESC,name LIMIT 50`,
+    ctx.tenantId, storeId, range.start, range.end))
+      .map(row => ({ ...row, quantity: cashInteger(row.quantity), total_cents: cashInteger(row.total_cents) }));
+    const operators = (await this.all(`SELECT u.name operator_name,COUNT(*) sale_count,COALESCE(SUM(s.total_cents),0) total_cents
+      FROM sales s JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.operator_id
+      LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
+      WHERE s.tenant_id=$1 AND s.store_id=$2 AND s.created_at>=$3 AND s.created_at<$4 AND x.sale_id IS NULL
+      GROUP BY u.name ORDER BY total_cents DESC,u.name`, ctx.tenantId, storeId, range.start, range.end))
+      .map(row => ({ ...row, sale_count: cashInteger(row.sale_count), total_cents: cashInteger(row.total_cents) }));
+    const cashClosures = (await this.all(`SELECT c.closed_at,t.name terminal_name,c.expected_cents,c.counted_cents,c.difference_cents,c.close_reason
+      FROM cash_sessions c JOIN terminals t ON t.tenant_id=c.tenant_id AND t.id=c.terminal_id
+      WHERE c.tenant_id=$1 AND c.store_id=$2 AND c.status='CLOSED' AND c.closed_at>=$3 AND c.closed_at<$4
+      ORDER BY c.closed_at`, ctx.tenantId, storeId, range.start, range.end))
+      .map(row => ({ ...row, expected_cents: cashInteger(row.expected_cents),
+        counted_cents: cashInteger(row.counted_cents), difference_cents: cashInteger(row.difference_cents) }));
+    return { range, summary, payments, products, operators, cashClosures, sales: normalizedSales };
+  }
 }
 
 export class PostgresPos {
@@ -164,6 +229,7 @@ export class PostgresPos {
   async cash(ctx, cashId) { return this.#transaction(ctx, true, tx => tx.cash(ctx, cashId)); }
   async receipt(ctx, saleId) { return this.#transaction(ctx, true, tx => tx.receipt(ctx, saleId)); }
   async state(ctx, storeId) { return this.#transaction(ctx, true, tx => tx.state(ctx, storeId)); }
+  async report(ctx, storeId, from, to) { return this.#transaction(ctx, true, tx => tx.report(ctx, storeId, from, to)); }
 
   async #mutate(ctx, kind, key, input, work) {
     operationKey(key);

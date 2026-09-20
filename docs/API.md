@@ -118,11 +118,23 @@ Somente gerente. Atualiza cadastro para vendas futuras ou inativa o produto com 
 
 Somente gerente. `quantity` pode ser positivo ou negativo, mas não zero. O ajuste não pode deixar o saldo abaixo de zero nem acima do limite operacional. O motivo é obrigatório.
 
+## Relatórios
+
+`GET /api/stores/:storeId/report?from=AAAA-MM-DD&to=AAAA-MM-DD`
+
+Retorna totais por período calculados no backend: resumo de vendas, formas de pagamento, produtos vendidos, operadores, vendas com status e fechamentos de caixa. Vendas canceladas aparecem na lista, mas não entram nos totais ativos.
+
+`GET /api/stores/:storeId/report.csv?from=AAAA-MM-DD&to=AAAA-MM-DD`
+
+Exporta o mesmo relatório em CSV com separador `;`, BOM UTF-8 e cabeçalho `sep=;`, formato compatível com abertura direta no Excel. O período máximo é 366 dias.
+
 ## Consultas
 
 | Rota | Retorno |
 |---|---|
 | `GET /api/stores/:storeId/state` | Produtos e saldo, terminais, caixas abertos com totais por forma de pagamento, últimas 30 vendas com status de cancelamento, 50 movimentos de estoque, 50 movimentos de caixa e 20 fechamentos |
+| `GET /api/stores/:storeId/report` | Relatório operacional por período, com totais consolidados no backend |
+| `GET /api/stores/:storeId/report.csv` | Exportação CSV compatível com Excel |
 | `GET /api/sales/:saleId` | Venda com snapshots, pagamento e dados de comprovante de teste |
 | `GET /api/operations/:key` | Resultado persistido de uma operação do próprio usuário |
 | `GET /health` | Estado local, `mode=local-test`, `fiscal=false` |

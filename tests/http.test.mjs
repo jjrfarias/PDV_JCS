@@ -56,6 +56,22 @@ test('HTTP 18 - gerente edita produto por rota idempotente',async t=>{
   assert.equal(state.data.products[0].sku,'DEMO-WEB');
   assert.equal(state.data.products[0].name,'Produto web editado');
 });
+test('HTTP 19 - relatorio e exportacao CSV respeitam loja e periodo',async t=>{
+  const w=await web(t);await w.login();
+  const cash=await w.call('/api/cash/open',{method:'POST',headers:{'Idempotency-Key':key()},body:{storeId:DEMO.storeA,terminalId:DEMO.terminalA,openingCents:10000}});
+  await w.call('/api/sales',{method:'POST',headers:{'Idempotency-Key':key()},body:{storeId:DEMO.storeA,cashSessionId:cash.data.data.id,items:[{productId:DEMO.product,quantity:1}],discountCents:0,discountReason:null,paymentMethod:'CARD',tenderedCents:0}});
+  const today=new Date().toISOString().slice(0,10);
+  const report=await w.call(`/api/stores/store-a/report?from=${today}&to=${today}`);
+  assert.equal(report.response.status,200);
+  assert.equal(report.data.summary.active_sale_count,1);
+  assert.equal(report.data.payments[0].method,'CARD');
+  const csv=await w.call(`/api/stores/store-a/report.csv?from=${today}&to=${today}`);
+  assert.equal(csv.response.status,200);
+  assert.match(csv.response.headers.get('content-type'),/text\/csv/);
+  assert.match(csv.data,/sep=;/);
+  assert.match(csv.data,/Pagamentos/);
+  assert.match(csv.data,/CARD/);
+});
 test('HTTP 02 · rota exige autenticação',async t=>{
   const w=await web(t);assert.equal((await w.call('/api/stores/store-a/state')).response.status,401);
 });

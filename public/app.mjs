@@ -1,6 +1,6 @@
 ﻿import {cents,brl} from './money.mjs';
 const $=id=>document.getElementById(id);
-const state={me:null,data:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null,paymentMethod:'CASH'};
+const state={me:null,data:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:''};
 let messageTimer=null;
 function element(tag,content,className=''){const node=document.createElement(tag);if(content!==undefined)node.textContent=String(content);if(className)node.className=className;return node;}
 function message(value,{sticky=false}={}){
@@ -52,6 +52,7 @@ async function refresh(){
   const prior=terminalId();$('terminal-select').replaceChildren();
   for(const terminal of state.data.terminals){const option=element('option',terminal.name);option.value=terminal.id;$('terminal-select').append(option);}
   if(state.data.terminals.some(t=>t.id===prior))$('terminal-select').value=prior;
+  if(state.tab==='reports')await loadReport();
   renderCash();renderSearch();renderManagement();renderCart();
 }
 function renderCash(){
@@ -164,6 +165,28 @@ function renderSummary(cards){
     const card=element('div');card.append(element('span',label),element('strong',value));return card;
   }));
 }
+const isoDate=value=>{
+  const d=value?new Date(value):new Date();
+  return d.toISOString().slice(0,10);
+};
+function ensureReportPeriod(){
+  const today=isoDate();
+  if(!state.reportFrom)state.reportFrom=today;
+  if(!state.reportTo)state.reportTo=today;
+}
+async function loadReport(){
+  ensureReportPeriod();
+  state.report=await api(`/api/stores/${storeId()}/report?from=${encodeURIComponent(state.reportFrom)}&to=${encodeURIComponent(state.reportTo)}`);
+}
+function reportControls(){
+  ensureReportPeriod();
+  const wrap=element('div',undefined,'report-controls');
+  const fromLabel=element('label','De');const from=element('input');from.type='date';from.value=state.reportFrom;from.addEventListener('change',()=>{state.reportFrom=from.value;});
+  const toLabel=element('label','Até');const to=element('input');to.type='date';to.value=state.reportTo;to.addEventListener('change',()=>{state.reportTo=to.value;});
+  const apply=element('button','Atualizar');apply.type='button';apply.addEventListener('click',()=>run(async()=>{await loadReport();renderManagement();}));
+  const exportButton=element('button','Exportar Excel');exportButton.type='button';exportButton.addEventListener('click',()=>{location.href=`/api/stores/${storeId()}/report.csv?from=${encodeURIComponent(state.reportFrom)}&to=${encodeURIComponent(state.reportTo)}`;});
+  fromLabel.append(from);toLabel.append(to);wrap.append(fromLabel,toLabel,apply,exportButton);return wrap;
+}
 function renderManagement(){
   const d=state.data,query=$('management-search').value.trim().toLowerCase();let content;
   if(state.tab==='products'){const rows=d.products.filter(p=>includes([p.sku,p.name,p.barcode,brl(p.price_cents),p.quantity],query));renderSummary([['Produtos',rows.length],['Estoque total',rows.reduce((n,p)=>n+p.quantity,0)],['Valor em estoque',brl(rows.reduce((n,p)=>n+p.quantity*p.price_cents,0))]]);content=table(['Código','Produto','Código de barras','Preço','Estoque','Ações'],rows.map(p=>{
@@ -180,6 +203,21 @@ function renderManagement(){
     return [date(s.created_at),s.id.slice(0,8),s.operator_name,s.terminal_name,s.canceled_at?'Cancelada':'Confirmada',brl(s.discount_cents),brl(s.total_cents),actions];}));}
   if(state.tab==='stock'){const movementName=m=>({SALE:'Venda',INITIAL:'Entrada inicial',ADJUSTMENT:'Ajuste'}[m.kind]??m.kind);const rows=d.stockMovements.filter(m=>includes([date(m.created_at),m.name,m.kind,movementName(m),m.quantity,m.reason],query));renderSummary([['Movimentos',rows.length],['Entradas',rows.filter(m=>m.quantity>0).reduce((n,m)=>n+m.quantity,0)],['Saídas',Math.abs(rows.filter(m=>m.quantity<0).reduce((n,m)=>n+m.quantity,0))]]);content=table(['Data','Produto','Movimento','Quantidade','Motivo'],rows.map(m=>[date(m.created_at),m.name,movementName(m),m.quantity,m.reason]));}
   if(state.tab==='closures'){const rows=d.cashHistory.filter(c=>{const terminal=d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id;return includes([date(c.closed_at),terminal,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)],query);});renderSummary([['Fechamentos',rows.length],['Esperado',brl(rows.reduce((n,c)=>n+c.expected_cents,0))],['Diferença',brl(rows.reduce((n,c)=>n+c.difference_cents,0))]]);content=table(['Data','Terminal','Esperado','Contado','Diferença'],rows.map(c=>[date(c.closed_at),d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)]));}
+  if(state.tab==='reports'){
+    const report=state.report;
+    if(!report){renderSummary([['Período','-'],['Total ativo','R$ 0,00'],['Vendas','0']]);content=element('div');content.append(reportControls(),element('p','Atualize o relatório para carregar os dados.'));}
+    else {
+      const filteredSales=report.sales.filter(s=>includes([date(s.created_at),s.id,s.operator_name,s.terminal_name,s.method,s.canceled_at?'Cancelada':'Confirmada'],query));
+      renderSummary([['Vendas ativas',report.summary.active_sale_count],['Total ativo',brl(report.summary.gross_cents)],['Canceladas',report.summary.canceled_sale_count]]);
+      content=element('div',undefined,'report-block');
+      content.append(reportControls());
+      content.append(element('h2','Pagamentos'),table(['Forma','Vendas','Valor'],report.payments.map(p=>[p.method,p.sale_count,brl(p.amount_cents)])));
+      content.append(element('h2','Produtos vendidos'),table(['Código','Produto','Quantidade','Total'],report.products.map(p=>[p.sku,p.name,p.quantity,brl(p.total_cents)])));
+      content.append(element('h2','Operadores'),table(['Operador','Vendas','Total'],report.operators.map(o=>[o.operator_name,o.sale_count,brl(o.total_cents)])));
+      content.append(element('h2','Vendas do período'),table(['Data','Venda','Operador','Terminal','Forma','Status','Total'],filteredSales.map(s=>[date(s.created_at),s.id.slice(0,8),s.operator_name,s.terminal_name,s.method,s.canceled_at?'Cancelada':'Confirmada',brl(s.total_cents)])));
+      content.append(element('h2','Fechamentos'),table(['Data','Terminal','Esperado','Contado','Diferença'],report.cashClosures.map(c=>[date(c.closed_at),c.terminal_name,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)])));
+    }
+  }
   $('management-content').replaceChildren(content);
 }
 function showReceipt(sale){
@@ -307,7 +345,7 @@ $('print').addEventListener('click',()=>window.print());
 $('cash-gate-action').addEventListener('click',()=>setView('cash'));
 document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
 document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
-document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{state.tab=b.dataset.tab;$('management-search').value='';document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('selected',button===b));renderManagement();}));
+document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>run(async()=>{state.tab=b.dataset.tab;$('management-search').value='';document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('selected',button===b));if(state.tab==='reports')await loadReport();renderManagement();})));
 $('management-search').addEventListener('input',renderManagement);
 document.addEventListener('keydown',event=>{
   if(!state.me)return;
