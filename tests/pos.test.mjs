@@ -107,6 +107,18 @@ test('17b - PIX e cartao registram venda sem alterar dinheiro esperado do caixa'
   assert.equal(db.prepare("SELECT COUNT(*) n FROM cash_movements WHERE kind='SALE'").get().n,0);
   assert.equal(pos.state(DEMO.manager,DEMO.storeA).products[0].quantity,7);
 });
+test('17c - caixa resume vendas por forma de pagamento no backend',t=>{
+  const {pos}=fixture(t);const cash=open(pos);
+  pos.sell(DEMO.manager,key(),saleInput(cash,{discountCents:0,discountReason:null,tenderedCents:5000}));
+  pos.sell(DEMO.manager,key(),saleInput(cash,{paymentMethod:'PIX',items:[{productId:DEMO.product,quantity:1}],discountCents:0,discountReason:null,tenderedCents:0}));
+  pos.sell(DEMO.manager,key(),saleInput(cash,{paymentMethod:'CARD',items:[{productId:DEMO.product,quantity:1}],discountCents:0,discountReason:null,tenderedCents:0}));
+  const current=pos.cash(DEMO.manager,cash.id);
+  assert.equal(current.cash_sales_cents,5000);
+  assert.equal(current.pix_sales_cents,2500);
+  assert.equal(current.card_sales_cents,2500);
+  assert.equal(current.total_sales_cents,10000);
+  assert.equal(current.expected_cents,15000);
+});
 test('18 · reabertura simultânea do mesmo terminal não cria dois caixas',t=>{
   const {pos}=fixture(t);open(pos);fails(()=>open(pos),'CASH_ALREADY_OPEN');
 });

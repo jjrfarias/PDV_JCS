@@ -78,7 +78,16 @@ class TransactionPos {
     const sums = await this.one(`SELECT COALESCE(SUM(amount_cents),0) expected,
       COALESCE(SUM(CASE WHEN kind='SALE' THEN amount_cents ELSE 0 END),0) sales
       FROM cash_movements WHERE tenant_id=$1 AND cash_session_id=$2`, ctx.tenantId, cashId);
-    return { ...cash, expected_cents: cashInteger(sums.expected), sales_cents: cashInteger(sums.sales) };
+    const payments = await this.one(`SELECT
+      COALESCE(SUM(p.amount_cents),0) total,
+      COALESCE(SUM(CASE WHEN p.method='CASH' THEN p.amount_cents ELSE 0 END),0) cash_total,
+      COALESCE(SUM(CASE WHEN p.method='PIX' THEN p.amount_cents ELSE 0 END),0) pix_total,
+      COALESCE(SUM(CASE WHEN p.method='CARD' THEN p.amount_cents ELSE 0 END),0) card_total
+      FROM sales s JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
+      WHERE s.tenant_id=$1 AND s.cash_session_id=$2`, ctx.tenantId, cashId);
+    return { ...cash, expected_cents: cashInteger(sums.expected), sales_cents: cashInteger(sums.sales),
+      total_sales_cents: cashInteger(payments.total), cash_sales_cents: cashInteger(payments.cash_total),
+      pix_sales_cents: cashInteger(payments.pix_total), card_sales_cents: cashInteger(payments.card_total) };
   }
 
   async receipt(ctx, saleId) {

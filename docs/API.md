@@ -102,7 +102,7 @@ Somente gerente. `quantity` pode ser positivo ou negativo, mas não zero. O ajus
 
 | Rota | Retorno |
 |---|---|
-| `GET /api/stores/:storeId/state` | Produtos e saldo, terminais, caixas abertos, últimas 30 vendas, 50 movimentos de estoque, 50 movimentos de caixa e 20 fechamentos |
+| `GET /api/stores/:storeId/state` | Produtos e saldo, terminais, caixas abertos com totais por forma de pagamento, últimas 30 vendas, 50 movimentos de estoque, 50 movimentos de caixa e 20 fechamentos |
 | `GET /api/sales/:saleId` | Venda com snapshots, pagamento e dados de comprovante de teste |
 | `GET /api/operations/:key` | Resultado persistido de uma operação do próprio usuário |
 | `GET /health` | Estado local, `mode=local-test`, `fiscal=false` |

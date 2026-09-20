@@ -60,8 +60,11 @@ function renderCash(){
   if(!cash){$('cash-gate-title').textContent='Caixa fechado';$('cash-gate-text').textContent='Abra o caixa antes de registrar vendas neste terminal.';}
   else if(cash.operator_id!==state.me.user.id){$('cash-gate-title').textContent='Terminal em uso';$('cash-gate-text').textContent='Este caixa foi aberto por outro operador. Selecione outro terminal ou peça o fechamento.';}
   $('opening-value').textContent=brl(cash?.opening_cents??0);
-  $('sales-value').textContent=brl(cash?.sales_cents??0);
   $('expected-value').textContent=brl(cash?.expected_cents??0);
+  $('payment-total-value').textContent=brl(cash?.total_sales_cents??0);
+  $('payment-cash-value').textContent=brl(cash?.cash_sales_cents??0);
+  $('payment-pix-value').textContent=brl(cash?.pix_sales_cents??0);
+  $('payment-card-value').textContent=brl(cash?.card_sales_cents??0);
   renderCashMovements();
   lock();
 }

@@ -70,11 +70,11 @@ p{color:var(--muted);font-size:14px}
 .cash-gate strong{display:block;color:#9a3412;font-size:14px}
 .cash-gate p{margin:1px 0 0;color:#9a3412;font-size:13px}
 .cash-gate button{border-color:#fdba74;color:#9a3412;background:#fff}
-.cash-strip{padding:22px;display:grid;grid-template-columns:repeat(3,minmax(160px,1fr)) minmax(180px,.8fr);gap:14px}
+.cash-strip{padding:22px;display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:14px}
 .cash-strip div{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:4px;box-shadow:0 8px 24px #0f172a0a}
 .cash-strip span{font-size:12px;color:var(--muted);font-weight:800}
 .cash-strip strong{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums}
-.cash-strip .strip-note{font-size:12px;color:#dbeafe;justify-content:center;background:#0f172a;border-color:#0f172a}
+.cash-strip .strip-note{font-size:12px;color:#dbeafe;justify-content:center;background:#0f172a;border-color:#0f172a;grid-column:span 2}
 .cash-movements{border-top:1px solid #edf1f5}
 .cash-movements .table-wrap{max-height:360px}
 .view-panel{margin:0 clamp(14px,1.6vw,28px)}
