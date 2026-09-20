@@ -6,6 +6,7 @@ import { PostgresPos } from './postgres-pos.mjs';
 
 const now = () => new Date().toISOString();
 const PAYMENT_METHODS = new Set(['CASH','PIX','CARD']);
+const CASH_ADJUSTMENTS = new Set(['SUPPLY','WITHDRAWAL']);
 const MAX_MONEY = 100_000_000; // R$ 1 milhão por entrada monetária neste laboratório.
 
 export class Pos {
@@ -104,7 +105,7 @@ export class Pos {
       const cashId=randomUUID();
       this.run(`INSERT INTO cash_sessions(tenant_id,id,store_id,terminal_id,operator_id,status,opening_cents,opened_at)
         VALUES(?,?,?,?,?,'OPEN',?,?)`,ctx.tenantId,cashId,input.storeId,input.terminalId,ctx.userId,input.openingCents,now());
-      this.run('INSERT INTO cash_movements VALUES(?,?,?,?,?,?,?,?,?)',ctx.tenantId,randomUUID(),input.storeId,cashId,null,'OPENING',input.openingCents,ctx.userId,now());
+      this.run('INSERT INTO cash_movements VALUES(?,?,?,?,?,?,?,?,?,?)',ctx.tenantId,randomUUID(),input.storeId,cashId,null,'OPENING',input.openingCents,'Fundo inicial',ctx.userId,now());
       this.audit(ctx,input.storeId,'CASH_OPENED',cashId,{openingCents:input.openingCents});
       return this.cash(ctx,cashId);
     });
@@ -131,6 +132,28 @@ export class Pos {
       this.run("UPDATE cash_sessions SET status='CLOSED',counted_cents=?,expected_cents=?,difference_cents=?,close_reason=?,closed_at=? WHERE tenant_id=? AND id=?",
         input.countedCents,cash.expected_cents,difference,input.reason,now(),ctx.tenantId,input.cashSessionId);
       this.audit(ctx,input.storeId,'CASH_CLOSED',input.cashSessionId,{expectedCents:cash.expected_cents,countedCents:input.countedCents,differenceCents:difference,reason:input.reason});
+      return this.cash(ctx,input.cashSessionId);
+    });
+  }
+  moveCash(ctx,key,raw) {
+    object(raw,['storeId','cashSessionId','kind','amountCents','reason']);
+    const kind=text(raw.kind,'Tipo de movimento',20).toUpperCase();
+    requireThat(CASH_ADJUSTMENTS.has(kind),400,'INVALID_CASH_MOVEMENT','Tipo de movimento de caixa inválido.');
+    const input={storeId:id(raw.storeId),cashSessionId:id(raw.cashSessionId),kind,
+      amountCents:integer(raw.amountCents,'Valor',1),reason:text(raw.reason,'Motivo',200,3)};
+    return this.mutate(ctx,'CASH_MOVE',key,input,() => {
+      const cash=this.cash(ctx,input.cashSessionId);
+      requireThat(cash.store_id===input.storeId,409,'CASH_STORE_MISMATCH','Caixa de outra loja.');
+      requireThat(cash.operator_id===ctx.userId,403,'CASH_OWNER_REQUIRED','Use um caixa aberto pelo seu usuário.');
+      requireThat(cash.status==='OPEN',409,'CASH_CLOSED','Este caixa já foi fechado.');
+      const signed=input.kind==='WITHDRAWAL'?-input.amountCents:input.amountCents;
+      const expected=cash.expected_cents+signed;
+      requireThat(expected>=0,409,'CASH_NEGATIVE','Sangria maior que o dinheiro esperado no caixa.');
+      requireThat(expected<=MAX_MONEY,409,'CASH_LIMIT','Limite monetario do caixa atingido neste laboratorio.');
+      const movementId=randomUUID();
+      this.run('INSERT INTO cash_movements VALUES(?,?,?,?,?,?,?,?,?,?)',
+        ctx.tenantId,movementId,input.storeId,input.cashSessionId,null,input.kind,signed,input.reason,ctx.userId,now());
+      this.audit(ctx,input.storeId,input.kind==='WITHDRAWAL'?'CASH_WITHDRAWAL':'CASH_SUPPLY',movementId,{amountCents:input.amountCents,reason:input.reason});
       return this.cash(ctx,input.cashSessionId);
     });
   }
@@ -182,7 +205,7 @@ export class Pos {
         this.run('INSERT INTO stock_movements VALUES(?,?,?,?,?,?,?,?,?,?)',ctx.tenantId,randomUUID(),input.storeId,line.productId,saleId,-line.quantity,'SALE','Venda confirmada de teste',ctx.userId,now());
       }
       this.run("INSERT INTO payments VALUES(?,?,?,'CONFIRMED',?,?,?)",ctx.tenantId,saleId,input.paymentMethod,total,tenderedCents,changeCents);
-      if(input.paymentMethod==='CASH') this.run("INSERT INTO cash_movements VALUES(?,?,?,?,?,'SALE',?,?,?)",ctx.tenantId,randomUUID(),input.storeId,input.cashSessionId,saleId,total,ctx.userId,now());
+      if(input.paymentMethod==='CASH') this.run("INSERT INTO cash_movements VALUES(?,?,?,?,?,'SALE',?,?,?,?)",ctx.tenantId,randomUUID(),input.storeId,input.cashSessionId,saleId,total,'Venda em dinheiro',ctx.userId,now());
       this.audit(ctx,input.storeId,'SALE_CONFIRMED',saleId,{totalCents:total,paymentMethod:input.paymentMethod,discountCents:input.discountCents,discountReason:input.discountReason});
       return this.receipt(ctx,saleId);
     });
@@ -209,6 +232,9 @@ export class Pos {
         FROM users u JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
         WHERE u.tenant_id=? AND m.store_id=? ORDER BY u.name`,ctx.tenantId,storeId):[],
       cash:open.map(c=>this.cash(ctx,c.id)),
+      cashMovements:this.all(`SELECT m.id,m.cash_session_id,m.kind,m.amount_cents,m.reason,m.created_at,u.name actor_name
+        FROM cash_movements m JOIN users u ON u.tenant_id=m.tenant_id AND u.id=m.actor_id
+        WHERE m.tenant_id=? AND m.store_id=? ORDER BY m.created_at DESC LIMIT 50`,ctx.tenantId,storeId),
       sales:this.all(`SELECT s.id,s.total_cents,s.discount_cents,s.created_at,u.name operator_name,c.terminal_id,t.name terminal_name
         FROM sales s
         JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.operator_id

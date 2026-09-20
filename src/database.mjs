@@ -9,13 +9,13 @@ export function connect(filename) {
   const db = new DatabaseSync(filename);
   db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 2) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
+  if (version > 3) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
   if (version === 0) {
     transaction(db, () => {
       if (db.prepare('PRAGMA user_version').get().user_version !== 0) return;
       db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
       createImmutableTriggers(db);
-      db.exec('PRAGMA user_version=2;');
+      db.exec('PRAGMA user_version=3;');
     });
   }
   if (version === 1) {
@@ -35,6 +35,38 @@ export function connect(filename) {
         DROP TABLE payments_old;`);
       createImmutableTriggers(db, ['payments']);
       db.exec('PRAGMA user_version=2;');
+    });
+  }
+  if (version <= 2) {
+    transaction(db, () => {
+      if (db.prepare('PRAGMA user_version').get().user_version !== 2) return;
+      db.exec(`DROP TRIGGER IF EXISTS cash_movements_no_update;
+        DROP TRIGGER IF EXISTS cash_movements_no_delete;
+        DROP INDEX IF EXISTS one_opening;
+        ALTER TABLE cash_movements RENAME TO cash_movements_old;
+        CREATE TABLE cash_movements (
+          tenant_id TEXT NOT NULL, id TEXT NOT NULL, store_id TEXT NOT NULL, cash_session_id TEXT NOT NULL,
+          sale_id TEXT, kind TEXT NOT NULL CHECK(kind IN('OPENING','SALE','SUPPLY','WITHDRAWAL')),
+          amount_cents INTEGER NOT NULL CHECK(amount_cents BETWEEN -100000000 AND 100000000),
+          reason TEXT NOT NULL, actor_id TEXT NOT NULL, created_at TEXT NOT NULL,
+          PRIMARY KEY(tenant_id,id), UNIQUE(tenant_id,sale_id),
+          CHECK((kind='SALE' AND sale_id IS NOT NULL AND amount_cents>0)
+             OR (kind='OPENING' AND sale_id IS NULL AND amount_cents>=0)
+             OR (kind='SUPPLY' AND sale_id IS NULL AND amount_cents>0)
+             OR (kind='WITHDRAWAL' AND sale_id IS NULL AND amount_cents<0)),
+          FOREIGN KEY(tenant_id,store_id,cash_session_id) REFERENCES cash_sessions(tenant_id,store_id,id),
+          FOREIGN KEY(tenant_id,store_id,sale_id) REFERENCES sales(tenant_id,store_id,id),
+          FOREIGN KEY(tenant_id,actor_id) REFERENCES users(tenant_id,id)
+        ) STRICT;
+        INSERT INTO cash_movements
+          SELECT tenant_id,id,store_id,cash_session_id,sale_id,kind,amount_cents,
+            CASE kind WHEN 'OPENING' THEN 'Fundo inicial' ELSE 'Venda em dinheiro' END,
+            actor_id,created_at
+          FROM cash_movements_old;
+        DROP TABLE cash_movements_old;
+        CREATE UNIQUE INDEX one_opening ON cash_movements(tenant_id,cash_session_id) WHERE kind='OPENING';`);
+      createImmutableTriggers(db, ['cash_movements']);
+      db.exec('PRAGMA user_version=3;');
     });
   }
   return db;

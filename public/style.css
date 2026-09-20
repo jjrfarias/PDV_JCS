@@ -75,6 +75,8 @@ p{color:var(--muted);font-size:14px}
 .cash-strip span{font-size:12px;color:var(--muted);font-weight:800}
 .cash-strip strong{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums}
 .cash-strip .strip-note{font-size:12px;color:#dbeafe;justify-content:center;background:#0f172a;border-color:#0f172a}
+.cash-movements{border-top:1px solid #edf1f5}
+.cash-movements .table-wrap{max-height:360px}
 .view-panel{margin:0 clamp(14px,1.6vw,28px)}
 .sale-view{flex:1;min-height:0}
 .sale-layout{display:grid;grid-template-columns:minmax(520px,1fr) clamp(330px,22vw,390px);gap:18px;align-items:stretch;min-height:0;height:calc(100dvh - 168px)}

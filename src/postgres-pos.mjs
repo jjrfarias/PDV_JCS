@@ -8,11 +8,12 @@ import { requireThat, object, text, integer, id, operationKey } from './errors.m
 const now = () => new Date().toISOString();
 const MAX_MONEY = 100_000_000;
 const PAYMENT_METHODS = new Set(['CASH', 'PIX', 'CARD']);
+const CASH_ADJUSTMENTS = new Set(['SUPPLY', 'WITHDRAWAL']);
 
 function cashInteger(value) {
   // PostgreSQL SUM(integer) is bigint and pg returns it as text by default.
   const result = Number(value);
-  requireThat(Number.isSafeInteger(result) && result >= 0, 500, 'INVALID_CASH_BALANCE', 'Saldo do caixa inválido.');
+  requireThat(Number.isSafeInteger(result), 500, 'INVALID_CASH_BALANCE', 'Saldo do caixa inválido.');
   return result;
 }
 
@@ -119,6 +120,9 @@ class TransactionPos {
         WHERE s.tenant_id=$1 AND s.store_id=$2 ORDER BY s.created_at DESC LIMIT 30`, ctx.tenantId, storeId),
       stockMovements: await this.all(`SELECT m.product_id,p.name,m.kind,m.quantity,m.reason,m.created_at
         FROM stock_movements m JOIN products p ON p.tenant_id=m.tenant_id AND p.id=m.product_id
+        WHERE m.tenant_id=$1 AND m.store_id=$2 ORDER BY m.created_at DESC LIMIT 50`, ctx.tenantId, storeId),
+      cashMovements: await this.all(`SELECT m.id,m.cash_session_id,m.kind,m.amount_cents,m.reason,m.created_at,u.name actor_name
+        FROM cash_movements m JOIN users u ON u.tenant_id=m.tenant_id AND u.id=m.actor_id
         WHERE m.tenant_id=$1 AND m.store_id=$2 ORDER BY m.created_at DESC LIMIT 50`, ctx.tenantId, storeId),
       cashHistory: await this.all(`SELECT id,terminal_id,expected_cents,counted_cents,difference_cents,closed_at
         FROM cash_sessions WHERE tenant_id=$1 AND store_id=$2 AND status='CLOSED'
@@ -239,8 +243,8 @@ export class PostgresPos {
         VALUES($1,$2,$3,$4,$5,'OPEN',$6,$7)`,
       ctx.tenantId, cashId, input.storeId, input.terminalId, ctx.userId, input.openingCents, now());
       await tx.run(`INSERT INTO cash_movements
-        (tenant_id,id,store_id,cash_session_id,sale_id,kind,amount_cents,actor_id,created_at)
-        VALUES($1,$2,$3,$4,NULL,'OPENING',$5,$6,$7)`,
+        (tenant_id,id,store_id,cash_session_id,sale_id,kind,amount_cents,reason,actor_id,created_at)
+        VALUES($1,$2,$3,$4,NULL,'OPENING',$5,'Fundo inicial',$6,$7)`,
       ctx.tenantId, randomUUID(), input.storeId, cashId, input.openingCents, ctx.userId, now());
       await tx.audit(ctx, input.storeId, 'CASH_OPENED', cashId, { openingCents: input.openingCents });
       return tx.cash(ctx, cashId);
@@ -266,6 +270,34 @@ export class PostgresPos {
       await tx.audit(ctx, input.storeId, 'CASH_CLOSED', input.cashSessionId, {
         expectedCents: cash.expected_cents, countedCents: input.countedCents, differenceCents: difference, reason: input.reason
       });
+      return tx.cash(ctx, input.cashSessionId);
+    });
+  }
+
+  async moveCash(ctx, key, raw) {
+    object(raw, ['storeId', 'cashSessionId', 'kind', 'amountCents', 'reason']);
+    const kind = text(raw.kind, 'Tipo de movimento', 20).toUpperCase();
+    requireThat(CASH_ADJUSTMENTS.has(kind), 400, 'INVALID_CASH_MOVEMENT', 'Tipo de movimento de caixa inválido.');
+    const input = {
+      storeId: id(raw.storeId), cashSessionId: id(raw.cashSessionId), kind,
+      amountCents: integer(raw.amountCents, 'Valor', 1), reason: text(raw.reason, 'Motivo', 200, 3)
+    };
+    return this.#mutate(ctx, 'CASH_MOVE', key, input, async tx => {
+      const cash = await tx.cash(ctx, input.cashSessionId, { lock: true });
+      requireThat(cash.store_id === input.storeId, 409, 'CASH_STORE_MISMATCH', 'Caixa de outra loja.');
+      requireThat(cash.operator_id === ctx.userId, 403, 'CASH_OWNER_REQUIRED', 'Use um caixa aberto pelo seu usuário.');
+      requireThat(cash.status === 'OPEN', 409, 'CASH_CLOSED', 'Este caixa já foi fechado.');
+      const signed = input.kind === 'WITHDRAWAL' ? -input.amountCents : input.amountCents;
+      const expected = cash.expected_cents + signed;
+      requireThat(expected >= 0, 409, 'CASH_NEGATIVE', 'Sangria maior que o dinheiro esperado no caixa.');
+      requireThat(expected <= MAX_MONEY, 409, 'CASH_LIMIT', 'Limite monetario do caixa atingido neste laboratorio.');
+      const movementId = randomUUID();
+      await tx.run(`INSERT INTO cash_movements
+        (tenant_id,id,store_id,cash_session_id,sale_id,kind,amount_cents,reason,actor_id,created_at)
+        VALUES($1,$2,$3,$4,NULL,$5,$6,$7,$8,$9)`,
+      ctx.tenantId, movementId, input.storeId, input.cashSessionId, input.kind, signed, input.reason, ctx.userId, now());
+      await tx.audit(ctx, input.storeId, input.kind === 'WITHDRAWAL' ? 'CASH_WITHDRAWAL' : 'CASH_SUPPLY',
+        movementId, { amountCents: input.amountCents, reason: input.reason });
       return tx.cash(ctx, input.cashSessionId);
     });
   }
@@ -338,8 +370,8 @@ export class PostgresPos {
       ctx.tenantId, saleId, input.paymentMethod, total, tenderedCents, changeCents);
       if (input.paymentMethod === 'CASH') {
         await tx.run(`INSERT INTO cash_movements
-          (tenant_id,id,store_id,cash_session_id,sale_id,kind,amount_cents,actor_id,created_at)
-          VALUES($1,$2,$3,$4,$5,'SALE',$6,$7,$8)`,
+          (tenant_id,id,store_id,cash_session_id,sale_id,kind,amount_cents,reason,actor_id,created_at)
+          VALUES($1,$2,$3,$4,$5,'SALE',$6,'Venda em dinheiro',$7,$8)`,
         ctx.tenantId, randomUUID(), input.storeId, input.cashSessionId, saleId, total, ctx.userId, now());
       }
       await tx.audit(ctx, input.storeId, 'SALE_CONFIRMED', saleId,

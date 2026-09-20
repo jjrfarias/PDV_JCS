@@ -126,6 +126,17 @@ test('21 · fechamento com diferença exige motivo e registra divergência',t=>{
   fails(()=>pos.closeCash(DEMO.manager,key(),body),'CLOSE_REASON_REQUIRED');
   assert.equal(pos.closeCash(DEMO.manager,key(),{...body,reason:'Diferença fictícia para teste'}).data.difference_cents,-500);
 });
+test('21b - suprimento e sangria ajustam dinheiro esperado com motivo',t=>{
+  const {pos,db}=fixture(t);const cash=open(pos);
+  fails(()=>pos.moveCash(DEMO.manager,key(),{storeId:DEMO.storeA,cashSessionId:cash.id,kind:'WITHDRAWAL',amountCents:10001,reason:'cofre'}),'CASH_NEGATIVE');
+  fails(()=>pos.moveCash(DEMO.manager,key(),{storeId:DEMO.storeA,cashSessionId:cash.id,kind:'SUPPLY',amountCents:500,reason:'ok'}),'INVALID_INPUT');
+  const supply=pos.moveCash(DEMO.manager,key(),{storeId:DEMO.storeA,cashSessionId:cash.id,kind:'SUPPLY',amountCents:2000,reason:'troco adicional'}).data;
+  assert.equal(supply.expected_cents,12000);
+  const withdrawal=pos.moveCash(DEMO.manager,key(),{storeId:DEMO.storeA,cashSessionId:cash.id,kind:'WITHDRAWAL',amountCents:3000,reason:'sangria para cofre'}).data;
+  assert.equal(withdrawal.expected_cents,9000);
+  assert.equal(db.prepare("SELECT amount_cents FROM cash_movements WHERE kind='WITHDRAWAL'").get().amount_cents,-3000);
+  assert.equal(pos.closeCash(DEMO.manager,key(),{storeId:DEMO.storeA,cashSessionId:cash.id,countedCents:9000}).data.difference_cents,0);
+});
 test('22 · cadastro mantém movimento inicial e impede código duplicado',t=>{
   const {pos}=fixture(t);const input={storeId:DEMO.storeA,sku:'ABC-123',name:'Produto novo',priceCents:1990,initialQuantity:5,barcode:'00123'};
   const product=pos.createProduct(DEMO.manager,key(),input).data;

@@ -103,10 +103,14 @@ CREATE TABLE stock_movements (
 ) STRICT;
 CREATE TABLE cash_movements (
   tenant_id TEXT NOT NULL, id TEXT NOT NULL, store_id TEXT NOT NULL, cash_session_id TEXT NOT NULL,
-  sale_id TEXT, kind TEXT NOT NULL CHECK(kind IN('OPENING','SALE')),
-  amount_cents INTEGER NOT NULL CHECK(amount_cents>=0), actor_id TEXT NOT NULL, created_at TEXT NOT NULL,
+  sale_id TEXT, kind TEXT NOT NULL CHECK(kind IN('OPENING','SALE','SUPPLY','WITHDRAWAL')),
+  amount_cents INTEGER NOT NULL CHECK(amount_cents BETWEEN -100000000 AND 100000000),
+  reason TEXT NOT NULL, actor_id TEXT NOT NULL, created_at TEXT NOT NULL,
   PRIMARY KEY(tenant_id,id), UNIQUE(tenant_id,sale_id),
-  CHECK((kind='SALE' AND sale_id IS NOT NULL) OR (kind='OPENING' AND sale_id IS NULL)),
+  CHECK((kind='SALE' AND sale_id IS NOT NULL AND amount_cents>0)
+     OR (kind='OPENING' AND sale_id IS NULL AND amount_cents>=0)
+     OR (kind='SUPPLY' AND sale_id IS NULL AND amount_cents>0)
+     OR (kind='WITHDRAWAL' AND sale_id IS NULL AND amount_cents<0)),
   FOREIGN KEY(tenant_id,store_id,cash_session_id) REFERENCES cash_sessions(tenant_id,store_id,id),
   FOREIGN KEY(tenant_id,store_id,sale_id) REFERENCES sales(tenant_id,store_id,id),
   FOREIGN KEY(tenant_id,actor_id) REFERENCES users(tenant_id,id)

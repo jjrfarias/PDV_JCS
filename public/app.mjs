@@ -31,6 +31,8 @@ function lock(){
   $('discount').disabled=locked||!manager();$('discount-reason').disabled=locked||!manager();
   const cash=currentCash();
   $('open-cash').disabled=locked||Boolean(cash);
+  $('cash-supply').disabled=locked||!cash||cash.operator_id!==state.me?.user.id;
+  $('cash-withdrawal').disabled=locked||!cash||cash.operator_id!==state.me?.user.id;
   $('close-cash').disabled=locked||!cash||cash.operator_id!==state.me?.user.id;
   $('confirm-sale').disabled=locked||!cash||cash.operator_id!==state.me?.user.id||state.cart.length===0;
   $('cancel-sale').disabled=locked||state.cart.length===0;
@@ -58,7 +60,9 @@ function renderCash(){
   else if(cash.operator_id!==state.me.user.id){$('cash-gate-title').textContent='Terminal em uso';$('cash-gate-text').textContent='Este caixa foi aberto por outro operador. Selecione outro terminal ou peça o fechamento.';}
   $('opening-value').textContent=brl(cash?.opening_cents??0);
   $('sales-value').textContent=brl(cash?.sales_cents??0);
-  $('expected-value').textContent=brl(cash?.expected_cents??0);lock();
+  $('expected-value').textContent=brl(cash?.expected_cents??0);
+  renderCashMovements();
+  lock();
 }
 function setView(view){
   state.view=view;
@@ -139,6 +143,16 @@ function table(headers,rows){
 }
 const date=value=>new Date(value).toLocaleString('pt-BR');
 const includes=(values,query)=>!query||values.some(value=>String(value??'').toLowerCase().includes(query));
+function renderCashMovements(){
+  if(!$('cash-movement-table')||!state.data)return;
+  const names={OPENING:'Fundo inicial',SALE:'Venda em dinheiro',SUPPLY:'Suprimento',WITHDRAWAL:'Sangria'};
+  const current=currentCash();
+  const rows=(state.data.cashMovements??[]).filter(m=>!current||m.cash_session_id===current.id);
+  $('cash-movement-count').textContent=`${rows.length} registros`;
+  $('cash-movement-table').replaceChildren(table(['Data','Tipo','Valor','Operador','Motivo'],rows.map(m=>[
+    date(m.created_at),names[m.kind]??m.kind,brl(m.amount_cents),m.actor_name,m.reason
+  ])));
+}
 function renderSummary(cards){
   $('management-summary').replaceChildren(...cards.map(([label,value])=>{
     const card=element('div');card.append(element('span',label),element('strong',value));return card;
@@ -238,6 +252,16 @@ document.querySelectorAll('[data-tendered]').forEach(button=>button.addEventList
 document.querySelectorAll('[data-payment-method]').forEach(button=>button.addEventListener('click',()=>{state.paymentMethod=button.dataset.paymentMethod;if(state.paymentMethod!=='CASH')$('tendered').value='';renderTotals();}));
 $('open-cash').addEventListener('click',()=>{$('open-description').textContent=`${$('store-select').selectedOptions[0].textContent} · ${$('terminal-select').selectedOptions[0].textContent}`;$('open-dialog').showModal();});
 $('open-form').addEventListener('submit',event=>{event.preventDefault();run(()=>command('/api/cash/open',{storeId:storeId(),terminalId:terminalId(),openingCents:cents(event.target.opening.value)}));});
+function openCashMove(kind){
+  const supply=kind==='SUPPLY';
+  $('cash-move-title').textContent=supply?'Registrar suprimento':'Registrar sangria';
+  $('cash-move-description').textContent=supply?'Entrada manual de dinheiro no caixa atual.':'Retirada manual de dinheiro do caixa atual.';
+  $('cash-move-form').kind.value=kind;$('cash-move-form').amount.value='';$('cash-move-form').reason.value='';
+  updateMoneyPreviews();$('cash-move-dialog').showModal();
+}
+$('cash-supply').addEventListener('click',()=>openCashMove('SUPPLY'));
+$('cash-withdrawal').addEventListener('click',()=>openCashMove('WITHDRAWAL'));
+$('cash-move-form').addEventListener('submit',event=>{event.preventDefault();run(()=>command('/api/cash/move',{storeId:storeId(),cashSessionId:currentCash().id,kind:event.target.kind.value,amountCents:cents(event.target.amount.value),reason:event.target.reason.value}));});
 $('close-cash').addEventListener('click',()=>{$('close-description').textContent=`Dinheiro esperado: ${brl(currentCash().expected_cents)}. Informe a contagem física.`;$('close-dialog').showModal();});
 $('close-form').addEventListener('submit',event=>{event.preventDefault();run(()=>command('/api/cash/close',{storeId:storeId(),cashSessionId:currentCash().id,countedCents:cents(event.target.counted.value),reason:event.target.reason.value||null}));});
 $('new-product').addEventListener('click',()=>$('product-dialog').showModal());

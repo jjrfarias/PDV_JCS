@@ -16,7 +16,7 @@ Cabeçalho `Origin` igual ao endereço local acessado, incluindo porta. `Content
 
 ## Mutação e repetição
 
-As quatro rotas de negócio abaixo exigem `Idempotency-Key` com 16 a 100 caracteres `[a-zA-Z0-9_-]`; um UUID atende. A primeira confirmação retorna 201. A repetição da mesma chave, mesmo autor e mesmo payload normalizado retorna 200, com a mesma resposta e `replayed: true`. Outra operação ou payload na mesma chave retorna 409.
+As rotas de negócio abaixo exigem `Idempotency-Key` com 16 a 100 caracteres `[a-zA-Z0-9_-]`; um UUID atende. A primeira confirmação retorna 201. A repetição da mesma chave, mesmo autor e mesmo payload normalizado retorna 200, com a mesma resposta e `replayed: true`. Outra operação ou payload na mesma chave retorna 409.
 
 Formato:
 
@@ -56,7 +56,17 @@ Falha de conexão, timeout, 500 ou 503 deve ser tratada como resultado incerto: 
 }
 ```
 
-Subtotal, preco e total sao calculados no servidor. `paymentMethod` aceita `CASH`, `PIX` ou `CARD`; quando omitido, assume `CASH`. PIX/cartao sao apenas registro manual apos confirmacao externa, sem TEF/gateway. `priceCents`, `totalCents`, `tenantId` e outros campos desconhecidos sao recusados. O gerente pode conceder desconto ate 20%; operador nao pode. Quantidades repetidas do mesmo produto devem estar agrupadas em uma linha.
+Subtotal, preço e total são calculados no servidor. `paymentMethod` aceita `CASH`, `PIX` ou `CARD`; quando omitido, assume `CASH`. PIX/cartão são apenas registro manual após confirmação externa, sem TEF/gateway. `priceCents`, `totalCents`, `tenantId` e outros campos desconhecidos são recusados. O gerente pode conceder desconto até 20%; operador não pode. Quantidades repetidas do mesmo produto devem estar agrupadas em uma linha.
+
+## Movimentar dinheiro do caixa
+
+`POST /api/cash/move`
+
+```json
+{"storeId":"store-a","cashSessionId":"ID_DO_CAIXA","kind":"WITHDRAWAL","amountCents":5000,"reason":"Sangria para cofre"}
+```
+
+`kind` aceita `SUPPLY` para suprimento e `WITHDRAWAL` para sangria. O valor é sempre positivo no corpo; sangria é gravada como saída no livro do caixa. O motivo é obrigatório. O operador deve ser o mesmo que abriu o caixa.
 
 ## Fechar caixa
 
@@ -82,9 +92,9 @@ Somente gerente. SKU e código de barras não podem se repetir dentro do contrat
 
 | Rota | Retorno |
 |---|---|
-| `GET /api/stores/:storeId/state` | Produtos e saldo, terminais, caixas abertos, últimas 30 vendas, 50 movimentos e 20 fechamentos |
+| `GET /api/stores/:storeId/state` | Produtos e saldo, terminais, caixas abertos, últimas 30 vendas, 50 movimentos de estoque, 50 movimentos de caixa e 20 fechamentos |
 | `GET /api/sales/:saleId` | Venda com snapshots, pagamento e dados de comprovante de teste |
 | `GET /api/operations/:key` | Resultado persistido de uma operação do próprio usuário |
 | `GET /health` | Estado local, `mode=local-test`, `fiscal=false` |
 
-A consulta de operacao nao expoe a resposta de outro operador. A visualizacao de venda depende de autorizacao para sua loja. Nao ha rotas de cancelamento, devolucao ou emissao fiscal. Nao ha integracao PIX, cartao, TEF ou maquininha; apenas registro manual do metodo de pagamento.
+A consulta de operação não expõe a resposta de outro operador. A visualização de venda depende de autorização para sua loja. Não há rotas de cancelamento, devolução ou emissão fiscal. Não há integração PIX, cartão, TEF ou maquininha; apenas registro manual do método de pagamento.

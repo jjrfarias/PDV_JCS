@@ -115,7 +115,7 @@ O script exige senha forte, atualiza somente o hash, invalida sessoes abertas do
 ## Limites conhecidos
 
 - Fiscal ainda desativado: sem NFC-e/NF-e.
-- Sem PIX automatico, TEF, cartao integrado ou impressora fiscal. PIX/cartao sao apenas registro manual apos confirmacao externa.
+- Sem PIX automático, TEF, cartão integrado ou impressora fiscal. PIX/cartão são apenas registro manual após confirmação externa.
 - Sem tela administrativa completa de usuarios, redefinicao de senha por e-mail ou MFA. O usuario autenticado consegue trocar a propria senha, e gerente consegue cadastrar usuario para a loja selecionada.
 - Sem backup/restauracao homologados registrados neste repositorio.
 - A senha inicial salva em `.codex-validation/` e local e nao deve ser commitada.
