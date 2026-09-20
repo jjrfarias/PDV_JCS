@@ -12,6 +12,7 @@
     "test": "node --test --test-concurrency=1 tests/*.test.mjs",
     "check": "node scripts-check.mjs",
     "migrate:postgres": "node scripts/migrate-postgres.mjs",
+    "reset:password:postgres": "node scripts/reset-production-password.mjs",
     "smoke:production": "node scripts/smoke-production.mjs"
   },
   "dependencies": {

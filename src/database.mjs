@@ -2,34 +2,57 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
+const IMMUTABLE_TABLES = ['sales','sale_items','payments','stock_movements','cash_movements','operations','audit_events'];
+
 export function connect(filename) {
   if (filename !== ':memory:') mkdirSync(dirname(filename), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(filename);
   db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 1) { db.close(); throw new Error('Banco de uma versão mais nova. Não faça downgrade.'); }
+  if (version > 2) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
   if (version === 0) {
     transaction(db, () => {
-      // Outra instância pode ter criado o esquema enquanto aguardávamos a trava.
       if (db.prepare('PRAGMA user_version').get().user_version !== 0) return;
       db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
-      // Registros confirmados e livro de movimentos são append-only pela aplicação.
-      for (const table of ['sales','sale_items','payments','stock_movements','cash_movements','operations','audit_events']) {
-        db.exec(`CREATE TRIGGER ${table}_no_update BEFORE UPDATE ON ${table} BEGIN SELECT RAISE(ABORT,'immutable_record'); END;
-          CREATE TRIGGER ${table}_no_delete BEFORE DELETE ON ${table} BEGIN SELECT RAISE(ABORT,'immutable_record'); END;`);
-      }
-      db.exec('PRAGMA user_version=1;');
+      createImmutableTriggers(db);
+      db.exec('PRAGMA user_version=2;');
+    });
+  }
+  if (version === 1) {
+    transaction(db, () => {
+      if (db.prepare('PRAGMA user_version').get().user_version !== 1) return;
+      db.exec(`DROP TRIGGER IF EXISTS payments_no_update;
+        DROP TRIGGER IF EXISTS payments_no_delete;
+        ALTER TABLE payments RENAME TO payments_old;
+        CREATE TABLE payments (
+          tenant_id TEXT NOT NULL, sale_id TEXT NOT NULL, method TEXT NOT NULL CHECK(method IN('CASH','PIX','CARD')),
+          status TEXT NOT NULL CHECK(status='CONFIRMED'), amount_cents INTEGER NOT NULL CHECK(amount_cents>0),
+          tendered_cents INTEGER NOT NULL, change_cents INTEGER NOT NULL CHECK(change_cents>=0),
+          PRIMARY KEY(tenant_id,sale_id), CHECK(tendered_cents-change_cents=amount_cents),
+          FOREIGN KEY(tenant_id,sale_id) REFERENCES sales(tenant_id,id)
+        ) STRICT;
+        INSERT INTO payments SELECT * FROM payments_old;
+        DROP TABLE payments_old;`);
+      createImmutableTriggers(db, ['payments']);
+      db.exec('PRAGMA user_version=2;');
     });
   }
   return db;
 }
 
-// Exclusivamente síncrona: nenhuma chamada de rede nem await nesta transação.
+function createImmutableTriggers(db, tables = IMMUTABLE_TABLES) {
+  for (const table of tables) {
+    db.exec(`CREATE TRIGGER ${table}_no_update BEFORE UPDATE ON ${table} BEGIN SELECT RAISE(ABORT,'immutable_record'); END;
+      CREATE TRIGGER ${table}_no_delete BEFORE DELETE ON ${table} BEGIN SELECT RAISE(ABORT,'immutable_record'); END;`);
+  }
+}
+
+// Exclusivamente sincrona: nenhuma chamada de rede nem await nesta transacao.
 export function transaction(db, work) {
   db.exec('BEGIN IMMEDIATE');
   try {
     const result = work();
-    if (result && typeof result.then === 'function') throw new Error('A transação não aceita função assíncrona.');
+    if (result && typeof result.then === 'function') throw new Error('A transacao nao aceita funcao assincrona.');
     db.exec('COMMIT');
     return result;
   } catch (error) {

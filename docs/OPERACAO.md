@@ -1,4 +1,4 @@
-# Operacao do PDV JCS
+﻿# Operacao do PDV JCS
 
 ## Estado atual
 
@@ -95,10 +95,27 @@ Tambem validar:
 - uma leitura de estado da loja;
 - uma mutacao pequena com CSRF e chave de idempotencia, quando apropriado.
 
+## Reset operacional de senha
+
+Senhas existentes nao sao recuperaveis: o banco guarda apenas hash. Quando um acesso de producao for perdido, use reset com conexao administrativa/migration ao PostgreSQL. Nao use a `DATABASE_URL` runtime da aplicacao.
+
+```powershell
+$env:PG_MIGRATION_DATABASE_URL = "<url admin/tunelada do Postgres>"
+$env:PDV_RESET_TENANT = "jcs"
+$env:PDV_RESET_EMAIL = "admin@jcs.local"
+$env:PDV_RESET_NEW_PASSWORD = "<nova senha forte>"
+$env:PDV_RESET_CONFIRM = "RESET_PASSWORD"
+npm.cmd run reset:password:postgres
+Remove-Item Env:\PDV_RESET_NEW_PASSWORD
+Remove-Item Env:\PG_MIGRATION_DATABASE_URL
+```
+
+O script exige senha forte, atualiza somente o hash, invalida sessoes abertas do usuario e registra auditoria `PASSWORD_RESET_ADMIN`. Ele nao imprime a nova senha.
+
 ## Limites conhecidos
 
 - Fiscal ainda desativado: sem NFC-e/NF-e.
-- Sem PIX, TEF, cartao integrado ou impressora fiscal.
+- Sem PIX automatico, TEF, cartao integrado ou impressora fiscal. PIX/cartao sao apenas registro manual apos confirmacao externa.
 - Sem tela administrativa completa de usuarios, redefinicao de senha por e-mail ou MFA. O usuario autenticado consegue trocar a propria senha, e gerente consegue cadastrar usuario para a loja selecionada.
 - Sem backup/restauracao homologados registrados neste repositorio.
 - A senha inicial salva em `.codex-validation/` e local e nao deve ser commitada.

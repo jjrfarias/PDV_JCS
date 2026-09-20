@@ -84,7 +84,7 @@ CREATE TABLE sale_items (
   FOREIGN KEY(tenant_id,product_id) REFERENCES products(tenant_id,id)
 ) STRICT;
 CREATE TABLE payments (
-  tenant_id TEXT NOT NULL, sale_id TEXT NOT NULL, method TEXT NOT NULL CHECK(method='CASH'),
+  tenant_id TEXT NOT NULL, sale_id TEXT NOT NULL, method TEXT NOT NULL CHECK(method IN('CASH','PIX','CARD')),
   status TEXT NOT NULL CHECK(status='CONFIRMED'), amount_cents INTEGER NOT NULL CHECK(amount_cents>0),
   tendered_cents INTEGER NOT NULL, change_cents INTEGER NOT NULL CHECK(change_cents>=0),
   PRIMARY KEY(tenant_id,sale_id), CHECK(tendered_cents-change_cents=amount_cents),
