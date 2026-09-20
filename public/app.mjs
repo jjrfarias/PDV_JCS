@@ -35,6 +35,7 @@ function lock(){
   $('cash-withdrawal').disabled=locked||!cash||cash.operator_id!==state.me?.user.id;
   $('close-cash').disabled=locked||!cash||cash.operator_id!==state.me?.user.id;
   document.querySelectorAll('[data-cancel-sale]').forEach(el=>{el.disabled=locked;});
+  document.querySelectorAll('[data-product-action]').forEach(el=>{el.disabled=locked;});
   $('confirm-sale').disabled=locked||!cash||cash.operator_id!==state.me?.user.id||state.cart.length===0;
   $('cancel-sale').disabled=locked||state.cart.length===0;
   document.querySelectorAll('[data-tendered]').forEach(el=>{el.disabled=locked||state.cart.length===0;});
@@ -165,7 +166,12 @@ function renderSummary(cards){
 }
 function renderManagement(){
   const d=state.data,query=$('management-search').value.trim().toLowerCase();let content;
-  if(state.tab==='products'){const rows=d.products.filter(p=>includes([p.sku,p.name,p.barcode,brl(p.price_cents),p.quantity],query));renderSummary([['Produtos',rows.length],['Estoque total',rows.reduce((n,p)=>n+p.quantity,0)],['Valor em estoque',brl(rows.reduce((n,p)=>n+p.quantity*p.price_cents,0))]]);content=table(['Código','Produto','Código de barras','Preço','Estoque'],rows.map(p=>[p.sku,p.name,p.barcode??'—',brl(p.price_cents),p.quantity]));}
+  if(state.tab==='products'){const rows=d.products.filter(p=>includes([p.sku,p.name,p.barcode,brl(p.price_cents),p.quantity],query));renderSummary([['Produtos',rows.length],['Estoque total',rows.reduce((n,p)=>n+p.quantity,0)],['Valor em estoque',brl(rows.reduce((n,p)=>n+p.quantity*p.price_cents,0))]]);content=table(['Código','Produto','Código de barras','Preço','Estoque','Ações'],rows.map(p=>{
+    const actions=element('div',undefined,'row-actions');
+    if(manager()){const edit=element('button','Editar');edit.type='button';edit.dataset.productAction='edit';edit.addEventListener('click',()=>openProductEdit(p));actions.append(edit);
+      const deactivate=element('button','Inativar');deactivate.type='button';deactivate.dataset.productAction='deactivate';deactivate.addEventListener('click',()=>deactivateProduct(p));actions.append(deactivate);}
+    return [p.sku,p.name,p.barcode??'—',brl(p.price_cents),p.quantity,actions];
+  }));}
   if(state.tab==='users'){const rows=(d.users??[]).filter(u=>includes([u.name,u.email,u.role,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo'],query));renderSummary([['Usuários',rows.length],['Ativos',rows.filter(u=>u.active===1).length],['Gerentes',rows.filter(u=>u.role==='MANAGER').length]]);content=table(['Nome','E-mail','Perfil','Status'],rows.map(u=>[u.name,u.email,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo']));}
   if(state.tab==='history'){const rows=d.sales.filter(s=>includes([date(s.created_at),s.id,s.operator_name,s.terminal_name,brl(s.discount_cents),brl(s.total_cents),s.canceled_at?'Cancelada':'Confirmada',s.cancel_reason],query));const active=rows.filter(s=>!s.canceled_at);renderSummary([['Vendas',rows.length],['Total ativo',brl(active.reduce((n,s)=>n+s.total_cents,0))],['Canceladas',rows.filter(s=>s.canceled_at).length]]);content=table(['Data','Venda','Operador','Terminal','Status','Desconto','Total','Ações'],rows.map(s=>{
     const b=element('button','Abrir');b.type='button';b.addEventListener('click',()=>run(async()=>showReceipt(await api(`/api/sales/${s.id}`))));
@@ -207,6 +213,7 @@ async function submitPending(){
     document.querySelectorAll('dialog[open]').forEach(d=>d.close());
     if(pending.path==='/api/sales'){state.cart=[];$('discount').value='0';$('discount-reason').value='';$('tendered').value='';showReceipt(result.data);}
     if(pending.path==='/api/products')$('product-form').reset();
+    if(pending.path==='/api/products/update')$('product-edit-form').reset();
     if(pending.path==='/api/stock/adjust')$('stock-form').reset();
     if(pending.path==='/api/sales/cancel')$('sale-cancel-form').reset();
     if(pending.path==='/api/users')$('user-form').reset();
@@ -276,6 +283,15 @@ $('close-cash').addEventListener('click',()=>{$('close-description').textContent
 $('close-form').addEventListener('submit',event=>{event.preventDefault();run(()=>command('/api/cash/close',{storeId:storeId(),cashSessionId:currentCash().id,countedCents:cents(event.target.counted.value),reason:event.target.reason.value||null}));});
 $('new-product').addEventListener('click',()=>$('product-dialog').showModal());
 $('product-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/products',{storeId:storeId(),sku:f.sku,barcode:f.barcode||null,name:f.name,priceCents:cents(f.price),initialQuantity:Number(f.quantity)});});});
+function openProductEdit(product){
+  const form=$('product-edit-form');form.productId.value=product.id;form.name.value=product.name;form.sku.value=product.sku;form.barcode.value=product.barcode??'';form.price.value=String(product.price_cents);
+  updateMoneyPreviews();$('product-edit-dialog').showModal();
+}
+$('product-edit-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/products/update',{storeId:storeId(),productId:f.productId,sku:f.sku,barcode:f.barcode||null,name:f.name,priceCents:cents(f.price),active:1});});});
+function deactivateProduct(product){
+  if(!confirm(`Inativar ${product.name}? Ele deixará de aparecer na venda.`))return;
+  run(()=>command('/api/products/update',{storeId:storeId(),productId:product.id,sku:product.sku,barcode:product.barcode??null,name:product.name,priceCents:product.price_cents,active:0}));
+}
 $('adjust-stock').addEventListener('click',()=>{const select=$('stock-form').productId;select.replaceChildren(...state.data.products.map(product=>{const option=element('option',`${product.sku} · ${product.name} · saldo ${product.quantity}`);option.value=product.id;return option;}));$('stock-form').reset();$('stock-dialog').showModal();});
 $('stock-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/stock/adjust',{storeId:storeId(),productId:f.productId,quantity:Number(f.quantity),reason:f.reason});});});
 function openSaleCancel(sale){

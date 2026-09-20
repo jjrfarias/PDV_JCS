@@ -44,6 +44,18 @@ test('HTTP 17 - gerente cancela venda confirmada por rota idempotente',async t=>
   assert.equal(state.data.cash[0].expected_cents,10000);
   assert.equal(state.data.sales[0].canceled_at!==null,true);
 });
+test('HTTP 18 - gerente edita produto por rota idempotente',async t=>{
+  const w=await web(t);await w.login();
+  const body={storeId:DEMO.storeA,productId:DEMO.product,sku:'DEMO-WEB',barcode:'7890000000888',name:'Produto web editado',priceCents:3100,active:1};
+  const updateKey=key();
+  const first=await w.call('/api/products/update',{method:'POST',headers:{'Idempotency-Key':updateKey},body});
+  assert.equal(first.response.status,201);assert.equal(first.data.data.price_cents,3100);
+  const second=await w.call('/api/products/update',{method:'POST',headers:{'Idempotency-Key':updateKey},body});
+  assert.equal(second.response.status,200);assert.equal(second.data.replayed,true);
+  const state=await w.call('/api/stores/store-a/state');
+  assert.equal(state.data.products[0].sku,'DEMO-WEB');
+  assert.equal(state.data.products[0].name,'Produto web editado');
+});
 test('HTTP 02 · rota exige autenticação',async t=>{
   const w=await web(t);assert.equal((await w.call('/api/stores/store-a/state')).response.status,401);
 });

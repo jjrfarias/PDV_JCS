@@ -189,6 +189,23 @@ test('22b - gerente ajusta estoque com motivo sem permitir saldo negativo',t=>{
   fails(()=>pos.adjustStock(DEMO.manager,key(),{storeId:DEMO.storeA,productId:DEMO.product,quantity:-13,reason:'erro de contagem'}),'STOCK_LIMIT');
   assert.equal(db.prepare("SELECT COUNT(*) n FROM stock_movements WHERE kind='ADJUSTMENT'").get().n,2);
 });
+test('22c - gerente edita produto sem alterar snapshot de venda antiga',t=>{
+  const {pos}=fixture(t);const cash=open(pos);
+  const sale=pos.sell(DEMO.manager,key(),saleInput(cash,{discountCents:0,discountReason:null,tenderedCents:5000})).data;
+  const updated=pos.updateProduct(DEMO.manager,key(),{storeId:DEMO.storeA,productId:DEMO.product,sku:'DEMO-EDIT',barcode:'7890000000999',name:'Produto editado',priceCents:3300,active:1}).data;
+  assert.equal(updated.price_cents,3300);
+  assert.equal(pos.receipt(DEMO.manager,sale.id).items[0].price_cents,2500);
+  const state=pos.state(DEMO.manager,DEMO.storeA);
+  assert.equal(state.products[0].name,'Produto editado');
+  assert.equal(state.products[0].price_cents,3300);
+});
+test('22d - inativar produto remove da venda e exige gerente',t=>{
+  const {pos}=fixture(t);const cash=open(pos);
+  fails(()=>pos.updateProduct(DEMO.cashier,key(),{storeId:DEMO.storeA,productId:DEMO.product,sku:'DEMO-001',barcode:'7890000000017',name:'Produto de teste',priceCents:2500,active:0}),'MANAGER_REQUIRED');
+  pos.updateProduct(DEMO.manager,key(),{storeId:DEMO.storeA,productId:DEMO.product,sku:'DEMO-001',barcode:'7890000000017',name:'Produto de teste',priceCents:2500,active:0});
+  assert.equal(pos.state(DEMO.manager,DEMO.storeA).products.length,0);
+  fails(()=>pos.sell(DEMO.manager,key(),saleInput(cash,{discountCents:0,discountReason:null,tenderedCents:5000})),'PRODUCT_NOT_FOUND');
+});
 test('23 · alteração posterior de cadastro não muda snapshot de venda',t=>{
   const {pos,db}=fixture(t);const cash=open(pos),sale=pos.sell(DEMO.manager,key(),saleInput(cash)).data;
   db.prepare('UPDATE products SET price_cents=9999,name=? WHERE tenant_id=? AND id=?').run('Nome alterado em teste',DEMO.manager.tenantId,DEMO.product);

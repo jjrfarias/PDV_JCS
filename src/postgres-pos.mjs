@@ -216,6 +216,36 @@ export class PostgresPos {
     });
   }
 
+  async updateProduct(ctx, key, raw) {
+    object(raw, ['storeId', 'productId', 'sku', 'barcode', 'name', 'priceCents', 'active']);
+    const input = {
+      storeId: id(raw.storeId), productId: id(raw.productId),
+      sku: text(raw.sku, 'Código', 40).toUpperCase(),
+      barcode: raw.barcode ? text(raw.barcode, 'Código de barras', 48) : null,
+      name: text(raw.name, 'Nome'), priceCents: integer(raw.priceCents, 'Preço', 1),
+      active: integer(raw.active, 'Status', 0, 1)
+    };
+    return this.#mutate(ctx, 'PRODUCT_UPDATE', key, input, async (tx, user) => {
+      requireThat(user.role === 'MANAGER', 403, 'MANAGER_REQUIRED', 'Somente gerente altera produtos.');
+      const current = await tx.one(`SELECT p.* FROM products p
+        JOIN stock s ON s.tenant_id=p.tenant_id AND s.product_id=p.id
+        WHERE p.tenant_id=$1 AND s.store_id=$2 AND p.id=$3 FOR UPDATE OF p`,
+      ctx.tenantId, input.storeId, input.productId);
+      requireThat(current, 404, 'PRODUCT_NOT_FOUND', 'Produto não disponível nesta loja.');
+      const duplicate = await tx.one(`SELECT 1 FROM products
+        WHERE tenant_id=$1 AND id<>$2 AND (sku=$3 OR (barcode IS NOT NULL AND barcode=$4))`,
+      ctx.tenantId, input.productId, input.sku, input.barcode);
+      requireThat(!duplicate, 409, 'DUPLICATE_PRODUCT', 'Código interno ou código de barras já cadastrado.');
+      await tx.run(`UPDATE products SET sku=$1,barcode=$2,name=$3,price_cents=$4,active=$5
+        WHERE tenant_id=$6 AND id=$7`,
+      input.sku, input.barcode, input.name, input.priceCents, input.active, ctx.tenantId, input.productId);
+      await tx.audit(ctx, input.storeId, 'PRODUCT_UPDATED', input.productId,
+        { sku: input.sku, barcode: input.barcode, name: input.name, priceCents: input.priceCents, active: input.active });
+      return { id: input.productId, sku: input.sku, barcode: input.barcode, name: input.name,
+        price_cents: input.priceCents, active: input.active };
+    });
+  }
+
   async createUser(ctx, key, raw) {
     object(raw, ['storeId', 'email', 'name', 'role', 'temporaryPassword']);
     const input = {

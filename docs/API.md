@@ -98,6 +98,16 @@ Uma diferença exige motivo com pelo menos três caracteres. O operador de abert
 
 Somente gerente. SKU e código de barras não podem se repetir dentro do contratante. `barcode` pode ser null. Estoque inicial zero é permitido; nesse caso não há movimento de quantidade zero.
 
+## Editar produto
+
+`POST /api/products/update`
+
+```json
+{"storeId":"store-a","productId":"product-25","sku":"DEMO-EDIT","barcode":"7890000000999","name":"Produto editado","priceCents":3300,"active":1}
+```
+
+Somente gerente. Atualiza cadastro para vendas futuras ou inativa o produto com `active: 0`. Vendas já confirmadas preservam snapshots de nome, SKU, quantidade e preço. SKU e código de barras continuam únicos dentro do contratante.
+
 ## Ajustar estoque
 
 `POST /api/stock/adjust`
