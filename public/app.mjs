@@ -96,9 +96,9 @@ function renderCart(){
   $('cart-body').replaceChildren();
   for(const p of state.cart){
     const tr=element('tr'),name=element('td',p.name);name.append(element('small',p.sku));
-    const quantity=element('td'),input=element('input');input.type='number';input.min='1';input.max='10000';input.step='1';input.value=p.units;input.dataset.edit='';input.setAttribute('aria-label',`Quantidade de ${p.name}`);
+    const quantity=element('td',undefined,'quantity-cell'),input=element('input');input.type='number';input.min='1';input.max='10000';input.step='1';input.value=p.units;input.dataset.edit='';input.setAttribute('aria-label',`Quantidade de ${p.name}`);
     input.addEventListener('change',()=>{const n=Number(input.value);if(!Number.isInteger(n)||n<1||n>10000){input.value=p.units;message('Quantidade inválida.');return;}p.units=n;renderCart();});quantity.append(input);
-    const action=element('td'),remove=element('button','Remover');remove.type='button';remove.dataset.write='';remove.addEventListener('click',()=>{state.cart=state.cart.filter(i=>i.id!==p.id);renderCart();});action.append(remove);
+    const action=element('td',undefined,'action-cell'),remove=element('button','Remover');remove.type='button';remove.dataset.write='';remove.addEventListener('click',()=>{state.cart=state.cart.filter(i=>i.id!==p.id);renderCart();});action.append(remove);
     tr.append(name,quantity,element('td',brl(p.price_cents),'number'),element('td',brl(p.price_cents*p.units),'number'),action);$('cart-body').append(tr);
   }
   $('empty-cart').hidden=state.cart.length>0;$('item-count').textContent=`${state.cart.reduce((sum,p)=>sum+p.units,0)} unidades`;

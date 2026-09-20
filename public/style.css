@@ -99,6 +99,15 @@ p{color:var(--muted);font-size:14px}
 .table-wrap{overflow:auto}
 .items-panel .table-wrap{min-height:0;flex:1}
 table{border-collapse:collapse;width:100%;text-align:left;font-size:13px}
+.cart-table{table-layout:fixed}
+.cart-table .cart-product{width:auto}
+.cart-table .cart-qty{width:150px}
+.cart-table .cart-money{width:150px}
+.cart-table .cart-action{width:130px}
+.cart-table th:nth-child(2),.cart-table td.quantity-cell{text-align:center}
+.cart-table td.quantity-cell input{margin:0 auto}
+.cart-table td.action-cell{text-align:right}
+.cart-table td.action-cell button{min-width:86px}
 th{background:#f8fafc;color:#64748b;text-transform:uppercase;letter-spacing:.7px;font-size:10px;font-weight:900;padding:10px 18px;white-space:nowrap}
 td{padding:14px 18px;border-bottom:1px solid #edf1f5;vertical-align:middle}
 td small{display:block;color:#748295;font-size:11px;margin-top:2px}

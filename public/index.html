@@ -23,7 +23,7 @@
       <section class="items-panel"><div class="section-title"><h2>Produtos da venda</h2><span id="item-count">0 unidades</span></div>
         <form id="search-form" class="search-form"><label class="search-label">Produto<input id="search" placeholder="Leia o código de barras ou busque pelo nome" autocomplete="off" data-edit></label><button type="submit" data-write>Adicionar</button></form>
         <div id="search-results" class="search-results"></div>
-        <div class="table-wrap"><table><thead><tr><th>Produto</th><th>Quantidade</th><th>Unitário</th><th>Total</th><th></th></tr></thead><tbody id="cart-body"></tbody></table></div>
+        <div class="table-wrap"><table class="cart-table"><colgroup><col class="cart-product"><col class="cart-qty"><col class="cart-money"><col class="cart-money"><col class="cart-action"></colgroup><thead><tr><th>Produto</th><th>Quantidade</th><th class="number">Unitário</th><th class="number">Total</th><th></th></tr></thead><tbody id="cart-body"></tbody></table></div>
         <div id="empty-cart" class="empty"><strong>Venda vazia</strong><p>Leia o código de barras ou busque um produto para começar.</p></div>
         <div class="shortcuts">F2 Buscar produto <span>F9 Confirmar venda</span> <span>Esc Cancelar venda</span> <span>F10 Imprimir último comprovante</span></div>
       </section>
