@@ -125,6 +125,33 @@ export class Pos {
       return {id:userId,email:input.email,name:input.name,role:input.role,active:1,storeId:input.storeId};
     });
   }
+  updateUser(ctx,key,raw) {
+    object(raw,['storeId','userId','email','name','role','active','temporaryPassword']);
+    const input={storeId:id(raw.storeId),userId:id(raw.userId),email:text(raw.email,'E-mail',120).toLowerCase(),name:text(raw.name,'Nome',120),
+      role:text(raw.role,'Perfil',20),active:integer(raw.active,'Status',0,1),
+      temporaryPassword:raw.temporaryPassword?text(raw.temporaryPassword,'Senha temporária',200,12):null};
+    requireThat(['MANAGER','CASHIER'].includes(input.role),400,'INVALID_ROLE','Perfil inválido.');
+    requireThat(/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(input.email),400,'INVALID_EMAIL','E-mail inválido.');
+    if(input.temporaryPassword) requireThat(/[A-Z]/.test(input.temporaryPassword)&&/[a-z]/.test(input.temporaryPassword)&&/\d/.test(input.temporaryPassword),
+      400,'WEAK_PASSWORD','A senha temporária deve ter 12 caracteres, com letras maiúsculas, minúsculas e número.');
+    return this.mutate(ctx,'USER_UPDATE',key,input,user => {
+      requireThat(user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente altera usuários.');
+      const current=this.one(`SELECT u.id,u.role FROM users u JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
+        WHERE u.tenant_id=? AND u.id=? AND m.store_id=?`,ctx.tenantId,input.userId,input.storeId);
+      requireThat(current,404,'USER_NOT_FOUND','Usuário não encontrado nesta loja.');
+      requireThat(!(input.userId===ctx.userId&&input.active===0),400,'SELF_DEACTIVATE_FORBIDDEN','Não é permitido inativar seu próprio usuário.');
+      requireThat(!(input.userId===ctx.userId&&input.role!=='MANAGER'),400,'SELF_ROLE_CHANGE_FORBIDDEN','Não é permitido remover seu próprio perfil de gerente.');
+      requireThat(!this.one('SELECT 1 FROM users WHERE tenant_id=? AND email=? AND id<>?',ctx.tenantId,input.email,input.userId),409,'DUPLICATE_USER','E-mail já cadastrado.');
+      const passwordHash=input.temporaryPassword?hashPassword(input.temporaryPassword):null;
+      if(passwordHash) this.run('UPDATE users SET email=?,name=?,role=?,active=?,password_hash=? WHERE tenant_id=? AND id=?',
+        input.email,input.name,input.role,input.active,passwordHash,ctx.tenantId,input.userId);
+      else this.run('UPDATE users SET email=?,name=?,role=?,active=? WHERE tenant_id=? AND id=?',
+        input.email,input.name,input.role,input.active,ctx.tenantId,input.userId);
+      if(passwordHash||input.active===0||current.role!==input.role) this.run('DELETE FROM sessions WHERE tenant_id=? AND user_id=?',ctx.tenantId,input.userId);
+      this.audit(ctx,input.storeId,'USER_UPDATED',input.userId,{role:input.role,active:input.active,passwordReset:Boolean(passwordHash)});
+      return {id:input.userId,email:input.email,name:input.name,role:input.role,active:input.active,storeId:input.storeId,passwordReset:Boolean(passwordHash)};
+    });
+  }
   adjustStock(ctx,key,raw) {
     object(raw,['storeId','productId','quantity','reason']);
     const input={storeId:id(raw.storeId),productId:id(raw.productId),quantity:integer(raw.quantity,'Quantidade',-1_000_000,1_000_000),

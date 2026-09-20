@@ -2,7 +2,7 @@
 
 ## Resultado executado
 
-**59 testes passaram; zero falhas, cancelamentos ou testes ignorados.**
+**62 testes passaram; zero falhas, cancelamentos ou testes ignorados.**
 
 Comandos realmente executados na pasta do projeto:
 
@@ -18,7 +18,7 @@ A suíte atual foi executada nesta rodada com `npm test`. Logs antigos em arquiv
 
 Ambiente real: Linux x64, Node.js **22.16.0**, SQLite **3.49.1** fornecido pelo `node:sqlite`. O aviso experimental do SQLite foi preservado no log. Não foi executado Node.js 24 neste ambiente; a linha 24 LTS é a recomendação de instalação para o usuário, não uma versão que estamos alegando ter testado.
 
-## Domínio e banco — 40 testes
+## Domínio e banco — 42 testes
 
 Foram executados os cenários numerados no arquivo `tests/pos.test.mjs`:
 
@@ -28,11 +28,12 @@ Foram executados os cenários numerados no arquivo `tests/pos.test.mjs`:
 - Autorização por loja, isolamento entre contratantes, referência cruzada de produto/caixa e impossibilidade de outro usuário recuperar a operação privada do autor.
 - Validação de quantidades e valores, abertura/fechamento idempotentes, responsabilidade do operador e registro de diferença.
 - Cadastro com movimento inicial, edição/inativação gerencial de produto, código duplicado, snapshots comerciais, gatilhos de imutabilidade e chaves estrangeiras compostas.
+- Edição gerencial de usuário, reset de senha temporária com hash no servidor, invalidação de sessões, bloqueio para operador alterar usuários e proteção contra o gerente inativar ou remover seu próprio perfil de gerente.
 - Fechar e reabrir a conexão do banco em disco preserva venda e saldo; seed não repõe estoque. Este é teste de reinício de conexão, não de corte de energia.
 - Duas conexões SQLite independentes, em workers liberados por uma barreira comum, disputam a última unidade: exatamente uma confirma, outra recebe estoque insuficiente, saldo fica zero e há uma venda.
 - Rejeição de callback assíncrono no invólucro de transação.
 
-## HTTP e autenticação — 19 testes
+## HTTP e autenticação — 20 testes
 
 Requisições reais via TCP loopback para a aplicação, sem framework mockando a API:
 
@@ -41,6 +42,7 @@ Requisições reais via TCP loopback para a aplicação, sem framework mockando 
 - Abertura/venda/recuperação idempotente pela API.
 - Cancelamento de venda por rota idempotente, com reposição de estoque e estorno de caixa.
 - Edição de produto por rota idempotente.
+- Edição de usuário por rota idempotente, reset de senha sem expor senha temporária ou hash no JSON e login somente com a nova senha.
 - Relatório por período e exportação CSV compatível com Excel.
 - Bloqueio de loja não autorizada, logout e expiração de sessão.
 - Senha inválida sem enumeração explícita de conta e limite de tentativas.

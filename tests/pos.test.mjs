@@ -223,6 +223,28 @@ test('22d - inativar produto remove da venda e exige gerente',t=>{
   assert.equal(pos.state(DEMO.manager,DEMO.storeA).products.length,0);
   fails(()=>pos.sell(DEMO.manager,key(),saleInput(cash,{discountCents:0,discountReason:null,tenderedCents:5000})),'PRODUCT_NOT_FOUND');
 });
+test('22e - gerente edita usuario, reseta senha e invalida sessoes sem expor segredo',t=>{
+  const {pos,db}=fixture(t);
+  const created=pos.createUser(DEMO.manager,key(),{storeId:DEMO.storeA,email:'editar@jcs.local',name:'Usuario Editar',role:'CASHIER',temporaryPassword:'SenhaTemp2026'}).data;
+  db.prepare('INSERT INTO sessions VALUES(?,?,?,?,?)').run('hash-teste',DEMO.manager.tenantId,created.id,'csrf-teste',Date.now()+60_000);
+  const updated=pos.updateUser(DEMO.manager,key(),{storeId:DEMO.storeA,userId:created.id,email:'editado@jcs.local',name:'Usuario Editado',role:'MANAGER',active:1,temporaryPassword:'OutraSenha2026'}).data;
+  assert.equal(updated.email,'editado@jcs.local');
+  assert.equal(updated.role,'MANAGER');
+  assert.equal(updated.passwordReset,true);
+  assert.equal(updated.temporaryPassword,undefined);
+  assert.equal(updated.password_hash,undefined);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM sessions WHERE user_id=?').get(created.id).n,0);
+  assert.match(db.prepare('SELECT password_hash FROM users WHERE id=?').get(created.id).password_hash,/^scrypt\$/);
+  const users=pos.state(DEMO.manager,DEMO.storeA).users;
+  assert.equal(users.find(u=>u.id===created.id).name,'Usuario Editado');
+});
+test('22f - edicao de usuario exige gerente e impede gerente se bloquear',t=>{
+  const {pos}=fixture(t);
+  const created=pos.createUser(DEMO.manager,key(),{storeId:DEMO.storeA,email:'bloqueio@jcs.local',name:'Bloqueio',role:'CASHIER',temporaryPassword:'SenhaTemp2026'}).data;
+  fails(()=>pos.updateUser(DEMO.cashier,key(),{storeId:DEMO.storeA,userId:created.id,email:'bloqueio2@jcs.local',name:'Bloqueio 2',role:'CASHIER',active:1,temporaryPassword:null}),'MANAGER_REQUIRED');
+  fails(()=>pos.updateUser(DEMO.manager,key(),{storeId:DEMO.storeA,userId:DEMO.manager.userId,email:'gerente@jcs.local',name:'Gerente',role:'MANAGER',active:0,temporaryPassword:null}),'SELF_DEACTIVATE_FORBIDDEN');
+  fails(()=>pos.updateUser(DEMO.manager,key(),{storeId:DEMO.storeA,userId:DEMO.manager.userId,email:'gerente@jcs.local',name:'Gerente',role:'CASHIER',active:1,temporaryPassword:null}),'SELF_ROLE_CHANGE_FORBIDDEN');
+});
 test('23 · alteração posterior de cadastro não muda snapshot de venda',t=>{
   const {pos,db}=fixture(t);const cash=open(pos),sale=pos.sell(DEMO.manager,key(),saleInput(cash)).data;
   db.prepare('UPDATE products SET price_cents=9999,name=? WHERE tenant_id=? AND id=?').run('Nome alterado em teste',DEMO.manager.tenantId,DEMO.product);

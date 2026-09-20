@@ -118,6 +118,16 @@ Somente gerente. Atualiza cadastro para vendas futuras ou inativa o produto com 
 
 Somente gerente. `quantity` pode ser positivo ou negativo, mas não zero. O ajuste não pode deixar o saldo abaixo de zero nem acima do limite operacional. O motivo é obrigatório.
 
+## Editar usuário
+
+`POST /api/users/update`
+
+```json
+{"storeId":"store-a","userId":"ID_DO_USUARIO","email":"operador@jcs.local","name":"Operador","role":"CASHIER","active":1,"temporaryPassword":null}
+```
+
+Somente gerente. Atualiza nome, e-mail, perfil e status do usuário vinculado à loja. `temporaryPassword` é opcional; quando informado, é validado, convertido em hash no servidor e nunca retorna na resposta. Reset de senha, inativação ou mudança de perfil encerram sessões existentes do usuário. O gerente autenticado não pode inativar a própria conta nem remover seu próprio perfil de gerente.
+
 ## Relatórios
 
 `GET /api/stores/:storeId/report?from=AAAA-MM-DD&to=AAAA-MM-DD`

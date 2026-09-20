@@ -339,6 +339,53 @@ export class PostgresPos {
     });
   }
 
+  async updateUser(ctx, key, raw) {
+    object(raw, ['storeId', 'userId', 'email', 'name', 'role', 'active', 'temporaryPassword']);
+    const input = {
+      storeId: id(raw.storeId), userId: id(raw.userId),
+      email: text(raw.email, 'E-mail', 120).toLowerCase(),
+      name: text(raw.name, 'Nome', 120),
+      role: text(raw.role, 'Perfil', 20),
+      active: integer(raw.active, 'Status', 0, 1),
+      temporaryPassword: raw.temporaryPassword ? text(raw.temporaryPassword, 'Senha temporária', 200, 12) : null
+    };
+    requireThat(['MANAGER', 'CASHIER'].includes(input.role), 400, 'INVALID_ROLE', 'Perfil inválido.');
+    requireThat(/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(input.email), 400, 'INVALID_EMAIL', 'E-mail inválido.');
+    if (input.temporaryPassword) {
+      requireThat(/[A-Z]/.test(input.temporaryPassword) && /[a-z]/.test(input.temporaryPassword) && /\d/.test(input.temporaryPassword),
+        400, 'WEAK_PASSWORD', 'A senha temporária deve ter 12 caracteres, com letras maiúsculas, minúsculas e número.');
+    }
+    return this.#mutate(ctx, 'USER_UPDATE', key, input, async (tx, user) => {
+      requireThat(user.role === 'MANAGER', 403, 'MANAGER_REQUIRED', 'Somente gerente altera usuários.');
+      const current = await tx.one(`SELECT u.id,u.role FROM users u
+        JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
+        WHERE u.tenant_id=$1 AND u.id=$2 AND m.store_id=$3 FOR UPDATE OF u`,
+      ctx.tenantId, input.userId, input.storeId);
+      requireThat(current, 404, 'USER_NOT_FOUND', 'Usuário não encontrado nesta loja.');
+      requireThat(!(input.userId === ctx.userId && input.active === 0), 400, 'SELF_DEACTIVATE_FORBIDDEN', 'Não é permitido inativar seu próprio usuário.');
+      requireThat(!(input.userId === ctx.userId && input.role !== 'MANAGER'), 400, 'SELF_ROLE_CHANGE_FORBIDDEN', 'Não é permitido remover seu próprio perfil de gerente.');
+      const duplicate = await tx.one('SELECT 1 FROM users WHERE tenant_id=$1 AND email=$2 AND id<>$3',
+        ctx.tenantId, input.email, input.userId);
+      requireThat(!duplicate, 409, 'DUPLICATE_USER', 'E-mail já cadastrado.');
+      const passwordHash = input.temporaryPassword ? hashPassword(input.temporaryPassword) : null;
+      if (passwordHash) {
+        await tx.run(`UPDATE users SET email=$1,name=$2,role=$3,active=$4,password_hash=$5
+          WHERE tenant_id=$6 AND id=$7`,
+        input.email, input.name, input.role, input.active, passwordHash, ctx.tenantId, input.userId);
+      } else {
+        await tx.run('UPDATE users SET email=$1,name=$2,role=$3,active=$4 WHERE tenant_id=$5 AND id=$6',
+          input.email, input.name, input.role, input.active, ctx.tenantId, input.userId);
+      }
+      if (passwordHash || input.active === 0 || current.role !== input.role) {
+        await tx.run('DELETE FROM sessions WHERE tenant_id=$1 AND user_id=$2', ctx.tenantId, input.userId);
+      }
+      await tx.audit(ctx, input.storeId, 'USER_UPDATED', input.userId,
+        { role: input.role, active: input.active, passwordReset: Boolean(passwordHash) });
+      return { id: input.userId, email: input.email, name: input.name, role: input.role,
+        active: input.active, storeId: input.storeId, passwordReset: Boolean(passwordHash) };
+    });
+  }
+
   async adjustStock(ctx, key, raw) {
     object(raw, ['storeId', 'productId', 'quantity', 'reason']);
     const input = {

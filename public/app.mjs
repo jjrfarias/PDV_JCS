@@ -36,6 +36,7 @@ function lock(){
   $('close-cash').disabled=locked||!cash||cash.operator_id!==state.me?.user.id;
   document.querySelectorAll('[data-cancel-sale]').forEach(el=>{el.disabled=locked;});
   document.querySelectorAll('[data-product-action]').forEach(el=>{el.disabled=locked;});
+  document.querySelectorAll('[data-user-action]').forEach(el=>{el.disabled=locked;});
   $('confirm-sale').disabled=locked||!cash||cash.operator_id!==state.me?.user.id||state.cart.length===0;
   $('cancel-sale').disabled=locked||state.cart.length===0;
   document.querySelectorAll('[data-tendered]').forEach(el=>{el.disabled=locked||state.cart.length===0;});
@@ -199,7 +200,11 @@ function renderManagement(){
       const deactivate=element('button','Inativar');deactivate.type='button';deactivate.dataset.productAction='deactivate';deactivate.addEventListener('click',()=>deactivateProduct(p));actions.append(deactivate);}
     return [p.sku,p.name,p.barcode??'—',brl(p.price_cents),p.quantity,actions];
   }));}
-  if(state.tab==='users'){const rows=(d.users??[]).filter(u=>includes([u.name,u.email,u.role,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo'],query));renderSummary([['Usuários',rows.length],['Ativos',rows.filter(u=>u.active===1).length],['Gerentes',rows.filter(u=>u.role==='MANAGER').length]]);content=table(['Nome','E-mail','Perfil','Status'],rows.map(u=>[u.name,u.email,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo']));}
+  if(state.tab==='users'){const rows=(d.users??[]).filter(u=>includes([u.name,u.email,u.role,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo'],query));renderSummary([['Usuários',rows.length],['Ativos',rows.filter(u=>u.active===1).length],['Gerentes',rows.filter(u=>u.role==='MANAGER').length]]);content=table(['Nome','E-mail','Perfil','Status','Ações'],rows.map(u=>{
+    const actions=element('div',undefined,'row-actions');
+    if(manager()){const edit=element('button','Editar');edit.type='button';edit.dataset.userAction='edit';edit.addEventListener('click',()=>openUserEdit(u));actions.append(edit);}
+    return [u.name,u.email,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo',actions];
+  }));}
   if(state.tab==='history'){const rows=d.sales.filter(s=>includes([date(s.created_at),s.id,s.operator_name,s.terminal_name,brl(s.discount_cents),brl(s.total_cents),s.canceled_at?'Cancelada':'Confirmada',s.cancel_reason],query));const active=rows.filter(s=>!s.canceled_at);renderSummary([['Vendas',rows.length],['Total ativo',brl(active.reduce((n,s)=>n+s.total_cents,0))],['Canceladas',rows.filter(s=>s.canceled_at).length]]);content=table(['Data','Venda','Operador','Terminal','Status','Desconto','Total','Ações'],rows.map(s=>{
     const b=element('button','Abrir');b.type='button';b.addEventListener('click',()=>run(async()=>showReceipt(await api(`/api/sales/${s.id}`))));
     const actions=element('div',undefined,'row-actions');actions.append(b);
@@ -262,6 +267,7 @@ async function submitPending(){
     if(pending.path==='/api/stock/adjust')$('stock-form').reset();
     if(pending.path==='/api/sales/cancel')$('sale-cancel-form').reset();
     if(pending.path==='/api/users')$('user-form').reset();
+    if(pending.path==='/api/users/update')$('user-edit-form').reset();
     updateMoneyPreviews();
     message(result.replayed?'Operação recuperada. Nenhum registro foi duplicado.':'Operação confirmada.');
     await refresh();
@@ -347,6 +353,12 @@ function openSaleCancel(sale){
 $('sale-cancel-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/sales/cancel',{storeId:storeId(),saleId:f.saleId,reason:f.reason});});});
 $('new-user').addEventListener('click',()=>$('user-dialog').showModal());
 $('user-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/users',{storeId:storeId(),email:f.email,name:f.name,role:f.role,temporaryPassword:f.temporaryPassword});});});
+function openUserEdit(user){
+  const form=$('user-edit-form');
+  form.userId.value=user.id;form.name.value=user.name;form.email.value=user.email;form.role.value=user.role;form.active.value=String(user.active);form.temporaryPassword.value='';
+  $('user-edit-dialog').showModal();
+}
+$('user-edit-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/users/update',{storeId:storeId(),userId:f.userId,email:f.email,name:f.name,role:f.role,active:Number(f.active),temporaryPassword:f.temporaryPassword||null});});});
 $('recover').addEventListener('click',()=>run(submitPending));
 $('print').addEventListener('click',()=>window.print());
 $('cash-gate-action').addEventListener('click',()=>setView('cash'));
