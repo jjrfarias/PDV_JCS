@@ -2,13 +2,29 @@
 import { all, one, run, withPostgresTransaction } from './postgres.mjs';
 import { PostgresProducts } from './postgres-products.mjs';
 import { PostgresOperations } from './postgres-operations.mjs';
-import { hashPassword, sha256 } from './security.mjs';
+import { decryptField, encryptField, fieldDigest, hashPassword, sha256 } from './security.mjs';
 import { requireThat, object, text, integer, id, operationKey } from './errors.mjs';
 
 const now = () => new Date().toISOString();
 const MAX_MONEY = 100_000_000;
 const PAYMENT_METHODS = new Set(['CASH', 'PIX', 'CARD']);
 const CASH_ADJUSTMENTS = new Set(['SUPPLY', 'WITHDRAWAL']);
+const onlyDigits = value => value ? String(value).replace(/\D/g, '') : null;
+function customerInput(raw, { updating = false } = {}) {
+  object(raw, updating ? ['storeId', 'customerId', 'name', 'document', 'phone', 'email', 'note', 'active'] : ['storeId', 'name', 'document', 'phone', 'email', 'note']);
+  const email = raw.email ? text(raw.email, 'E-mail', 120).toLowerCase() : null;
+  if (email) requireThat(/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email), 400, 'INVALID_EMAIL', 'E-mail inválido.');
+  const document = onlyDigits(raw.document);
+  if (document) requireThat(document.length >= 11 && document.length <= 14, 400, 'INVALID_DOCUMENT', 'Documento deve ter CPF ou CNPJ.');
+  const phone = onlyDigits(raw.phone);
+  if (phone) requireThat(phone.length >= 10 && phone.length <= 13, 400, 'INVALID_PHONE', 'Telefone inválido.');
+  return {
+    storeId: id(raw.storeId), customerId: updating ? id(raw.customerId) : undefined,
+    name: text(raw.name, 'Nome do cliente', 120), document, phone, email,
+    note: raw.note ? text(raw.note, 'Observação', 300) : null,
+    active: updating ? integer(raw.active, 'Status', 0, 1) : 1
+  };
+}
 function reportRange(from, to) {
   const date = /^\d{4}-\d{2}-\d{2}$/;
   requireThat(date.test(from) && date.test(to), 400, 'INVALID_PERIOD', 'Informe datas no formato AAAA-MM-DD.');
@@ -136,6 +152,9 @@ class TransactionPos {
           FROM users u JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
           WHERE u.tenant_id=$1 AND m.store_id=$2 ORDER BY u.name`, ctx.tenantId, storeId)
         : [],
+      customers: (await this.all(`SELECT * FROM customers
+        WHERE tenant_id=$1 AND store_id=$2 ORDER BY updated_at DESC LIMIT 100`, ctx.tenantId, storeId))
+        .map(row => this.customerRow(row)),
       cash,
       sales: await this.all(`SELECT s.id,s.total_cents,s.discount_cents,s.created_at,u.name operator_name,c.terminal_id,t.name terminal_name,
           x.created_at canceled_at,x.reason cancel_reason
@@ -208,6 +227,24 @@ class TransactionPos {
       .map(row => ({ ...row, expected_cents: cashInteger(row.expected_cents),
         counted_cents: cashInteger(row.counted_cents), difference_cents: cashInteger(row.difference_cents) }));
     return { range, summary, payments, products, operators, cashClosures, sales: normalizedSales };
+  }
+
+  customerRow(row) {
+    return row ? {
+      id: row.id, store_id: row.store_id, name: decryptField(row.name_enc),
+      document: decryptField(row.document_enc), phone: decryptField(row.phone_enc), email: decryptField(row.email_enc),
+      note: decryptField(row.note_enc), active: row.active,
+      created_at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+      updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
+    } : null;
+  }
+
+  customerMutationResult(row) {
+    return {
+      id: row.id, storeId: row.store_id, active: row.active,
+      createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+      updatedAt: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at
+    };
   }
 }
 
@@ -383,6 +420,51 @@ export class PostgresPos {
         { role: input.role, active: input.active, passwordReset: Boolean(passwordHash) });
       return { id: input.userId, email: input.email, name: input.name, role: input.role,
         active: input.active, storeId: input.storeId, passwordReset: Boolean(passwordHash) };
+    });
+  }
+
+  async createCustomer(ctx, key, raw) {
+    const input = customerInput(raw);
+    return this.#mutate(ctx, 'CUSTOMER_CREATE', key, input, async tx => {
+      if (input.document) {
+        const duplicate = await tx.one('SELECT 1 FROM customers WHERE tenant_id=$1 AND document_hash=$2',
+          ctx.tenantId, fieldDigest(input.document));
+        requireThat(!duplicate, 409, 'DUPLICATE_CUSTOMER', 'Documento já cadastrado.');
+      }
+      const customerId = randomUUID(), createdAt = now();
+      await tx.run(`INSERT INTO customers
+        (tenant_id,id,store_id,name_enc,document_hash,document_enc,phone_hash,phone_enc,email_hash,email_enc,note_enc,active,created_at,updated_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,1,$12,$12)`,
+      ctx.tenantId, customerId, input.storeId, encryptField(input.name),
+      fieldDigest(input.document), encryptField(input.document), fieldDigest(input.phone), encryptField(input.phone),
+      fieldDigest(input.email), encryptField(input.email), encryptField(input.note), createdAt);
+      await tx.audit(ctx, input.storeId, 'CUSTOMER_CREATED', customerId,
+        { active: 1, hasDocument: Boolean(input.document), hasEmail: Boolean(input.email) });
+      return tx.customerMutationResult(await tx.one('SELECT id,store_id,active,created_at,updated_at FROM customers WHERE tenant_id=$1 AND id=$2', ctx.tenantId, customerId));
+    });
+  }
+
+  async updateCustomer(ctx, key, raw) {
+    const input = customerInput(raw, { updating: true });
+    return this.#mutate(ctx, 'CUSTOMER_UPDATE', key, input, async tx => {
+      const current = await tx.one('SELECT 1 FROM customers WHERE tenant_id=$1 AND store_id=$2 AND id=$3 FOR UPDATE',
+        ctx.tenantId, input.storeId, input.customerId);
+      requireThat(current, 404, 'CUSTOMER_NOT_FOUND', 'Cliente não encontrado nesta loja.');
+      if (input.document) {
+        const duplicate = await tx.one('SELECT 1 FROM customers WHERE tenant_id=$1 AND document_hash=$2 AND id<>$3',
+          ctx.tenantId, fieldDigest(input.document), input.customerId);
+        requireThat(!duplicate, 409, 'DUPLICATE_CUSTOMER', 'Documento já cadastrado.');
+      }
+      const updatedAt = now();
+      await tx.run(`UPDATE customers SET name_enc=$1,document_hash=$2,document_enc=$3,phone_hash=$4,phone_enc=$5,
+          email_hash=$6,email_enc=$7,note_enc=$8,active=$9,updated_at=$10
+        WHERE tenant_id=$11 AND id=$12`,
+      encryptField(input.name), fieldDigest(input.document), encryptField(input.document), fieldDigest(input.phone),
+      encryptField(input.phone), fieldDigest(input.email), encryptField(input.email), encryptField(input.note),
+      input.active, updatedAt, ctx.tenantId, input.customerId);
+      await tx.audit(ctx, input.storeId, 'CUSTOMER_UPDATED', input.customerId,
+        { active: input.active, hasDocument: Boolean(input.document), hasEmail: Boolean(input.email) });
+      return tx.customerMutationResult(await tx.one('SELECT id,store_id,active,created_at,updated_at FROM customers WHERE tenant_id=$1 AND id=$2', ctx.tenantId, input.customerId));
     });
   }
 

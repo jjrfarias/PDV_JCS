@@ -1,6 +1,6 @@
 ﻿import { randomUUID } from 'node:crypto';
 import { transaction } from './database.mjs';
-import { hashPassword, sha256 } from './security.mjs';
+import { decryptField, encryptField, fieldDigest, hashPassword, sha256 } from './security.mjs';
 import { requireThat, object, text, integer, id, operationKey } from './errors.mjs';
 import { PostgresPos } from './postgres-pos.mjs';
 
@@ -8,6 +8,23 @@ const now = () => new Date().toISOString();
 const PAYMENT_METHODS = new Set(['CASH','PIX','CARD']);
 const CASH_ADJUSTMENTS = new Set(['SUPPLY','WITHDRAWAL']);
 const MAX_MONEY = 100_000_000; // R$ 1 milhão por entrada monetária neste laboratório.
+const onlyDigits = value => value ? String(value).replace(/\D/g, '') : null;
+function customerInput(raw, { updating = false } = {}) {
+  object(raw, updating ? ['storeId','customerId','name','document','phone','email','note','active'] : ['storeId','name','document','phone','email','note']);
+  const email = raw.email ? text(raw.email, 'E-mail', 120).toLowerCase() : null;
+  if(email) requireThat(/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email),400,'INVALID_EMAIL','E-mail inválido.');
+  const document = onlyDigits(raw.document);
+  if(document) requireThat(document.length>=11&&document.length<=14,400,'INVALID_DOCUMENT','Documento deve ter CPF ou CNPJ.');
+  const phone = onlyDigits(raw.phone);
+  if(phone) requireThat(phone.length>=10&&phone.length<=13,400,'INVALID_PHONE','Telefone inválido.');
+  return {
+    storeId:id(raw.storeId), customerId:updating?id(raw.customerId):undefined,
+    name:text(raw.name,'Nome do cliente',120),
+    document, phone, email,
+    note:raw.note?text(raw.note,'Observação',300):null,
+    active:updating?integer(raw.active,'Status',0,1):1
+  };
+}
 function reportRange(from, to) {
   const date = /^\d{4}-\d{2}-\d{2}$/;
   requireThat(date.test(from)&&date.test(to),400,'INVALID_PERIOD','Informe datas no formato AAAA-MM-DD.');
@@ -150,6 +167,42 @@ export class Pos {
       if(passwordHash||input.active===0||current.role!==input.role) this.run('DELETE FROM sessions WHERE tenant_id=? AND user_id=?',ctx.tenantId,input.userId);
       this.audit(ctx,input.storeId,'USER_UPDATED',input.userId,{role:input.role,active:input.active,passwordReset:Boolean(passwordHash)});
       return {id:input.userId,email:input.email,name:input.name,role:input.role,active:input.active,storeId:input.storeId,passwordReset:Boolean(passwordHash)};
+    });
+  }
+  customerRow(row) {
+    return row ? {id:row.id,store_id:row.store_id,name:decryptField(row.name_enc),
+      document:decryptField(row.document_enc),phone:decryptField(row.phone_enc),email:decryptField(row.email_enc),
+      note:decryptField(row.note_enc),active:row.active,created_at:row.created_at,updated_at:row.updated_at} : null;
+  }
+  customerMutationResult(row) {
+    return {id:row.id,storeId:row.store_id,active:row.active,createdAt:row.created_at,updatedAt:row.updated_at};
+  }
+  createCustomer(ctx,key,raw) {
+    const input=customerInput(raw);
+    return this.mutate(ctx,'CUSTOMER_CREATE',key,input,() => {
+      if(input.document) requireThat(!this.one('SELECT 1 FROM customers WHERE tenant_id=? AND document_hash=?',ctx.tenantId,fieldDigest(input.document)),409,'DUPLICATE_CUSTOMER','Documento já cadastrado.');
+      const customerId=randomUUID(), createdAt=now();
+      this.run(`INSERT INTO customers(tenant_id,id,store_id,name_enc,document_hash,document_enc,phone_hash,phone_enc,email_hash,email_enc,note_enc,active,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,ctx.tenantId,customerId,input.storeId,encryptField(input.name),
+        fieldDigest(input.document),encryptField(input.document),fieldDigest(input.phone),encryptField(input.phone),
+        fieldDigest(input.email),encryptField(input.email),encryptField(input.note),1,createdAt,createdAt);
+      this.audit(ctx,input.storeId,'CUSTOMER_CREATED',customerId,{active:1,hasDocument:Boolean(input.document),hasEmail:Boolean(input.email)});
+      return this.customerMutationResult(this.one('SELECT id,store_id,active,created_at,updated_at FROM customers WHERE tenant_id=? AND id=?',ctx.tenantId,customerId));
+    });
+  }
+  updateCustomer(ctx,key,raw) {
+    const input=customerInput(raw,{updating:true});
+    return this.mutate(ctx,'CUSTOMER_UPDATE',key,input,() => {
+      const current=this.one('SELECT * FROM customers WHERE tenant_id=? AND store_id=? AND id=?',ctx.tenantId,input.storeId,input.customerId);
+      requireThat(current,404,'CUSTOMER_NOT_FOUND','Cliente não encontrado nesta loja.');
+      if(input.document) requireThat(!this.one('SELECT 1 FROM customers WHERE tenant_id=? AND document_hash=? AND id<>?',ctx.tenantId,fieldDigest(input.document),input.customerId),409,'DUPLICATE_CUSTOMER','Documento já cadastrado.');
+      const updatedAt=now();
+      this.run(`UPDATE customers SET name_enc=?,document_hash=?,document_enc=?,phone_hash=?,phone_enc=?,email_hash=?,email_enc=?,note_enc=?,active=?,updated_at=?
+        WHERE tenant_id=? AND id=?`,encryptField(input.name),fieldDigest(input.document),encryptField(input.document),
+        fieldDigest(input.phone),encryptField(input.phone),fieldDigest(input.email),encryptField(input.email),
+        encryptField(input.note),input.active,updatedAt,ctx.tenantId,input.customerId);
+      this.audit(ctx,input.storeId,'CUSTOMER_UPDATED',input.customerId,{active:input.active,hasDocument:Boolean(input.document),hasEmail:Boolean(input.email)});
+      return this.customerMutationResult(this.one('SELECT id,store_id,active,created_at,updated_at FROM customers WHERE tenant_id=? AND id=?',ctx.tenantId,input.customerId));
     });
   }
   adjustStock(ctx,key,raw) {
@@ -385,6 +438,7 @@ export class Pos {
       users:this.user(ctx).role==='MANAGER'?this.all(`SELECT u.id,u.email,u.name,u.role,u.active
         FROM users u JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
         WHERE u.tenant_id=? AND m.store_id=? ORDER BY u.name`,ctx.tenantId,storeId):[],
+      customers:this.all('SELECT * FROM customers WHERE tenant_id=? AND store_id=? ORDER BY updated_at DESC LIMIT 100',ctx.tenantId,storeId).map(row=>this.customerRow(row)),
       cash:open.map(c=>this.cash(ctx,c.id)),
       cashMovements:this.all(`SELECT m.id,m.cash_session_id,m.kind,m.amount_cents,m.reason,m.created_at,u.name actor_name
         FROM cash_movements m JOIN users u ON u.tenant_id=m.tenant_id AND u.id=m.actor_id

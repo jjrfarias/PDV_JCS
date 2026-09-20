@@ -128,6 +128,26 @@ Somente gerente. `quantity` pode ser positivo ou negativo, mas não zero. O ajus
 
 Somente gerente. Atualiza nome, e-mail, perfil e status do usuário vinculado à loja. `temporaryPassword` é opcional; quando informado, é validado, convertido em hash no servidor e nunca retorna na resposta. Reset de senha, inativação ou mudança de perfil encerram sessões existentes do usuário. O gerente autenticado não pode inativar a própria conta nem remover seu próprio perfil de gerente.
 
+## Cadastrar cliente
+
+`POST /api/customers`
+
+```json
+{"storeId":"store-a","name":"Cliente Teste","document":"12345678901","phone":"11999990000","email":"cliente@jcs.local","note":"Observação operacional"}
+```
+
+Usuário autenticado com acesso à loja. Nome, documento, telefone, e-mail e observação são criptografados no servidor antes de persistir. A resposta da mutação não devolve dados pessoais para que a tabela de idempotência não armazene PII em texto; a tela recarrega a lista pela rota de estado. Documento, telefone, e-mail e observação são opcionais. Documento não pode duplicar dentro do contratante.
+
+## Editar cliente
+
+`POST /api/customers/update`
+
+```json
+{"storeId":"store-a","customerId":"ID_DO_CLIENTE","name":"Cliente Editado","document":"12345678901","phone":"11999990000","email":"cliente@jcs.local","note":null,"active":1}
+```
+
+Atualiza cadastro ou inativa o cliente com `active: 0`. Dados pessoais continuam criptografados em repouso e a auditoria registra apenas metadados mínimos, como status e presença de documento/e-mail.
+
 ## Relatórios
 
 `GET /api/stores/:storeId/report?from=AAAA-MM-DD&to=AAAA-MM-DD`
@@ -142,7 +162,7 @@ Exporta o relatório selecionado em CSV com separador `;`, BOM UTF-8 e cabeçalh
 
 | Rota | Retorno |
 |---|---|
-| `GET /api/stores/:storeId/state` | Produtos e saldo, terminais, caixas abertos com totais por forma de pagamento, últimas 30 vendas com status de cancelamento, 50 movimentos de estoque, 50 movimentos de caixa e 20 fechamentos |
+| `GET /api/stores/:storeId/state` | Produtos e saldo, clientes da loja, terminais, caixas abertos com totais por forma de pagamento, últimas 30 vendas com status de cancelamento, 50 movimentos de estoque, 50 movimentos de caixa e 20 fechamentos |
 | `GET /api/stores/:storeId/report` | Relatório operacional por período, com totais consolidados no backend |
 | `GET /api/stores/:storeId/report.csv` | Exportação CSV compatível com Excel |
 | `GET /api/sales/:saleId` | Venda com snapshots, pagamento e dados de comprovante de teste |

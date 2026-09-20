@@ -17,7 +17,7 @@
 body{margin:0;min-height:100vh;background:#f4f7fb}
 #workspace{min-height:100dvh;display:flex;flex-direction:column}
 [hidden]{display:none!important}
-button,input,select{font:inherit}
+button,input,select,textarea{font:inherit}
 button{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:8px;padding:10px 14px;cursor:pointer;font-weight:700}
 button:hover{background:#f3f6f9}
 button:disabled{cursor:not-allowed;opacity:.45}
@@ -27,11 +27,12 @@ button:disabled{cursor:not-allowed;opacity:.45}
 .danger-action:hover{background:#991b1b}
 .ghost{background:transparent}
 .ghost:hover{background:#f8fafc}
-input,select{display:block;width:100%;border:1px solid var(--line);border-radius:8px;padding:11px 12px;background:#fff;color:var(--ink)}
+input,select,textarea{display:block;width:100%;border:1px solid var(--line);border-radius:8px;padding:11px 12px;background:#fff;color:var(--ink)}
+textarea{resize:vertical;min-height:88px}
 input:focus,select:focus,button:focus-visible{outline:3px solid #14b8a633;outline-offset:2px}
 input:disabled{background:#edf1f5}
 label{display:block;font-size:12px;font-weight:800;margin:0 0 14px;color:#334155}
-label input,label select{margin-top:6px;font-weight:500}
+label input,label select,label textarea{margin-top:6px;font-weight:500}
 .money-preview{display:block;margin-top:6px;font-size:12px;font-weight:900;color:#0f766e}
 .money-preview.invalid{color:var(--danger)}
 h1,h2,p{margin-top:0}
@@ -214,7 +215,7 @@ dialog::backdrop{background:#0f172a99}
 @media(max-width:640px){
   body{background:#fff}
   button{min-height:44px}
-  input,select{min-height:44px}
+  input,select,textarea{min-height:44px}
   h2{font-size:16px}
   .wordmark{font-size:21px}
   .head-controls{grid-template-columns:1fr}.head-controls select{min-width:0}.operator-card{padding:4px 0}

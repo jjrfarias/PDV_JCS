@@ -9,13 +9,13 @@ export function connect(filename) {
   const db = new DatabaseSync(filename);
   db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 5) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
+  if (version > 6) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
   if (version === 0) {
     transaction(db, () => {
       if (db.prepare('PRAGMA user_version').get().user_version !== 0) return;
       db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
       createImmutableTriggers(db);
-      db.exec('PRAGMA user_version=5;');
+      db.exec('PRAGMA user_version=6;');
     });
   }
   if (version === 1) {
@@ -107,6 +107,23 @@ export function connect(filename) {
         ) STRICT;`);
       createImmutableTriggers(db, ['sale_cancellations']);
       db.exec('PRAGMA user_version=5;');
+    });
+  }
+  if (version <= 5) {
+    transaction(db, () => {
+      if (db.prepare('PRAGMA user_version').get().user_version !== 5) return;
+      db.exec(`CREATE TABLE customers (
+          tenant_id TEXT NOT NULL, id TEXT NOT NULL, store_id TEXT NOT NULL,
+          name_enc TEXT NOT NULL, document_hash TEXT, document_enc TEXT,
+          phone_hash TEXT, phone_enc TEXT, email_hash TEXT, email_enc TEXT,
+          note_enc TEXT, active INTEGER NOT NULL DEFAULT 1 CHECK(active IN(0,1)),
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+          PRIMARY KEY(tenant_id,id),
+          FOREIGN KEY(tenant_id,store_id) REFERENCES stores(tenant_id,id)
+        ) STRICT;
+        CREATE UNIQUE INDEX customer_document_unique ON customers(tenant_id,document_hash) WHERE document_hash IS NOT NULL;
+        CREATE INDEX customer_store_list ON customers(tenant_id,store_id,active,updated_at);`);
+      db.exec('PRAGMA user_version=6;');
     });
   }
   return db;

@@ -39,6 +39,17 @@ CREATE TABLE products (
   PRIMARY KEY(tenant_id,id), UNIQUE(tenant_id,sku), UNIQUE(tenant_id,barcode),
   FOREIGN KEY(tenant_id) REFERENCES tenants(id)
 ) STRICT;
+CREATE TABLE customers (
+  tenant_id TEXT NOT NULL, id TEXT NOT NULL, store_id TEXT NOT NULL,
+  name_enc TEXT NOT NULL, document_hash TEXT, document_enc TEXT,
+  phone_hash TEXT, phone_enc TEXT, email_hash TEXT, email_enc TEXT,
+  note_enc TEXT, active INTEGER NOT NULL DEFAULT 1 CHECK(active IN(0,1)),
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  PRIMARY KEY(tenant_id,id),
+  FOREIGN KEY(tenant_id,store_id) REFERENCES stores(tenant_id,id)
+) STRICT;
+CREATE UNIQUE INDEX customer_document_unique ON customers(tenant_id,document_hash) WHERE document_hash IS NOT NULL;
+CREATE INDEX customer_store_list ON customers(tenant_id,store_id,active,updated_at);
 CREATE TABLE stock (
   tenant_id TEXT NOT NULL, store_id TEXT NOT NULL, product_id TEXT NOT NULL,
   quantity INTEGER NOT NULL CHECK(quantity BETWEEN 0 AND 1000000),

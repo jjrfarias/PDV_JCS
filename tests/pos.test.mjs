@@ -245,6 +245,34 @@ test('22f - edicao de usuario exige gerente e impede gerente se bloquear',t=>{
   fails(()=>pos.updateUser(DEMO.manager,key(),{storeId:DEMO.storeA,userId:DEMO.manager.userId,email:'gerente@jcs.local',name:'Gerente',role:'MANAGER',active:0,temporaryPassword:null}),'SELF_DEACTIVATE_FORBIDDEN');
   fails(()=>pos.updateUser(DEMO.manager,key(),{storeId:DEMO.storeA,userId:DEMO.manager.userId,email:'gerente@jcs.local',name:'Gerente',role:'CASHIER',active:1,temporaryPassword:null}),'SELF_ROLE_CHANGE_FORBIDDEN');
 });
+test('22g - cliente fica criptografado no banco e operacao nao guarda PII em claro',t=>{
+  const {pos,db}=fixture(t);
+  const body={storeId:DEMO.storeA,name:'Cliente Teste',document:'123.456.789-01',phone:'(11) 99999-0000',email:'cliente@jcs.local',note:'observacao sensivel'};
+  const customer=pos.createCustomer(DEMO.cashier,key(),body).data;
+  assert.equal(customer.name,undefined);
+  const row=db.prepare('SELECT * FROM customers WHERE id=?').get(customer.id);
+  assert.notEqual(row.name_enc,body.name);
+  assert.notEqual(row.document_enc,body.document);
+  assert.notEqual(row.email_enc,body.email);
+  assert.match(row.name_enc,/^v1:/);
+  const stored=JSON.stringify(db.prepare('SELECT response_json FROM operations WHERE kind=?').get('CUSTOMER_CREATE'));
+  assert.equal(stored.includes(body.email),false);
+  assert.equal(stored.includes('12345678901'),false);
+  const listed=pos.state(DEMO.cashier,DEMO.storeA).customers[0];
+  assert.equal(listed.name,body.name);
+  assert.equal(listed.document,'12345678901');
+  assert.equal(listed.email,body.email);
+  const updated=pos.updateCustomer(DEMO.cashier,key(),{...body,customerId:customer.id,name:'Cliente Editado',active:0}).data;
+  assert.equal(updated.active,0);
+  assert.equal(pos.state(DEMO.cashier,DEMO.storeA).customers[0].name,'Cliente Editado');
+});
+test('22h - documento de cliente nao duplica no tenant e loja nao autorizada e bloqueada',t=>{
+  const {pos}=fixture(t);
+  const body={storeId:DEMO.storeA,name:'Cliente Um',document:'12345678901',phone:null,email:null,note:null};
+  pos.createCustomer(DEMO.manager,key(),body);
+  fails(()=>pos.createCustomer(DEMO.manager,key(),{...body,name:'Cliente Dois'}),'DUPLICATE_CUSTOMER');
+  fails(()=>pos.createCustomer(DEMO.cashier,key(),{...body,storeId:DEMO.storeB,document:'22345678901'}),'STORE_FORBIDDEN');
+});
 test('23 · alteração posterior de cadastro não muda snapshot de venda',t=>{
   const {pos,db}=fixture(t);const cash=open(pos),sale=pos.sell(DEMO.manager,key(),saleInput(cash)).data;
   db.prepare('UPDATE products SET price_cents=9999,name=? WHERE tenant_id=? AND id=?').run('Nome alterado em teste',DEMO.manager.tenantId,DEMO.product);

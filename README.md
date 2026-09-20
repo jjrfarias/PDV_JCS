@@ -57,6 +57,7 @@ O operador `operador@jcs.local` tem acesso apenas à Loja A e não pode conceder
 - Login individual, sessão com expiração, autorização por loja, perfil de gerente/operador e proteção de origem/CSRF nas gravações.
 - Troca da própria senha com confirmação da senha atual e encerramento das demais sessões do mesmo usuário.
 - Cadastro, edição, ativação/inativação e reset de senha temporária por gerente, com vínculo à loja selecionada.
+- Cadastro, edição e inativação de clientes por loja. Nome, documento, telefone, e-mail e observação ficam criptografados no banco; hashes protegidos são usados apenas para duplicidade/busca interna.
 - Produtos por unidade, código interno, código de barras opcional, preço, saldo inicial, edição/inativação gerencial e ajuste manual de estoque com motivo.
 - Seleção entre lojas e terminais fictícios. Estoque separado por loja, sem transferência ou sincronização de máquinas.
 - Abertura, sangria, suprimento e fechamento de caixa pelo próprio operador, com fundo inicial, valor contado, diferença e justificativa.
@@ -72,7 +73,7 @@ O operador `operador@jcs.local` tem acesso apenas à Loja A e não pode conceder
 
 ## O que NÃO está entregue
 
-Não há emissão de NFC-e/NF-e, PIX automático, cartão integrado, TEF, integração de maquininha, certificado digital, impressora fiscal, cadastro completo de clientes, cadastro administrativo de funcionários, contas a pagar/receber, troca, inventário completo, transferência entre lojas, sincronização com nuvem, gestão consolidada de várias máquinas, contingência fiscal, empacotamento Electron, instalador comercial, restauração/backup homologado nem atualização automática.
+Não há emissão de NFC-e/NF-e, PIX automático, cartão integrado, TEF, integração de maquininha, certificado digital, impressora fiscal, vínculo de cliente na venda, contas a pagar/receber, troca, inventário completo, transferência entre lojas, sincronização com nuvem, gestão consolidada de várias máquinas, contingência fiscal, empacotamento Electron, instalador comercial, restauração/backup homologado nem atualização automática.
 
 A autenticação não tem redefinição de senha por e-mail, troca obrigatória no primeiro login, MFA ou vínculo a múltiplas lojas pela tela. O usuário autenticado consegue alterar a própria senha, e gerentes conseguem administrar usuários da loja selecionada. Os usuários iniciais são criados por seed ou provisionamento operacional. A autorização do gerente significa **o próprio gerente autenticado concede o desconto**; não há fluxo de aprovação por senha do supervisor em uma venda de outro operador.
 
@@ -83,6 +84,8 @@ A autenticação não tem redefinição de senha por e-mail, troca obrigatória 
 O `node:sqlite` continua existindo para execução local e testes sem infraestrutura externa. Ele usa o módulo nativo experimental do Node; não é o armazenamento de produção.
 
 Em produção, o servidor exige `DATABASE_ENGINE=postgres` e valida que `DATABASE_URL` usa role runtime sem superuser, sem `BYPASSRLS` e sem propriedade das tabelas. O usuário admin/dono do banco deve ficar restrito a migrations e tarefas operacionais controladas.
+
+Cadastros de clientes exigem `JCS_FIELD_ENCRYPTION_KEY` com 32 bytes em Base64 ou 64 caracteres hexadecimais. Sem essa chave, o servidor bloqueia gravação/leitura de dados pessoais em vez de persistir em texto puro. A chave precisa ser preservada em backup seguro: sem ela os dados criptografados não são recuperáveis.
 
 Não compartilhar o arquivo SQLite por pasta de rede nem sincronizá-lo por Dropbox/OneDrive/Google Drive enquanto estiver aberto.
 
@@ -127,7 +130,7 @@ npm.cmd test
 
 Os testes usam memória ou diretórios temporários criados especificamente para a suíte. Não apontam para `data/pdv.sqlite` e não removem seu banco de demonstração.
 
-Foram executados 62 testes de domínio e HTTP, sem falhas, no ambiente de preparação. A navegação automatizada da interface não pode ser concluída porque o Chromium disponível bloqueou a abertura dos endereços de teste por política administrativa. Isso não é teste visual aprovado. Execute o roteiro manual acima no seu computador antes de demonstrar a interface.
+Foram executados 65 testes de domínio e HTTP, sem falhas, no ambiente de preparação. A navegação automatizada da interface não pode ser concluída porque o Chromium disponível bloqueou a abertura dos endereços de teste por política administrativa. Isso não é teste visual aprovado. Execute o roteiro manual acima no seu computador antes de demonstrar a interface.
 
 ## Persistência e manutenção local
 

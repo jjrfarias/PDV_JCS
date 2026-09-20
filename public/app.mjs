@@ -37,6 +37,7 @@ function lock(){
   document.querySelectorAll('[data-cancel-sale]').forEach(el=>{el.disabled=locked;});
   document.querySelectorAll('[data-product-action]').forEach(el=>{el.disabled=locked;});
   document.querySelectorAll('[data-user-action]').forEach(el=>{el.disabled=locked;});
+  document.querySelectorAll('[data-customer-action]').forEach(el=>{el.disabled=locked;});
   $('confirm-sale').disabled=locked||!cash||cash.operator_id!==state.me?.user.id||state.cart.length===0;
   $('cancel-sale').disabled=locked||state.cart.length===0;
   document.querySelectorAll('[data-tendered]').forEach(el=>{el.disabled=locked||state.cart.length===0;});
@@ -205,6 +206,10 @@ function renderManagement(){
     if(manager()){const edit=element('button','Editar');edit.type='button';edit.dataset.userAction='edit';edit.addEventListener('click',()=>openUserEdit(u));actions.append(edit);}
     return [u.name,u.email,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo',actions];
   }));}
+  if(state.tab==='customers'){const rows=(d.customers??[]).filter(c=>includes([c.name,c.document,c.phone,c.email,c.note,c.active===1?'Ativo':'Inativo'],query));renderSummary([['Clientes',rows.length],['Ativos',rows.filter(c=>c.active===1).length],['Com documento',rows.filter(c=>c.document).length]]);content=table(['Nome','Documento','Telefone','E-mail','Status','Ações'],rows.map(c=>{
+    const actions=element('div',undefined,'row-actions'),edit=element('button','Editar');edit.type='button';edit.dataset.customerAction='edit';edit.addEventListener('click',()=>openCustomerEdit(c));actions.append(edit);
+    return [c.name,c.document??'—',c.phone??'—',c.email??'—',c.active===1?'Ativo':'Inativo',actions];
+  }));}
   if(state.tab==='history'){const rows=d.sales.filter(s=>includes([date(s.created_at),s.id,s.operator_name,s.terminal_name,brl(s.discount_cents),brl(s.total_cents),s.canceled_at?'Cancelada':'Confirmada',s.cancel_reason],query));const active=rows.filter(s=>!s.canceled_at);renderSummary([['Vendas',rows.length],['Total ativo',brl(active.reduce((n,s)=>n+s.total_cents,0))],['Canceladas',rows.filter(s=>s.canceled_at).length]]);content=table(['Data','Venda','Operador','Terminal','Status','Desconto','Total','Ações'],rows.map(s=>{
     const b=element('button','Abrir');b.type='button';b.addEventListener('click',()=>run(async()=>showReceipt(await api(`/api/sales/${s.id}`))));
     const actions=element('div',undefined,'row-actions');actions.append(b);
@@ -268,6 +273,8 @@ async function submitPending(){
     if(pending.path==='/api/sales/cancel')$('sale-cancel-form').reset();
     if(pending.path==='/api/users')$('user-form').reset();
     if(pending.path==='/api/users/update')$('user-edit-form').reset();
+    if(pending.path==='/api/customers')$('customer-form').reset();
+    if(pending.path==='/api/customers/update')$('customer-edit-form').reset();
     updateMoneyPreviews();
     message(result.replayed?'Operação recuperada. Nenhum registro foi duplicado.':'Operação confirmada.');
     await refresh();
@@ -351,6 +358,14 @@ function openSaleCancel(sale){
   $('sale-cancel-dialog').showModal();
 }
 $('sale-cancel-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/sales/cancel',{storeId:storeId(),saleId:f.saleId,reason:f.reason});});});
+$('new-customer').addEventListener('click',()=>$('customer-dialog').showModal());
+$('customer-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/customers',{storeId:storeId(),name:f.name,document:f.document||null,phone:f.phone||null,email:f.email||null,note:f.note||null});});});
+function openCustomerEdit(customer){
+  const form=$('customer-edit-form');
+  form.customerId.value=customer.id;form.name.value=customer.name;form.document.value=customer.document??'';form.phone.value=customer.phone??'';form.email.value=customer.email??'';form.note.value=customer.note??'';form.active.value=String(customer.active);
+  $('customer-edit-dialog').showModal();
+}
+$('customer-edit-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/customers/update',{storeId:storeId(),customerId:f.customerId,name:f.name,document:f.document||null,phone:f.phone||null,email:f.email||null,note:f.note||null,active:Number(f.active)});});});
 $('new-user').addEventListener('click',()=>$('user-dialog').showModal());
 $('user-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/users',{storeId:storeId(),email:f.email,name:f.name,role:f.role,temporaryPassword:f.temporaryPassword});});});
 function openUserEdit(user){

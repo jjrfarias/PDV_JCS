@@ -29,8 +29,11 @@ No servico `PDV_JCS`:
 - `DATABASE_URL`: URL do usuario runtime da aplicacao, nao do dono/admin do banco.
 - `PORT=3000`
 - `PUBLIC_ORIGIN=https://pdvjcs-production.up.railway.app`
+- `JCS_FIELD_ENCRYPTION_KEY`: 32 bytes em Base64 ou 64 caracteres hexadecimais para criptografia de dados pessoais de clientes.
 
 O usuario da aplicacao deve ser membro de `pdv_runtime` e nao pode ser superuser, `BYPASSRLS` nem dono das tabelas. O servidor valida isso ao iniciar.
+
+Guarde `JCS_FIELD_ENCRYPTION_KEY` em cofre/backup seguro. Perder essa chave torna os dados de clientes criptografados irrecuperáveis. Troca/rotação de chave ainda não está implementada.
 
 ## Migrations
 

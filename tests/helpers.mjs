@@ -6,6 +6,7 @@ import { connect } from '../src/database.mjs';
 import { seedDemo, DEMO } from '../src/demo.mjs';
 import { Pos } from '../src/pos.mjs';
 export {DEMO};
+process.env.JCS_FIELD_ENCRYPTION_KEY ??= Buffer.alloc(32, 7).toString('base64');
 export const PASSWORD='Tests-only-password-2026!';
 export const key=()=>randomUUID();
 export function fixture(t,{file=false,hooks={}}={}) {

@@ -1,4 +1,4 @@
-import { createHash, randomBytes, scrypt, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, scrypt, scryptSync, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { requireThat, text, object } from './errors.mjs';
 import { one, run, withPostgresTransaction } from './postgres.mjs';
@@ -7,6 +7,42 @@ const derive = promisify(scrypt);
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 export const sha256 = value => createHash('sha256').update(value).digest('hex');
 export const randomToken = () => randomBytes(32).toString('base64url');
+function fieldKey() {
+  const raw = process.env.JCS_FIELD_ENCRYPTION_KEY;
+  if (!raw) return null;
+  if (/^[0-9a-f]{64}$/i.test(raw)) return Buffer.from(raw, 'hex');
+  try {
+    const decoded = Buffer.from(raw, 'base64');
+    if (decoded.length === 32) return decoded;
+  } catch {}
+  return null;
+}
+export const hasFieldEncryptionKey = () => Boolean(fieldKey());
+export function encryptField(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const key = fieldKey();
+  requireThat(key, 500, 'FIELD_ENCRYPTION_KEY_REQUIRED', 'Chave de criptografia de dados sensíveis não configurada.');
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(String(value), 'utf8'), cipher.final()]);
+  return `v1:${iv.toString('base64url')}:${cipher.getAuthTag().toString('base64url')}:${encrypted.toString('base64url')}`;
+}
+export function decryptField(value) {
+  if (!value) return null;
+  const key = fieldKey();
+  requireThat(key, 500, 'FIELD_ENCRYPTION_KEY_REQUIRED', 'Chave de criptografia de dados sensíveis não configurada.');
+  const [version, iv, tag, encrypted] = String(value).split(':');
+  requireThat(version === 'v1' && iv && tag && encrypted, 500, 'INVALID_ENCRYPTED_FIELD', 'Dado sensível inválido.');
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64url'));
+  decipher.setAuthTag(Buffer.from(tag, 'base64url'));
+  return Buffer.concat([decipher.update(Buffer.from(encrypted, 'base64url')), decipher.final()]).toString('utf8');
+}
+export function fieldDigest(value) {
+  if (!value) return null;
+  const key = fieldKey();
+  requireThat(key, 500, 'FIELD_ENCRYPTION_KEY_REQUIRED', 'Chave de criptografia de dados sensíveis não configurada.');
+  return createHmac('sha256', key).update(String(value)).digest('hex');
+}
 export function hashPassword(password) {
   const salt = randomBytes(16).toString('hex');
   return `scrypt$${salt}$${scryptSync(password, salt, 64, SCRYPT).toString('hex')}`;
