@@ -124,9 +124,9 @@ Somente gerente. `quantity` pode ser positivo ou negativo, mas não zero. O ajus
 
 Retorna totais por período calculados no backend: resumo de vendas, formas de pagamento, produtos vendidos, operadores, vendas com status e fechamentos de caixa. Vendas canceladas aparecem na lista, mas não entram nos totais ativos.
 
-`GET /api/stores/:storeId/report.csv?from=AAAA-MM-DD&to=AAAA-MM-DD`
+`GET /api/stores/:storeId/report.csv?from=AAAA-MM-DD&to=AAAA-MM-DD&section=pagamentos`
 
-Exporta o mesmo relatório em CSV com separador `;`, BOM UTF-8 e cabeçalho `sep=;`, formato compatível com abertura direta no Excel. O período máximo é 366 dias.
+Exporta o relatório selecionado em CSV com separador `;`, BOM UTF-8 e cabeçalho `sep=;`, formato compatível com abertura direta no Excel. `section` aceita `resumo`, `pagamentos`, `produtos`, `operadores`, `vendas`, `fechamentos` ou `todos`. O período máximo é 366 dias.
 
 ## Consultas
 

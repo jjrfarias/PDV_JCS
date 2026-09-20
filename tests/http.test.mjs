@@ -65,12 +65,13 @@ test('HTTP 19 - relatorio e exportacao CSV respeitam loja e periodo',async t=>{
   assert.equal(report.response.status,200);
   assert.equal(report.data.summary.active_sale_count,1);
   assert.equal(report.data.payments[0].method,'CARD');
-  const csv=await w.call(`/api/stores/store-a/report.csv?from=${today}&to=${today}`);
+  const csv=await w.call(`/api/stores/store-a/report.csv?from=${today}&to=${today}&section=pagamentos`);
   assert.equal(csv.response.status,200);
   assert.match(csv.response.headers.get('content-type'),/text\/csv/);
   assert.match(csv.data,/sep=;/);
   assert.match(csv.data,/Pagamentos/);
   assert.match(csv.data,/CARD/);
+  assert.doesNotMatch(csv.data,/Produtos/);
 });
 test('HTTP 02 · rota exige autenticação',async t=>{
   const w=await web(t);assert.equal((await w.call('/api/stores/store-a/state')).response.status,401);

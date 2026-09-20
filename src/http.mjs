@@ -23,9 +23,10 @@ function csvSection(title,headers,rows) {
   return [title,headers.map(csvCell).join(';'),...rows.map(row=>row.map(csvCell).join(';')),''].join('\r\n');
 }
 function money(cents) { return (Number(cents??0)/100).toFixed(2).replace('.',','); }
-function reportCsv(report) {
-  const lines=[
-    csvSection('Resumo',['Indicador','Valor'],[
+const REPORT_SECTIONS = new Set(['resumo','pagamentos','produtos','operadores','vendas','fechamentos','todos']);
+function reportSections(report) {
+  return {
+    resumo: csvSection('Resumo',['Indicador','Valor'],[
       ['Periodo',`${report.range.from} a ${report.range.to}`],
       ['Vendas',report.summary.sale_count],
       ['Vendas ativas',report.summary.active_sale_count],
@@ -34,14 +35,19 @@ function reportCsv(report) {
       ['Descontos ativos',money(report.summary.discount_cents)],
       ['Total cancelado',money(report.summary.canceled_cents)]
     ]),
-    csvSection('Pagamentos',['Metodo','Vendas','Valor'],report.payments.map(row=>[row.method,row.sale_count,money(row.amount_cents)])),
-    csvSection('Produtos',['SKU','Produto','Quantidade','Total'],report.products.map(row=>[row.sku,row.name,row.quantity,money(row.total_cents)])),
-    csvSection('Operadores',['Operador','Vendas','Total'],report.operators.map(row=>[row.operator_name,row.sale_count,money(row.total_cents)])),
-    csvSection('Vendas',['Data','Venda','Operador','Terminal','Metodo','Status','Desconto','Total','Motivo cancelamento'],
+    pagamentos: csvSection('Pagamentos',['Metodo','Vendas','Valor'],report.payments.map(row=>[row.method,row.sale_count,money(row.amount_cents)])),
+    produtos: csvSection('Produtos',['SKU','Produto','Quantidade','Total'],report.products.map(row=>[row.sku,row.name,row.quantity,money(row.total_cents)])),
+    operadores: csvSection('Operadores',['Operador','Vendas','Total'],report.operators.map(row=>[row.operator_name,row.sale_count,money(row.total_cents)])),
+    vendas: csvSection('Vendas',['Data','Venda','Operador','Terminal','Metodo','Status','Desconto','Total','Motivo cancelamento'],
       report.sales.map(row=>[row.created_at,row.id,row.operator_name,row.terminal_name,row.method,row.canceled_at?'Cancelada':'Confirmada',money(row.discount_cents),money(row.total_cents),row.cancel_reason??''])),
-    csvSection('Fechamentos',['Data','Terminal','Esperado','Contado','Diferenca','Motivo'],
+    fechamentos: csvSection('Fechamentos',['Data','Terminal','Esperado','Contado','Diferenca','Motivo'],
       report.cashClosures.map(row=>[row.closed_at,row.terminal_name,money(row.expected_cents),money(row.counted_cents),money(row.difference_cents),row.close_reason??'']))
-  ];
+  };
+}
+function reportCsv(report, section = 'todos') {
+  requireThat(REPORT_SECTIONS.has(section),400,'INVALID_REPORT_SECTION','Tipo de relatório inválido.');
+  const sections=reportSections(report);
+  const lines=section==='todos'?Object.values(sections):[sections[section]];
   return `sep=;\r\n${lines.join('\r\n')}`;
 }
 async function json(req) {
@@ -111,8 +117,9 @@ export function createApp(db) {
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/stores\/([\w-]+)\/report(?:\.csv)?$/))) {
         const report=await pos.report(ctx,match[1],url.searchParams.get('from')??'',url.searchParams.get('to')??'');
         if(url.pathname.endsWith('.csv')) {
-          res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="pdv-jcs-relatorio-${report.range.from}-${report.range.to}.csv"`});
-          return res.end(`\ufeff${reportCsv(report)}`);
+          const section=url.searchParams.get('section')??'todos';
+          res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="pdv-jcs-relatorio-${section}-${report.range.from}-${report.range.to}.csv"`});
+          return res.end(`\ufeff${reportCsv(report,section)}`);
         }
         return send(res,200,report);
       }

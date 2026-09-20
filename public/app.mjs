@@ -1,6 +1,6 @@
 ﻿import {cents,brl} from './money.mjs';
 const $=id=>document.getElementById(id);
-const state={me:null,data:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:''};
+const state={me:null,data:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:'',reportSection:'resumo'};
 let messageTimer=null;
 function element(tag,content,className=''){const node=document.createElement(tag);if(content!==undefined)node.textContent=String(content);if(className)node.className=className;return node;}
 function message(value,{sticky=false}={}){
@@ -183,9 +183,13 @@ function reportControls(){
   const wrap=element('div',undefined,'report-controls');
   const fromLabel=element('label','De');const from=element('input');from.type='date';from.value=state.reportFrom;from.addEventListener('change',()=>{state.reportFrom=from.value;});
   const toLabel=element('label','Até');const to=element('input');to.type='date';to.value=state.reportTo;to.addEventListener('change',()=>{state.reportTo=to.value;});
+  const typeLabel=element('label','Relatório');const type=element('select');[
+    ['resumo','Resumo'],['pagamentos','Pagamentos'],['produtos','Produtos vendidos'],['operadores','Operadores'],['vendas','Vendas'],['fechamentos','Fechamentos']
+  ].forEach(([value,label])=>{const option=element('option',label);option.value=value;type.append(option);});
+  type.value=state.reportSection;type.addEventListener('change',()=>{state.reportSection=type.value;renderManagement();});
   const apply=element('button','Atualizar');apply.type='button';apply.addEventListener('click',()=>run(async()=>{await loadReport();renderManagement();}));
-  const exportButton=element('button','Exportar Excel');exportButton.type='button';exportButton.addEventListener('click',()=>{location.href=`/api/stores/${storeId()}/report.csv?from=${encodeURIComponent(state.reportFrom)}&to=${encodeURIComponent(state.reportTo)}`;});
-  fromLabel.append(from);toLabel.append(to);wrap.append(fromLabel,toLabel,apply,exportButton);return wrap;
+  const exportButton=element('button','Exportar Excel');exportButton.type='button';exportButton.addEventListener('click',()=>{location.href=`/api/stores/${storeId()}/report.csv?from=${encodeURIComponent(state.reportFrom)}&to=${encodeURIComponent(state.reportTo)}&section=${encodeURIComponent(state.reportSection)}`;});
+  fromLabel.append(from);toLabel.append(to);typeLabel.append(type);wrap.append(fromLabel,toLabel,typeLabel,apply,exportButton);return wrap;
 }
 function renderManagement(){
   const d=state.data,query=$('management-search').value.trim().toLowerCase();let content;
@@ -207,15 +211,18 @@ function renderManagement(){
     const report=state.report;
     if(!report){renderSummary([['Período','-'],['Total ativo','R$ 0,00'],['Vendas','0']]);content=element('div');content.append(reportControls(),element('p','Atualize o relatório para carregar os dados.'));}
     else {
-      const filteredSales=report.sales.filter(s=>includes([date(s.created_at),s.id,s.operator_name,s.terminal_name,s.method,s.canceled_at?'Cancelada':'Confirmada'],query));
       renderSummary([['Vendas ativas',report.summary.active_sale_count],['Total ativo',brl(report.summary.gross_cents)],['Canceladas',report.summary.canceled_sale_count]]);
       content=element('div',undefined,'report-block');
       content.append(reportControls());
-      content.append(element('h2','Pagamentos'),table(['Forma','Vendas','Valor'],report.payments.map(p=>[p.method,p.sale_count,brl(p.amount_cents)])));
-      content.append(element('h2','Produtos vendidos'),table(['Código','Produto','Quantidade','Total'],report.products.map(p=>[p.sku,p.name,p.quantity,brl(p.total_cents)])));
-      content.append(element('h2','Operadores'),table(['Operador','Vendas','Total'],report.operators.map(o=>[o.operator_name,o.sale_count,brl(o.total_cents)])));
-      content.append(element('h2','Vendas do período'),table(['Data','Venda','Operador','Terminal','Forma','Status','Total'],filteredSales.map(s=>[date(s.created_at),s.id.slice(0,8),s.operator_name,s.terminal_name,s.method,s.canceled_at?'Cancelada':'Confirmada',brl(s.total_cents)])));
-      content.append(element('h2','Fechamentos'),table(['Data','Terminal','Esperado','Contado','Diferença'],report.cashClosures.map(c=>[date(c.closed_at),c.terminal_name,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)])));
+      if(state.reportSection==='resumo')content.append(element('h2','Resumo'),table(['Indicador','Valor'],[
+        ['Período',`${report.range.from} a ${report.range.to}`],['Vendas',report.summary.sale_count],['Vendas ativas',report.summary.active_sale_count],
+        ['Canceladas',report.summary.canceled_sale_count],['Total ativo',brl(report.summary.gross_cents)],['Descontos ativos',brl(report.summary.discount_cents)],['Total cancelado',brl(report.summary.canceled_cents)]
+      ]));
+      if(state.reportSection==='pagamentos')content.append(element('h2','Pagamentos'),table(['Forma','Vendas','Valor'],report.payments.filter(p=>includes([p.method,p.sale_count,brl(p.amount_cents)],query)).map(p=>[p.method,p.sale_count,brl(p.amount_cents)])));
+      if(state.reportSection==='produtos')content.append(element('h2','Produtos vendidos'),table(['Código','Produto','Quantidade','Total'],report.products.filter(p=>includes([p.sku,p.name,p.quantity,brl(p.total_cents)],query)).map(p=>[p.sku,p.name,p.quantity,brl(p.total_cents)])));
+      if(state.reportSection==='operadores')content.append(element('h2','Operadores'),table(['Operador','Vendas','Total'],report.operators.filter(o=>includes([o.operator_name,o.sale_count,brl(o.total_cents)],query)).map(o=>[o.operator_name,o.sale_count,brl(o.total_cents)])));
+      if(state.reportSection==='vendas')content.append(element('h2','Vendas do período'),table(['Data','Venda','Operador','Terminal','Forma','Status','Total'],report.sales.filter(s=>includes([date(s.created_at),s.id,s.operator_name,s.terminal_name,s.method,s.canceled_at?'Cancelada':'Confirmada'],query)).map(s=>[date(s.created_at),s.id.slice(0,8),s.operator_name,s.terminal_name,s.method,s.canceled_at?'Cancelada':'Confirmada',brl(s.total_cents)])));
+      if(state.reportSection==='fechamentos')content.append(element('h2','Fechamentos'),table(['Data','Terminal','Esperado','Contado','Diferença'],report.cashClosures.filter(c=>includes([date(c.closed_at),c.terminal_name,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)],query)).map(c=>[date(c.closed_at),c.terminal_name,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)])));
     }
   }
   $('management-content').replaceChildren(content);
