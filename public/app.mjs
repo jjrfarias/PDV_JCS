@@ -1,9 +1,12 @@
 ﻿import {cents,brl} from './money.mjs';
 const $=id=>document.getElementById(id);
 const state={me:null,data:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null,paymentMethod:'CASH'};
+let messageTimer=null;
 function element(tag,content,className=''){const node=document.createElement(tag);if(content!==undefined)node.textContent=String(content);if(className)node.className=className;return node;}
-function message(value){
+function message(value,{sticky=false}={}){
+  clearTimeout(messageTimer);messageTimer=null;
   $('message').textContent=value;$('message').hidden=!value;
+  if(value&&!sticky)messageTimer=setTimeout(()=>{if($('message').textContent===value){$('message').textContent='';$('message').hidden=true;}},4000);
   const dialog=document.querySelector('dialog[open]:not(#receipt-dialog)');
   if(dialog){let warning=dialog.querySelector('.dialog-error');if(!warning){warning=element('p',undefined,'dialog-error');warning.setAttribute('role','alert');dialog.prepend(warning);}warning.textContent=value;}
 }
@@ -193,7 +196,7 @@ async function submitPending(){
       localStorage.removeItem(scope());state.pending=null;
     }
     if(state.pending)document.querySelectorAll('dialog[open]:not(#receipt-dialog)').forEach(d=>d.close());
-    message(error.message+(state.pending?' Use Recuperar operação.':''));
+    message(error.message+(state.pending?' Use Recuperar operação.':''),{sticky:Boolean(state.pending)});
   }finally{state.busy=false;lock();}
 }
 async function boot(){
