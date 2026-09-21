@@ -2,7 +2,7 @@
 
 **Versão 0.1.0 · produção inicial em Railway/PostgreSQL · emissão fiscal ainda não ativa.**
 
-Este projeto implementa o primeiro fluxo operacional do PDV JCS: login, loja/terminal, produtos, abertura e fechamento de caixa, venda em dinheiro, estoque, auditoria e idempotência. A aplicação está implantada na Railway com PostgreSQL, mantendo o modo SQLite local apenas para desenvolvimento e testes.
+Este projeto implementa o primeiro fluxo operacional do PDV JCS: login, loja/terminal, produtos, abertura e fechamento de caixa, venda, estoque, auditoria e idempotência. A aplicação está implantada na Railway com PostgreSQL, mantendo o modo SQLite local apenas para desenvolvimento e testes.
 
 Produção atual:
 
@@ -60,7 +60,7 @@ O operador `operador@jcs.local` tem acesso apenas à Loja A e não pode conceder
 - Cadastro, edição e inativação de clientes por loja. Nome, documento, telefone, e-mail e observação ficam criptografados no banco; hashes protegidos são usados apenas para duplicidade/busca interna.
 - Produtos por unidade, código interno, código de barras opcional, preço, saldo inicial, leitura assistida de QR/EAN no cadastro, edição/inativação gerencial e ajuste manual de estoque com motivo.
 - Seleção entre lojas e terminais fictícios. Estoque separado por loja, sem transferência ou sincronização de máquinas.
-- Abertura, sangria, suprimento e fechamento de caixa pelo próprio operador, com fundo inicial, valor contado, diferença e justificativa.
+- Abertura, sangria, suprimento, fechamento e conferência detalhada de caixa pelo próprio operador, com fundo inicial, valor contado, diferença, justificativa, movimentos e vendas do período.
 - Venda com preço consultado no servidor, cliente opcional, desconto autorizado até 20% e motivo. Dinheiro calcula valor entregue e troco; PIX/cartão são registrados manualmente após confirmação externa.
 - Resumo do caixa por forma de pagamento calculado no backend: dinheiro, PIX, cartão e total vendido.
 - Venda, itens, pagamento, movimentos, auditoria e chave de repetição confirmados na mesma transação local.
@@ -131,7 +131,7 @@ npm.cmd test
 
 Os testes usam memória ou diretórios temporários criados especificamente para a suíte. Não apontam para `data/pdv.sqlite` e não removem seu banco de demonstração.
 
-Foram executados 68 testes de domínio e HTTP, sem falhas, no ambiente de preparação. A navegação automatizada da interface não pode ser concluída porque o Chromium disponível bloqueou a abertura dos endereços de teste por política administrativa. Isso não é teste visual aprovado. Execute o roteiro manual acima no seu computador antes de demonstrar a interface.
+Foram executados 70 testes de domínio e HTTP, sem falhas, no ambiente de preparação. A navegação automatizada da interface não pode ser concluída porque o Chromium disponível bloqueou a abertura dos endereços de teste por política administrativa. Isso não é teste visual aprovado. Execute o roteiro manual acima no seu computador antes de demonstrar a interface.
 
 ## Persistência e manutenção local
 

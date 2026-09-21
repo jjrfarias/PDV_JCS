@@ -277,7 +277,7 @@ function renderManagement(){
       const c=element('button','Cancelar');c.type='button';c.dataset.cancelSale=s.id;c.addEventListener('click',()=>openSaleCancel(s));actions.append(c);}
     return [date(s.created_at),s.id.slice(0,8),customerName(s.customer_id)||'—',s.operator_name,s.terminal_name,s.canceled_at?'Cancelada':(moneyValue(s.returned_cents)>0?'Com devolução':'Confirmada'),brl(moneyValue(s.returned_cents)),brl(moneyValue(s.total_cents)),actions];}));}
   if(state.tab==='stock'){const movementName=m=>({SALE:'Venda',INITIAL:'Entrada inicial',ADJUSTMENT:'Ajuste'}[m.kind]??m.kind);const rows=d.stockMovements.filter(m=>includes([date(m.created_at),m.name,m.kind,movementName(m),m.quantity,m.reason],query));renderSummary([['Movimentos',rows.length],['Entradas',rows.filter(m=>m.quantity>0).reduce((n,m)=>n+m.quantity,0)],['Saídas',Math.abs(rows.filter(m=>m.quantity<0).reduce((n,m)=>n+m.quantity,0))]]);content=table(['Data','Produto','Movimento','Quantidade','Motivo'],rows.map(m=>[date(m.created_at),m.name,movementName(m),m.quantity,m.reason]));}
-  if(state.tab==='closures'){const rows=d.cashHistory.filter(c=>{const terminal=d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id;return includes([date(c.closed_at),terminal,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)],query);});renderSummary([['Fechamentos',rows.length],['Esperado',brl(rows.reduce((n,c)=>n+c.expected_cents,0))],['Diferença',brl(rows.reduce((n,c)=>n+c.difference_cents,0))]]);content=table(['Data','Terminal','Esperado','Contado','Diferença'],rows.map(c=>[date(c.closed_at),d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)]));}
+  if(state.tab==='closures'){const rows=d.cashHistory.filter(c=>{const terminal=d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id;return includes([date(c.closed_at),terminal,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)],query);});renderSummary([['Fechamentos',rows.length],['Esperado',brl(rows.reduce((n,c)=>n+c.expected_cents,0))],['Diferença',brl(rows.reduce((n,c)=>n+c.difference_cents,0))]]);content=table(['Data','Terminal','Esperado','Contado','Diferença','Ações'],rows.map(c=>{const actions=element('div',undefined,'row-actions'),open=element('button','Abrir');open.type='button';open.addEventListener('click',()=>run(()=>openCashDetail(c.id)));actions.append(open);return [date(c.closed_at),d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents),actions];}));}
   if(state.tab==='reports'){
     const report=state.report;
     if(!report){renderSummary([['Período','-'],['Total ativo','R$ 0,00'],['Vendas','0']]);content=element('div');content.append(reportControls(),element('p','Atualize o relatório para carregar os dados.'));}
@@ -315,6 +315,26 @@ function showReceipt(sale){
   }
   root.append(element('p',paymentText),element('p','Emissao fiscal nao implementada. Este comprovante nao substitui documento fiscal.'));
   if(!$('receipt-dialog').open)$('receipt-dialog').showModal();
+}
+async function openCashDetail(cashId){
+  const detail=await api(`/api/cash/${cashId}`),root=$('cash-detail');
+  const cash=detail.cash;
+  root.replaceChildren();
+  root.append(element('h2',`Conferência do ${cash.terminal_name}`));
+  root.append(table(['Campo','Valor'],[
+    ['Operador',cash.operator_name],['Aberto em',date(cash.opened_at)],['Fechado em',date(cash.closed_at)],
+    ['Fundo inicial',brl(cash.opening_cents)],['Dinheiro esperado',brl(cash.expected_cents)],
+    ['Dinheiro contado',brl(cash.counted_cents)],['Diferença',brl(cash.difference_cents)],
+    ['Motivo',cash.close_reason??'—'],['Vendas registradas',brl(cash.total_sales_cents)],
+    ['Dinheiro',brl(cash.cash_sales_cents)],['PIX',brl(cash.pix_sales_cents)],['Cartão',brl(cash.card_sales_cents)]
+  ]));
+  root.append(element('h3','Movimentos de dinheiro'));
+  root.append(table(['Data','Tipo','Valor','Operador','Motivo'],detail.movements.map(m=>[date(m.created_at),m.kind,brl(m.amount_cents),m.actor_name,m.reason])));
+  root.append(element('h3','Vendas do caixa'));
+  root.append(table(['Data','Venda','Forma','Status','Devolvido','Total'],detail.sales.map(s=>[
+    date(s.created_at),s.id.slice(0,8),s.method,s.canceled_at?'Cancelada':(s.returned_cents?'Com devolução':'Confirmada'),brl(s.returned_cents??0),brl(s.total_cents)
+  ])));
+  $('cash-detail-dialog').showModal();
 }
 async function run(work){try{await work();}catch(error){message(error.message);}}
 // A pendência é gravada ANTES do envio e só é removida após resposta conclusiva.

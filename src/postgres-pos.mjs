@@ -134,6 +134,26 @@ class TransactionPos {
       pix_sales_cents: cashInteger(payments.pix_total), card_sales_cents: cashInteger(payments.card_total) };
   }
 
+  async cashDetail(ctx, cashId) {
+    const cash = await this.cash(ctx, cashId);
+    const terminal = await this.one('SELECT name FROM terminals WHERE tenant_id=$1 AND id=$2', ctx.tenantId, cash.terminal_id);
+    const operator = await this.one('SELECT name FROM users WHERE tenant_id=$1 AND id=$2', ctx.tenantId, cash.operator_id);
+    const movements = (await this.all(`SELECT m.kind,m.amount_cents,m.reason,m.created_at,u.name actor_name
+      FROM cash_movements m JOIN users u ON u.tenant_id=m.tenant_id AND u.id=m.actor_id
+      WHERE m.tenant_id=$1 AND m.cash_session_id=$2 ORDER BY m.created_at`, ctx.tenantId, cash.id))
+      .map(row => ({ ...row, amount_cents: cashInteger(row.amount_cents) }));
+    const sales = (await this.all(`SELECT s.id,s.created_at,s.total_cents,p.method,
+        x.created_at canceled_at,COALESCE(SUM(r.total_cents),0) returned_cents
+      FROM sales s JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
+      LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
+      LEFT JOIN sale_returns r ON r.tenant_id=s.tenant_id AND r.sale_id=s.id
+      WHERE s.tenant_id=$1 AND s.cash_session_id=$2
+      GROUP BY s.id,s.created_at,s.total_cents,p.method,x.created_at
+      ORDER BY s.created_at`, ctx.tenantId, cash.id))
+      .map(row => ({ ...row, total_cents: cashInteger(row.total_cents), returned_cents: cashInteger(row.returned_cents) }));
+    return { cash: { ...cash, terminal_name: terminal?.name ?? cash.terminal_id, operator_name: operator?.name ?? cash.operator_id }, movements, sales };
+  }
+
   async receipt(ctx, saleId) {
     const sale = await this.one('SELECT * FROM sales WHERE tenant_id=$1 AND id=$2', ctx.tenantId, id(saleId));
     requireThat(sale, 404, 'SALE_NOT_FOUND', 'Venda não encontrada.');
@@ -302,6 +322,7 @@ export class PostgresPos {
   async me(ctx) { return this.#transaction(ctx, true, tx => tx.me(ctx)); }
   async operation(ctx, key) { return this.#transaction(ctx, true, tx => tx.operation(ctx, key)); }
   async cash(ctx, cashId) { return this.#transaction(ctx, true, tx => tx.cash(ctx, cashId)); }
+  async cashDetail(ctx, cashId) { return this.#transaction(ctx, true, tx => tx.cashDetail(ctx, cashId)); }
   async receipt(ctx, saleId) { return this.#transaction(ctx, true, tx => tx.receipt(ctx, saleId)); }
   async state(ctx, storeId) { return this.#transaction(ctx, true, tx => tx.state(ctx, storeId)); }
   async report(ctx, storeId, from, to) { return this.#transaction(ctx, true, tx => tx.report(ctx, storeId, from, to)); }

@@ -115,6 +115,7 @@ export function createApp(db) {
       if(req.method==='POST'&&url.pathname==='/api/me/password') return send(res,200,await auth.changePassword(ctx,await json(req)));
       let match;
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/stores\/([\w-]+)\/state$/))) return send(res,200,await pos.state(ctx,match[1]));
+      if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/cash\/([\w-]+)$/))) return send(res,200,await pos.cashDetail(ctx,match[1]));
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/stores\/([\w-]+)\/report(?:\.csv)?$/))) {
         const report=await pos.report(ctx,match[1],url.searchParams.get('from')??'',url.searchParams.get('to')??'');
         if(url.pathname.endsWith('.csv')) {

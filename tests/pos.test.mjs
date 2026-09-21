@@ -218,6 +218,20 @@ test('21b - suprimento e sangria ajustam dinheiro esperado com motivo',t=>{
   assert.equal(db.prepare("SELECT amount_cents FROM cash_movements WHERE kind='WITHDRAWAL'").get().amount_cents,-3000);
   assert.equal(pos.closeCash(DEMO.manager,key(),{storeId:DEMO.storeA,cashSessionId:cash.id,countedCents:9000}).data.difference_cents,0);
 });
+test('21c - detalhe de fechamento consolida movimentos e vendas do caixa',t=>{
+  const {pos}=fixture(t);const cash=open(pos);
+  pos.moveCash(DEMO.manager,key(),{storeId:DEMO.storeA,cashSessionId:cash.id,kind:'SUPPLY',amountCents:2000,reason:'troco adicional'});
+  pos.sell(DEMO.manager,key(),saleInput(cash,{discountCents:0,discountReason:null,tenderedCents:5000}));
+  pos.closeCash(DEMO.manager,key(),{storeId:DEMO.storeA,cashSessionId:cash.id,countedCents:17000});
+  const detail=pos.cashDetail(DEMO.manager,cash.id);
+  assert.equal(detail.cash.expected_cents,17000);
+  assert.equal(detail.cash.counted_cents,17000);
+  assert.equal(detail.cash.terminal_name,'Caixa 01');
+  assert.equal(detail.movements.length,3);
+  assert.equal(detail.sales.length,1);
+  assert.equal(detail.sales[0].total_cents,5000);
+  fails(()=>pos.cashDetail(DEMO.other,cash.id),'CASH_NOT_FOUND');
+});
 test('22 · cadastro mantém movimento inicial e impede código duplicado',t=>{
   const {pos}=fixture(t);const input={storeId:DEMO.storeA,sku:'ABC-123',name:'Produto novo',priceCents:1990,initialQuantity:5,barcode:'00123'};
   const product=pos.createProduct(DEMO.manager,key(),input).data;

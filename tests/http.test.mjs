@@ -73,7 +73,20 @@ test('HTTP 19 - relatorio e exportacao CSV respeitam loja e periodo',async t=>{
   assert.match(csv.data,/CARD/);
   assert.doesNotMatch(csv.data,/Produtos/);
 });
-test('HTTP 02 · rota exige autenticação',async t=>{
+test('HTTP 20 - detalhe de caixa fechado retorna conferencia autorizada',async t=>{
+  const w=await web(t);await w.login();
+  const cash=await w.call('/api/cash/open',{method:'POST',headers:{'Idempotency-Key':key()},body:{storeId:DEMO.storeA,terminalId:DEMO.terminalA,openingCents:10000}});
+  await w.call('/api/cash/move',{method:'POST',headers:{'Idempotency-Key':key()},body:{storeId:DEMO.storeA,cashSessionId:cash.data.data.id,kind:'SUPPLY',amountCents:2000,reason:'troco adicional'}});
+  await w.call('/api/sales',{method:'POST',headers:{'Idempotency-Key':key()},body:{storeId:DEMO.storeA,cashSessionId:cash.data.data.id,items:[{productId:DEMO.product,quantity:1}],discountCents:0,discountReason:null,paymentMethod:'CASH',tenderedCents:2500}});
+  await w.call('/api/cash/close',{method:'POST',headers:{'Idempotency-Key':key()},body:{storeId:DEMO.storeA,cashSessionId:cash.data.data.id,countedCents:14500,reason:null}});
+  const detail=await w.call(`/api/cash/${cash.data.data.id}`);
+  assert.equal(detail.response.status,200);
+  assert.equal(detail.data.cash.expected_cents,14500);
+  assert.equal(detail.data.cash.counted_cents,14500);
+  assert.equal(detail.data.movements.length,3);
+  assert.equal(detail.data.sales[0].total_cents,2500);
+});
+test('HTTP 02 - rota exige autenticacao',async t=>{
   const w=await web(t);assert.equal((await w.call('/api/stores/store-a/state')).response.status,401);
 });
 test('HTTP 03 · origem externa é bloqueada inclusive no login',async t=>{

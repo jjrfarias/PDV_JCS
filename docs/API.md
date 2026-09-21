@@ -99,6 +99,12 @@ Somente gerente. A devolução pode ser parcial ou total, não apaga a venda ori
 
 Uma diferença exige motivo com pelo menos três caracteres. O operador de abertura deve ser o operador do fechamento.
 
+## Detalhar caixa
+
+`GET /api/cash/:cashId`
+
+Retorna a conferência do caixa calculada no backend: dados do caixa, operador, terminal, totais por forma de pagamento, movimentos de dinheiro e vendas vinculadas. A consulta respeita tenant e lojas autorizadas do usuário autenticado.
+
 ## Cadastrar produto
 
 `POST /api/products`
@@ -174,6 +180,7 @@ Exporta o relatório selecionado em CSV com separador `;`, BOM UTF-8 e cabeçalh
 | Rota | Retorno |
 |---|---|
 | `GET /api/stores/:storeId/state` | Produtos e saldo, clientes da loja, terminais, caixas abertos com totais por forma de pagamento, últimas 30 vendas com status de cancelamento/devolução, 50 movimentos de estoque, 50 movimentos de caixa e 20 fechamentos |
+| `GET /api/cash/:cashId` | Conferência detalhada de caixa autorizada, com movimentos e vendas vinculadas |
 | `GET /api/stores/:storeId/report` | Relatório operacional por período, com totais consolidados no backend |
 | `GET /api/stores/:storeId/report.csv` | Exportação CSV compatível com Excel |
 | `GET /api/sales/:saleId` | Venda com snapshots, pagamento e dados de comprovante de teste |

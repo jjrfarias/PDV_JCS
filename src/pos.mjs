@@ -269,6 +269,23 @@ export class Pos {
     return {...cash,expected_cents:sums.expected,sales_cents:sums.sales,
       total_sales_cents:payments.total,cash_sales_cents:payments.cash_total,pix_sales_cents:payments.pix_total,card_sales_cents:payments.card_total};
   }
+  cashDetail(ctx,cashId) {
+    const cash=this.cash(ctx,cashId);
+    const terminal=this.one('SELECT name FROM terminals WHERE tenant_id=? AND id=?',ctx.tenantId,cash.terminal_id);
+    const operator=this.one('SELECT name FROM users WHERE tenant_id=? AND id=?',ctx.tenantId,cash.operator_id);
+    const movements=this.all(`SELECT m.kind,m.amount_cents,m.reason,m.created_at,u.name actor_name
+      FROM cash_movements m JOIN users u ON u.tenant_id=m.tenant_id AND u.id=m.actor_id
+      WHERE m.tenant_id=? AND m.cash_session_id=? ORDER BY m.created_at`,ctx.tenantId,cash.id);
+    const sales=this.all(`SELECT s.id,s.created_at,s.total_cents,p.method,
+        x.created_at canceled_at,COALESCE(SUM(r.total_cents),0) returned_cents
+      FROM sales s JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
+      LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
+      LEFT JOIN sale_returns r ON r.tenant_id=s.tenant_id AND r.sale_id=s.id
+      WHERE s.tenant_id=? AND s.cash_session_id=?
+      GROUP BY s.id,s.created_at,s.total_cents,p.method,x.created_at
+      ORDER BY s.created_at`,ctx.tenantId,cash.id);
+    return {cash:{...cash,terminal_name:terminal?.name??cash.terminal_id,operator_name:operator?.name??cash.operator_id},movements,sales};
+  }
   closeCash(ctx,key,raw) {
     object(raw,['storeId','cashSessionId','countedCents','reason']);
     const input={storeId:id(raw.storeId),cashSessionId:id(raw.cashSessionId),countedCents:integer(raw.countedCents,'Valor contado'),reason:raw.reason?text(raw.reason,'Motivo',200):null};
