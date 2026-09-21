@@ -207,7 +207,21 @@ function table(headers,rows){
   for(const row of rows){const tr=element('tr');for(const value of row){const td=element('td');if(value instanceof Node)td.append(value);else td.textContent=String(value);tr.append(td);}body.append(tr);}
   if(!rows.length){const tr=element('tr'),td=element('td','Nenhum registro nesta loja.');td.colSpan=headers.length;tr.append(td);body.append(tr);}t.append(body);return t;
 }
-const date=value=>new Date(value).toLocaleString('pt-BR');
+const date=value=>{
+  const d=new Date(value),pad=n=>String(n).padStart(2,'0');
+  return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+const dateOnly=value=>{
+  const [y,m,d]=String(value??'').slice(0,10).split('-');
+  return y&&m&&d?`${d}/${m}/${y}`:'';
+};
+const isoFromDateOnly=value=>{
+  const text=String(value??'').trim();
+  const br=text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if(br)return `${br[3]}-${br[2]}-${br[1]}`;
+  if(/^\d{4}-\d{2}-\d{2}$/.test(text))return text;
+  throw new Error('Informe a data no formato dd/mm/aaaa.');
+};
 const includes=(values,query)=>!query||values.some(value=>String(value??'').toLowerCase().includes(query));
 const customerName=id=>id?state.data?.customers?.find(customer=>customer.id===id)?.name??'Cliente vinculado':'';
 const moneyValue=value=>Number(value??0);
@@ -243,14 +257,16 @@ async function loadReport(){
 function reportControls(){
   ensureReportPeriod();
   const wrap=element('div',undefined,'report-controls');
-  const fromLabel=element('label','De');const from=element('input');from.type='date';from.value=state.reportFrom;from.addEventListener('change',()=>{state.reportFrom=from.value;});
-  const toLabel=element('label','Até');const to=element('input');to.type='date';to.value=state.reportTo;to.addEventListener('change',()=>{state.reportTo=to.value;});
+  const bindDateInput=(input,field)=>{input.type='text';input.inputMode='numeric';input.placeholder='dd/mm/aaaa';input.value=dateOnly(state[field]);input.addEventListener('change',()=>{state[field]=isoFromDateOnly(input.value);input.value=dateOnly(state[field]);});};
+  const fromLabel=element('label','De');const from=element('input');bindDateInput(from,'reportFrom');
+  const toLabel=element('label','Até');const to=element('input');bindDateInput(to,'reportTo');
   const typeLabel=element('label','Relatório');const type=element('select');[
     ['resumo','Resumo'],['pagamentos','Pagamentos'],['produtos','Produtos vendidos'],['operadores','Operadores'],['vendas','Vendas'],['fechamentos','Fechamentos']
   ].forEach(([value,label])=>{const option=element('option',label);option.value=value;type.append(option);});
   type.value=state.reportSection;type.addEventListener('change',()=>{state.reportSection=type.value;renderManagement();});
-  const apply=element('button','Atualizar');apply.type='button';apply.addEventListener('click',()=>run(async()=>{await loadReport();renderManagement();}));
-  const exportButton=element('button','Exportar Excel');exportButton.type='button';exportButton.addEventListener('click',()=>{location.href=`/api/stores/${storeId()}/report.csv?from=${encodeURIComponent(state.reportFrom)}&to=${encodeURIComponent(state.reportTo)}&section=${encodeURIComponent(state.reportSection)}`;});
+  const readDates=()=>{state.reportFrom=isoFromDateOnly(from.value);state.reportTo=isoFromDateOnly(to.value);from.value=dateOnly(state.reportFrom);to.value=dateOnly(state.reportTo);};
+  const apply=element('button','Atualizar');apply.type='button';apply.addEventListener('click',()=>run(async()=>{readDates();await loadReport();renderManagement();}));
+  const exportButton=element('button','Exportar Excel');exportButton.type='button';exportButton.addEventListener('click',()=>run(async()=>{readDates();location.href=`/api/stores/${storeId()}/report.csv?from=${encodeURIComponent(state.reportFrom)}&to=${encodeURIComponent(state.reportTo)}&section=${encodeURIComponent(state.reportSection)}`;}));
   fromLabel.append(from);toLabel.append(to);typeLabel.append(type);wrap.append(fromLabel,toLabel,typeLabel,apply,exportButton);return wrap;
 }
 function renderManagement(){
@@ -278,7 +294,7 @@ function renderManagement(){
       const c=element('button','Cancelar');c.type='button';c.dataset.cancelSale=s.id;c.addEventListener('click',()=>openSaleCancel(s));actions.append(c);}
     return [date(s.created_at),s.id.slice(0,8),customerName(s.customer_id)||'—',s.operator_name,s.terminal_name,s.canceled_at?'Cancelada':(moneyValue(s.returned_cents)>0?'Com devolução':'Confirmada'),brl(moneyValue(s.returned_cents)),brl(moneyValue(s.total_cents)),actions];}));}
   if(state.tab==='stock'){const movementName=m=>({SALE:'Venda',INITIAL:'Entrada inicial',ADJUSTMENT:'Ajuste'}[m.kind]??m.kind);const rows=d.stockMovements.filter(m=>includes([date(m.created_at),m.name,m.kind,movementName(m),m.quantity,m.reason],query));renderSummary([['Movimentos',rows.length],['Entradas',rows.filter(m=>m.quantity>0).reduce((n,m)=>n+m.quantity,0)],['Saídas',Math.abs(rows.filter(m=>m.quantity<0).reduce((n,m)=>n+m.quantity,0))]]);content=table(['Data','Produto','Movimento','Quantidade','Motivo'],rows.map(m=>[date(m.created_at),m.name,movementName(m),m.quantity,m.reason]));}
-  if(state.tab==='closures'){const rows=d.cashHistory.filter(c=>{const terminal=d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id;return includes([date(c.closed_at),terminal,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)],query);});renderSummary([['Fechamentos',rows.length],['Esperado',brl(rows.reduce((n,c)=>n+c.expected_cents,0))],['Diferença',brl(rows.reduce((n,c)=>n+c.difference_cents,0))]]);content=table(['Data','Terminal','Esperado','Contado','Diferença','Ações'],rows.map(c=>{const actions=element('div',undefined,'row-actions'),open=element('button','Abrir');open.type='button';open.addEventListener('click',()=>run(()=>openCashDetail(c.id)));actions.append(open);return [date(c.closed_at),d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents),actions];}));}
+  if(state.tab==='closures'){const rows=d.cashHistory.filter(c=>{const terminal=d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id;return includes([date(c.closed_at),terminal,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)],query);});renderSummary([['Fechamentos',rows.length],['Esperado',brl(rows.reduce((n,c)=>n+moneyValue(c.expected_cents),0))],['Diferença',brl(rows.reduce((n,c)=>n+moneyValue(c.difference_cents),0))]]);content=table(['Data','Terminal','Esperado','Contado','Diferença','Ações'],rows.map(c=>{const actions=element('div',undefined,'row-actions'),open=element('button','Abrir');open.type='button';open.addEventListener('click',()=>run(()=>openCashDetail(c.id)));actions.append(open);return [date(c.closed_at),d.terminals.find(t=>t.id===c.terminal_id)?.name??c.terminal_id,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents),actions];}));}
   if(state.tab==='reports'){
     const report=state.report;
     if(!report){renderSummary([['Período','-'],['Total ativo','R$ 0,00'],['Vendas','0']]);content=element('div');content.append(reportControls(),element('p','Atualize o relatório para carregar os dados.'));}
@@ -287,13 +303,13 @@ function renderManagement(){
       content=element('div',undefined,'report-block');
       content.append(reportControls());
       if(state.reportSection==='resumo')content.append(element('h2','Resumo'),table(['Indicador','Valor'],[
-        ['Período',`${report.range.from} a ${report.range.to}`],['Vendas',report.summary.sale_count],['Vendas ativas',report.summary.active_sale_count],
+        ['Período',`${dateOnly(report.range.from)} a ${dateOnly(report.range.to)}`],['Vendas',report.summary.sale_count],['Vendas ativas',report.summary.active_sale_count],
         ['Canceladas',report.summary.canceled_sale_count],['Total líquido',brl(report.summary.gross_cents)],['Descontos ativos',brl(report.summary.discount_cents)],['Total devolvido',brl(report.summary.returned_cents??0)],['Total cancelado',brl(report.summary.canceled_cents)]
       ]));
-      if(state.reportSection==='pagamentos')content.append(element('h2','Pagamentos'),table(['Forma','Vendas','Valor'],report.payments.filter(p=>includes([p.method,p.sale_count,brl(p.amount_cents)],query)).map(p=>[p.method,p.sale_count,brl(p.amount_cents)])));
+      if(state.reportSection==='pagamentos')content.append(element('h2','Pagamentos'),table(['Forma','Vendas','Valor'],report.payments.filter(p=>includes([paymentName(p.method),p.method,p.sale_count,brl(p.amount_cents)],query)).map(p=>[paymentName(p.method),p.sale_count,brl(p.amount_cents)])));
       if(state.reportSection==='produtos')content.append(element('h2','Produtos vendidos'),table(['Código','Produto','Quantidade','Total'],report.products.filter(p=>includes([p.sku,p.name,p.quantity,brl(p.total_cents)],query)).map(p=>[p.sku,p.name,p.quantity,brl(p.total_cents)])));
       if(state.reportSection==='operadores')content.append(element('h2','Operadores'),table(['Operador','Vendas','Total'],report.operators.filter(o=>includes([o.operator_name,o.sale_count,brl(o.total_cents)],query)).map(o=>[o.operator_name,o.sale_count,brl(o.total_cents)])));
-      if(state.reportSection==='vendas')content.append(element('h2','Vendas do período'),table(['Data','Venda','Cliente','Operador','Terminal','Forma','Status','Devolvido','Total'],report.sales.filter(s=>includes([date(s.created_at),s.id,customerName(s.customer_id),s.operator_name,s.terminal_name,s.method,s.canceled_at?'Cancelada':'Confirmada'],query)).map(s=>[date(s.created_at),s.id.slice(0,8),customerName(s.customer_id)||'—',s.operator_name,s.terminal_name,s.method,s.canceled_at?'Cancelada':(s.returned_cents?'Com devolução':'Confirmada'),brl(s.returned_cents??0),brl(s.total_cents)])));
+      if(state.reportSection==='vendas')content.append(element('h2','Vendas do período'),table(['Data','Venda','Cliente','Operador','Terminal','Forma','Status','Devolvido','Total'],report.sales.filter(s=>includes([date(s.created_at),s.id,customerName(s.customer_id),s.operator_name,s.terminal_name,paymentName(s.method),s.method,s.canceled_at?'Cancelada':'Confirmada'],query)).map(s=>[date(s.created_at),s.id.slice(0,8),customerName(s.customer_id)||'—',s.operator_name,s.terminal_name,paymentName(s.method),s.canceled_at?'Cancelada':(s.returned_cents?'Com devolução':'Confirmada'),brl(s.returned_cents??0),brl(s.total_cents)])));
       if(state.reportSection==='fechamentos')content.append(element('h2','Fechamentos'),table(['Data','Terminal','Esperado','Contado','Diferença'],report.cashClosures.filter(c=>includes([date(c.closed_at),c.terminal_name,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)],query)).map(c=>[date(c.closed_at),c.terminal_name,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents)])));
     }
   }
@@ -307,7 +323,7 @@ function showReceipt(sale){
   root.append(table(['Produto','Qtd.','Total'],sale.items.map(i=>[`${i.name_snapshot} (${brl(i.price_cents)})`,i.quantity,brl(i.line_cents)])));
   root.append(element('p',`Subtotal: ${brl(sale.subtotal_cents)} | Desconto: ${brl(sale.discount_cents)}`));
   const total=element('div',undefined,'grand-total');total.append(element('span','Total da venda'),element('strong',brl(sale.total_cents)));root.append(total);
-  const method={CASH:'Dinheiro',PIX:'PIX',CARD:'Cartao'}[sale.payment.method]??sale.payment.method;
+  const method=paymentName(sale.payment.method);
   const paymentText=sale.payment.method==='CASH'?`Pagamento: ${method} | Entregue: ${brl(sale.payment.tendered_cents)} | Troco: ${brl(sale.payment.change_cents)}`:`Pagamento: ${method} confirmado manualmente`;
   if(sale.cancellation)root.append(element('p',`Venda cancelada em ${date(sale.cancellation.created_at)} por ${sale.cancellation.actor_name}. Motivo: ${sale.cancellation.reason}`,'receipt-warning'));
   if((sale.returns??[]).length){

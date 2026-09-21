@@ -23,11 +23,20 @@ function csvSection(title,headers,rows) {
   return [title,headers.map(csvCell).join(';'),...rows.map(row=>row.map(csvCell).join(';')),''].join('\r\n');
 }
 function money(cents) { return (Number(cents??0)/100).toFixed(2).replace('.',','); }
+const paymentName=method=>({CASH:'Dinheiro',PIX:'PIX',CARD:'Cartao'}[method]??method);
+const dateOnly=value=>{
+  const [y,m,d]=String(value??'').slice(0,10).split('-');
+  return y&&m&&d?`${d}/${m}/${y}`:String(value??'');
+};
+const dateTime=value=>{
+  const d=new Date(value),pad=n=>String(n).padStart(2,'0');
+  return Number.isNaN(d.getTime())?String(value??''):`${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
 const REPORT_SECTIONS = new Set(['resumo','pagamentos','produtos','operadores','vendas','fechamentos','todos']);
 function reportSections(report) {
   return {
     resumo: csvSection('Resumo',['Indicador','Valor'],[
-      ['Periodo',`${report.range.from} a ${report.range.to}`],
+      ['Periodo',`${dateOnly(report.range.from)} a ${dateOnly(report.range.to)}`],
       ['Vendas',report.summary.sale_count],
       ['Vendas ativas',report.summary.active_sale_count],
       ['Canceladas',report.summary.canceled_sale_count],
@@ -36,13 +45,13 @@ function reportSections(report) {
       ['Total devolvido',money(report.summary.returned_cents)],
       ['Total cancelado',money(report.summary.canceled_cents)]
     ]),
-    pagamentos: csvSection('Pagamentos',['Metodo','Vendas','Valor'],report.payments.map(row=>[row.method,row.sale_count,money(row.amount_cents)])),
+    pagamentos: csvSection('Pagamentos',['Metodo','Vendas','Valor'],report.payments.map(row=>[paymentName(row.method),row.sale_count,money(row.amount_cents)])),
     produtos: csvSection('Produtos',['SKU','Produto','Quantidade','Total'],report.products.map(row=>[row.sku,row.name,row.quantity,money(row.total_cents)])),
     operadores: csvSection('Operadores',['Operador','Vendas','Total'],report.operators.map(row=>[row.operator_name,row.sale_count,money(row.total_cents)])),
     vendas: csvSection('Vendas',['Data','Venda','Operador','Terminal','Metodo','Status','Desconto','Devolvido','Total','Motivo cancelamento'],
-      report.sales.map(row=>[row.created_at,row.id,row.operator_name,row.terminal_name,row.method,row.canceled_at?'Cancelada':(row.returned_cents?'Com devolucao':'Confirmada'),money(row.discount_cents),money(row.returned_cents),money(row.total_cents),row.cancel_reason??''])),
+      report.sales.map(row=>[dateTime(row.created_at),row.id,row.operator_name,row.terminal_name,paymentName(row.method),row.canceled_at?'Cancelada':(row.returned_cents?'Com devolucao':'Confirmada'),money(row.discount_cents),money(row.returned_cents),money(row.total_cents),row.cancel_reason??''])),
     fechamentos: csvSection('Fechamentos',['Data','Terminal','Esperado','Contado','Diferenca','Motivo'],
-      report.cashClosures.map(row=>[row.closed_at,row.terminal_name,money(row.expected_cents),money(row.counted_cents),money(row.difference_cents),row.close_reason??'']))
+      report.cashClosures.map(row=>[dateTime(row.closed_at),row.terminal_name,money(row.expected_cents),money(row.counted_cents),money(row.difference_cents),row.close_reason??'']))
   };
 }
 function reportCsv(report, section = 'todos') {

@@ -14,4 +14,4 @@ export function cents(value) {
   if(!Number.isSafeInteger(result)||result>100_000_000) throw new Error('Valor acima do limite de teste.');
   return result;
 }
-export const brl=value=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(value/100);
+export const brl=value=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(value??0)/100);

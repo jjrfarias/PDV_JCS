@@ -70,7 +70,7 @@ test('HTTP 19 - relatorio e exportacao CSV respeitam loja e periodo',async t=>{
   assert.match(csv.response.headers.get('content-type'),/text\/csv/);
   assert.match(csv.data,/sep=;/);
   assert.match(csv.data,/Pagamentos/);
-  assert.match(csv.data,/CARD/);
+  assert.match(csv.data,/Cartao/);
   assert.doesNotMatch(csv.data,/Produtos/);
 });
 test('HTTP 20 - detalhe de caixa fechado retorna conferencia autorizada',async t=>{
