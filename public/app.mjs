@@ -230,7 +230,7 @@ const paymentName=method=>({CASH:'Dinheiro',PIX:'PIX',CARD:'Cartão'}[method]??m
 function renderCashMovements(){
   if(!$('cash-movement-table')||!state.data)return;
   const current=currentCash();
-  const rows=(state.data.cashMovements??[]).filter(m=>!current||m.cash_session_id===current.id);
+  const rows=current?(state.data.cashMovements??[]).filter(m=>m.cash_session_id===current.id):[];
   $('cash-movement-count').textContent=`${rows.length} registros`;
   $('cash-movement-table').replaceChildren(table(['Data','Tipo','Valor','Operador','Motivo'],rows.map(m=>[
     date(m.created_at),cashMovementName(m.kind),brl(m.amount_cents),m.actor_name,m.reason
