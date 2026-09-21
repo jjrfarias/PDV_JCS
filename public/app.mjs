@@ -211,14 +211,15 @@ const date=value=>new Date(value).toLocaleString('pt-BR');
 const includes=(values,query)=>!query||values.some(value=>String(value??'').toLowerCase().includes(query));
 const customerName=id=>id?state.data?.customers?.find(customer=>customer.id===id)?.name??'Cliente vinculado':'';
 const moneyValue=value=>Number(value??0);
+const cashMovementName=kind=>({OPENING:'Fundo inicial',SALE:'Venda em dinheiro',SUPPLY:'Suprimento',WITHDRAWAL:'Sangria'}[kind]??kind);
+const paymentName=method=>({CASH:'Dinheiro',PIX:'PIX',CARD:'Cartão'}[method]??method);
 function renderCashMovements(){
   if(!$('cash-movement-table')||!state.data)return;
-  const names={OPENING:'Fundo inicial',SALE:'Venda em dinheiro',SUPPLY:'Suprimento',WITHDRAWAL:'Sangria'};
   const current=currentCash();
   const rows=(state.data.cashMovements??[]).filter(m=>!current||m.cash_session_id===current.id);
   $('cash-movement-count').textContent=`${rows.length} registros`;
   $('cash-movement-table').replaceChildren(table(['Data','Tipo','Valor','Operador','Motivo'],rows.map(m=>[
-    date(m.created_at),names[m.kind]??m.kind,brl(m.amount_cents),m.actor_name,m.reason
+    date(m.created_at),cashMovementName(m.kind),brl(m.amount_cents),m.actor_name,m.reason
   ])));
 }
 function renderSummary(cards){
@@ -319,21 +320,31 @@ function showReceipt(sale){
 async function openCashDetail(cashId){
   const detail=await api(`/api/cash/${cashId}`),root=$('cash-detail');
   const cash=detail.cash;
+  const difference=moneyValue(cash.difference_cents);
   root.replaceChildren();
-  root.append(element('h2',`Conferência do ${cash.terminal_name}`));
-  root.append(table(['Campo','Valor'],[
-    ['Operador',cash.operator_name],['Aberto em',date(cash.opened_at)],['Fechado em',date(cash.closed_at)],
-    ['Fundo inicial',brl(cash.opening_cents)],['Dinheiro esperado',brl(cash.expected_cents)],
-    ['Dinheiro contado',brl(cash.counted_cents)],['Diferença',brl(cash.difference_cents)],
-    ['Motivo',cash.close_reason??'—'],['Vendas registradas',brl(cash.total_sales_cents)],
-    ['Dinheiro',brl(cash.cash_sales_cents)],['PIX',brl(cash.pix_sales_cents)],['Cartão',brl(cash.card_sales_cents)]
-  ]));
-  root.append(element('h3','Movimentos de dinheiro'));
-  root.append(table(['Data','Tipo','Valor','Operador','Motivo'],detail.movements.map(m=>[date(m.created_at),m.kind,brl(m.amount_cents),m.actor_name,m.reason])));
-  root.append(element('h3','Vendas do caixa'));
-  root.append(table(['Data','Venda','Forma','Status','Devolvido','Total'],detail.sales.map(s=>[
-    date(s.created_at),s.id.slice(0,8),s.method,s.canceled_at?'Cancelada':(s.returned_cents?'Com devolução':'Confirmada'),brl(s.returned_cents??0),brl(s.total_cents)
+  const title=element('div',undefined,'cash-detail-title');
+  title.append(element('div',undefined),element('span',difference===0?'Sem diferença':'Com diferença',difference===0?'badge':'badge closed'));
+  title.firstChild.append(element('h2',`Conferência do ${cash.terminal_name}`),element('p',`${cash.operator_name} · ${date(cash.opened_at)} até ${date(cash.closed_at)}`));
+  root.append(title);
+  const cards=element('div',undefined,'cash-detail-cards');
+  [['Esperado',brl(cash.expected_cents)],['Contado',brl(cash.counted_cents)],['Diferença',brl(cash.difference_cents)],['Total vendido',brl(cash.total_sales_cents)]].forEach(([label,value])=>{
+    const card=element('div');card.append(element('span',label),element('strong',value));cards.append(card);
+  });
+  root.append(cards);
+  const payments=element('div',undefined,'cash-detail-payments');
+  [['Dinheiro',cash.cash_sales_cents],['PIX',cash.pix_sales_cents],['Cartão',cash.card_sales_cents],['Fundo inicial',cash.opening_cents]].forEach(([label,value])=>{
+    const item=element('div');item.append(element('span',label),element('strong',brl(value)));payments.append(item);
+  });
+  root.append(payments);
+  if(cash.close_reason)root.append(element('p',`Motivo informado: ${cash.close_reason}`,'cash-detail-note'));
+  const movements=element('section',undefined,'cash-detail-section');
+  movements.append(element('h3','Movimentos de dinheiro'),table(['Data','Tipo','Valor','Motivo'],detail.movements.map(m=>[date(m.created_at),cashMovementName(m.kind),brl(m.amount_cents),m.reason||'—'])));
+  root.append(movements);
+  const sales=element('section',undefined,'cash-detail-section');
+  sales.append(element('h3','Vendas do caixa'),table(['Data','Venda','Forma','Status','Devolvido','Total'],detail.sales.map(s=>[
+    date(s.created_at),s.id.slice(0,8),paymentName(s.method),s.canceled_at?'Cancelada':(s.returned_cents?'Com devolução':'Confirmada'),brl(s.returned_cents??0),brl(s.total_cents)
   ])));
+  root.append(sales);
   $('cash-detail-dialog').showModal();
 }
 async function run(work){try{await work();}catch(error){message(error.message);}}
