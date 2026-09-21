@@ -179,7 +179,7 @@ class TransactionPos {
         WHERE tenant_id=$1 AND store_id=$2 ORDER BY updated_at DESC LIMIT 100`, ctx.tenantId, storeId))
         .map(row => this.customerRow(row)),
       cash,
-      sales: await this.all(`SELECT s.id,s.customer_id,s.total_cents,s.discount_cents,s.created_at,u.name operator_name,c.terminal_id,t.name terminal_name,
+      sales: (await this.all(`SELECT s.id,s.customer_id,s.total_cents,s.discount_cents,s.created_at,u.name operator_name,c.terminal_id,t.name terminal_name,
           x.created_at canceled_at,x.reason cancel_reason,COALESCE(SUM(r.total_cents),0) returned_cents
         FROM sales s
         JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.operator_id
@@ -189,7 +189,9 @@ class TransactionPos {
         LEFT JOIN sale_returns r ON r.tenant_id=s.tenant_id AND r.sale_id=s.id
         WHERE s.tenant_id=$1 AND s.store_id=$2
         GROUP BY s.id,s.customer_id,s.total_cents,s.discount_cents,s.created_at,u.name,c.terminal_id,t.name,x.created_at,x.reason
-        ORDER BY s.created_at DESC LIMIT 30`, ctx.tenantId, storeId),
+        ORDER BY s.created_at DESC LIMIT 30`, ctx.tenantId, storeId))
+        .map(row => ({ ...row, total_cents: cashInteger(row.total_cents),
+          discount_cents: cashInteger(row.discount_cents), returned_cents: cashInteger(row.returned_cents) })),
       stockMovements: await this.all(`SELECT m.product_id,p.name,m.kind,m.quantity,m.reason,m.created_at
         FROM stock_movements m JOIN products p ON p.tenant_id=m.tenant_id AND p.id=m.product_id
         WHERE m.tenant_id=$1 AND m.store_id=$2 ORDER BY m.created_at DESC LIMIT 50`, ctx.tenantId, storeId),
