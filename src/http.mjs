@@ -71,8 +71,8 @@ async function json(req) {
   try { return JSON.parse(Buffer.concat(parts).toString('utf8')); }
   catch { throw new AppError(400,'INVALID_JSON','JSON inválido.'); }
 }
-export function createApp(db) {
-  const auth=new Auth(db); const pos=new Pos(db);
+export function createApp(db,{mailer}={}) {
+  const auth=new Auth(db,mailer?{mailer}:{}); const pos=new Pos(db);
   const server=createServer(async(req,res)=>{
     res.setHeader('X-Content-Type-Options','nosniff');
     res.setHeader('X-Frame-Options','DENY');
@@ -113,6 +113,9 @@ export function createApp(db) {
         res.setHeader('Set-Cookie',`jcs_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${production?'; Secure':''}`);
         return send(res,200,{csrfToken:result.csrfToken});
       }
+      // Recuperação de senha acontece sem sessão. A Origin já foi validada acima e o link usa a origem configurada.
+      if(req.method==='POST'&&url.pathname==='/api/password/forgot') return send(res,200,await auth.requestPasswordReset(await json(req),req.socket.remoteAddress,origin));
+      if(req.method==='POST'&&url.pathname==='/api/password/reset') return send(res,200,await auth.resetPassword(await json(req),req.socket.remoteAddress));
       const ctx=await auth.resolve(req.headers.cookie);
       requireThat(ctx,401,'AUTH_REQUIRED','Faça login para continuar.');
       if(mutating) requireThat(req.headers['x-csrf-token']===ctx.csrfToken,403,'CSRF_FORBIDDEN','Sessão da tela inválida. Atualize a página.');

@@ -477,6 +477,33 @@ document.querySelectorAll('[data-payment-method]').forEach(button=>button.addEve
 $('open-cash').addEventListener('click',()=>{$('open-description').textContent=`${$('store-select').selectedOptions[0].textContent} · ${$('terminal-select').selectedOptions[0].textContent}`;$('open-dialog').showModal();});
 $('open-form').addEventListener('submit',event=>{event.preventDefault();run(()=>command('/api/cash/open',{storeId:storeId(),terminalId:terminalId(),openingCents:cents(event.target.opening.value)}));});
 function openCashMove(kind){
+$('forgot-open').addEventListener('click',()=>{
+  const login=$('login-form'),form=$('forgot-form');
+  form.tenant.value=login.tenant.value;form.email.value=login.email.value;$('forgot-status').textContent='';
+  $('forgot-dialog').showModal();
+});
+$('forgot-form').addEventListener('submit',async event=>{
+  event.preventDefault();const button=event.submitter;button.disabled=true;
+  try{
+    await api('/api/password/forgot',{method:'POST',body:JSON.stringify({tenant:event.target.tenant.value,email:event.target.email.value})});
+    $('forgot-status').textContent='Pedido registrado. Se os dados estiverem cadastrados, o link chega ao e-mail em instantes.';
+  }catch(error){$('forgot-status').textContent=error.message;}finally{button.disabled=false;}
+});
+// O token chega no fragmento da URL e sai da barra de endereço assim que a página o lê.
+const resetToken=(location.hash.match(/^#redefinir=([\w-]{43})$/)??[])[1]??null;
+if(location.hash.startsWith('#redefinir='))history.replaceState(null,'',location.pathname+location.search);
+if(resetToken)$('reset-dialog').showModal();
+$('reset-form').addEventListener('submit',async event=>{
+  event.preventDefault();const button=event.submitter;button.disabled=true;
+  const data=Object.fromEntries(new FormData(event.target));
+  try{
+    if(data.newPassword!==data.confirmPassword)throw new Error('A confirmação da nova senha não confere.');
+    await api('/api/password/reset',{method:'POST',body:JSON.stringify({token:resetToken,newPassword:data.newPassword})});
+    event.target.reset();$('reset-dialog').close();
+    if(state.me)return location.reload();
+    $('login-notice').textContent='Senha redefinida. Entre com a nova senha.';$('login-form').password.focus();
+  }catch(error){$('reset-status').textContent=error.message;}finally{button.disabled=false;}
+});
   const supply=kind==='SUPPLY';
   $('cash-move-title').textContent=supply?'Registrar suprimento':'Registrar sangria';
   $('cash-move-description').textContent=supply?'Entrada manual de dinheiro no caixa atual.':'Retirada manual de dinheiro do caixa atual.';

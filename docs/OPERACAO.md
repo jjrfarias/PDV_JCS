@@ -31,6 +31,13 @@ No servico `PDV_JCS`:
 - `PUBLIC_ORIGIN=https://pdvjcs-production.up.railway.app`
 - `JCS_FIELD_ENCRYPTION_KEY`: 32 bytes em Base64 ou 64 caracteres hexadecimais para criptografia de dados pessoais de clientes.
 
+Para recuperação de senha por e-mail (opcional; sem elas o pedido é aceito, mas nenhum e-mail sai e o servidor registra um aviso):
+
+- `RESEND_API_KEY`: chave do provedor Resend, só no painel da Railway.
+- `EMAIL_FROM`: remetente verificado no Resend, por exemplo `PDV JCS <noreply@jordaoconsultoria.com>`, no mesmo domínio já usado pelo Cuidar. Use uma chave própria do PDV na mesma conta Resend, não a chave do Cuidar.
+
+Somente o e-mail do usuário e o link de recuperação são enviados ao provedor. A migration `011_password_resets` precisa estar aplicada antes do deploy desta versão.
+
 O usuario da aplicacao deve ser membro de `pdv_runtime` e nao pode ser superuser, `BYPASSRLS` nem dono das tabelas. O servidor valida isso ao iniciar.
 
 Guarde `JCS_FIELD_ENCRYPTION_KEY` em cofre/backup seguro. Perder essa chave torna os dados de clientes criptografados irrecuperáveis. Troca/rotação de chave ainda não está implementada.

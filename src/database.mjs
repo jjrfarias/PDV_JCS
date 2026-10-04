@@ -9,13 +9,13 @@ export function connect(filename) {
   const db = new DatabaseSync(filename);
   db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 8) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
+  if (version > 9) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
   if (version === 0) {
     transaction(db, () => {
       if (db.prepare('PRAGMA user_version').get().user_version !== 0) return;
       db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
       createImmutableTriggers(db);
-      db.exec('PRAGMA user_version=8;');
+      db.exec('PRAGMA user_version=9;');
     });
   }
   if (version === 1) {
@@ -156,6 +156,18 @@ export function connect(filename) {
         CREATE INDEX sale_return_history ON sale_returns(tenant_id,store_id,created_at);`);
       createImmutableTriggers(db, ['sale_returns','sale_return_items']);
       db.exec('PRAGMA user_version=8;');
+    });
+  }
+  if (version <= 8) {
+    transaction(db, () => {
+      if (db.prepare('PRAGMA user_version').get().user_version !== 8) return;
+      db.exec(`CREATE TABLE password_resets (
+          tenant_id TEXT NOT NULL, id TEXT NOT NULL, user_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+          expires_at INTEGER NOT NULL, used_at INTEGER, created_at INTEGER NOT NULL,
+          PRIMARY KEY(tenant_id,id), FOREIGN KEY(tenant_id,user_id) REFERENCES users(tenant_id,id)
+        ) STRICT;
+        CREATE INDEX password_reset_open ON password_resets(tenant_id,user_id) WHERE used_at IS NULL;`);
+      db.exec('PRAGMA user_version=9;');
     });
   }
   return db;

@@ -1,7 +1,12 @@
-import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, scrypt, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, scrypt, scryptSync, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { requireThat, text, object } from './errors.mjs';
 import { one, run, withPostgresTransaction } from './postgres.mjs';
+import { transaction } from './database.mjs';
+import { createMailer } from './mailer.mjs';
+
+const RESET_TTL_MS = 30 * 60_000;
+const strongPassword = value => /[A-Z]/.test(value) && /[a-z]/.test(value) && /\d/.test(value);
 
 const derive = promisify(scrypt);
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
@@ -54,7 +59,108 @@ async function verifyPassword(password, encoded) {
   return timingSafeEqual(candidate, Buffer.from(hash, 'hex'));
 }
 export class Auth {
-  constructor(db) { this.db = db; this.limits = new Map(); this.dummyHash = hashPassword(randomToken()); }
+  constructor(db, { mailer = createMailer() } = {}) {
+    this.db = db; this.mailer = mailer; this.limits = new Map(); this.dummyHash = hashPassword(randomToken());
+  }
+  limit(keys, code, messageText) {
+    const now = Date.now();
+    for (const [key, entry] of this.limits) if (entry.until <= now) this.limits.delete(key);
+    for (const [key, max] of keys) {
+      const entry = this.limits.get(key) ?? { count: 0, until: now + 15 * 60_000 };
+      requireThat(entry.count < max, 429, code, messageText);
+      entry.count++;
+      this.limits.set(key, entry);
+    }
+  }
+  auditReset(runner, action, tenantId, userId, resetId) {
+    // Auditoria sem token nem e-mail. Vincula à primeira loja do usuário, exigida pela tabela.
+    const iso = new Date().toISOString();
+    if (typeof this.db.query === 'function') {
+      return one(runner, 'SELECT store_id FROM memberships WHERE tenant_id=$1 AND user_id=$2 ORDER BY store_id LIMIT 1', [tenantId, userId])
+        .then(store => store && run(runner, `INSERT INTO audit_events(tenant_id,id,user_id,store_id,action,entity_id,details_json,created_at)
+          VALUES($1,$2,$3,$4,$5,$6,'{}',$7)`, [tenantId, randomUUID(), userId, store.store_id, action, resetId, iso]));
+    }
+    const store = this.db.prepare('SELECT store_id FROM memberships WHERE tenant_id=? AND user_id=? ORDER BY store_id LIMIT 1').get(tenantId, userId);
+    if (store) this.db.prepare("INSERT INTO audit_events VALUES(?,?,?,?,?,?,'{}',?)").run(tenantId, randomUUID(), userId, store.store_id, action, resetId, iso);
+  }
+  // Resposta sempre igual, exista ou não a conta, para não revelar e-mails cadastrados.
+  async requestPasswordReset(input, ip, origin) {
+    object(input, ['tenant', 'email']);
+    const tenant = text(input.tenant, 'Empresa', 60).toLowerCase();
+    const email = text(input.email, 'E-mail', 120).toLowerCase();
+    this.limit([[`reset-ip:${ip}`, 10], [`reset-account:${tenant}:${email}`, 3]],
+      'RESET_RATE_LIMIT', 'Muitos pedidos de recuperação. Tente novamente em 15 minutos.');
+    const postgres = typeof this.db.query === 'function';
+    const user = postgres
+      ? await one(this.db, 'SELECT * FROM public.pdv_login_user($1,$2)', [tenant, email])
+      : this.db.prepare(`SELECT u.* FROM users u JOIN tenants t ON t.id=u.tenant_id
+        WHERE t.slug=? AND u.email=? AND u.active=1`).get(tenant, email);
+    if (!user) return { ok: true };
+    const token = randomToken();
+    const id = randomUUID();
+    const now = Date.now();
+    if (postgres) {
+      await withPostgresTransaction(this.db, async client => {
+        // Um pedido novo invalida os links anteriores, sem apagar o histórico.
+        await run(client, 'UPDATE password_resets SET used_at=$1 WHERE tenant_id=$2 AND user_id=$3 AND used_at IS NULL', [now, user.tenant_id, user.id]);
+        await run(client, 'INSERT INTO password_resets(tenant_id,id,user_id,token_hash,expires_at,created_at) VALUES($1,$2,$3,$4,$5,$6)',
+          [user.tenant_id, id, user.id, sha256(token), now + RESET_TTL_MS, now]);
+        await this.auditReset(client, 'PASSWORD_RESET_REQUESTED', user.tenant_id, user.id, id);
+      }, { tenantId: user.tenant_id, userId: user.id });
+    } else {
+      transaction(this.db, () => {
+        this.db.prepare('UPDATE password_resets SET used_at=? WHERE tenant_id=? AND user_id=? AND used_at IS NULL').run(now, user.tenant_id, user.id);
+        this.db.prepare('INSERT INTO password_resets(tenant_id,id,user_id,token_hash,expires_at,created_at) VALUES(?,?,?,?,?,?)')
+          .run(user.tenant_id, id, user.id, sha256(token), now + RESET_TTL_MS, now);
+        this.auditReset(this.db, 'PASSWORD_RESET_REQUESTED', user.tenant_id, user.id, id);
+      });
+    }
+    // Sem await: a resposta não espera o provedor, então o tempo não revela se a conta existe.
+    // O token vai no fragmento (#), que o navegador não envia ao servidor nem no Referer.
+    Promise.resolve()
+      .then(() => this.mailer.sendPasswordReset({ to: user.email, link: `${origin}/#redefinir=${token}` }))
+      .catch(error => console.error('Falha ao enviar e-mail de recuperação:',
+        String(error?.message ?? '').startsWith('MAIL_PROVIDER_') ? error.message : (error?.name ?? 'Error')));
+    return { ok: true };
+  }
+  async resetPassword(input, ip) {
+    object(input, ['token', 'newPassword']);
+    this.limit([[`reset-confirm-ip:${ip}`, 20]], 'RESET_RATE_LIMIT', 'Muitas tentativas. Tente novamente em 15 minutos.');
+    const invalid = () => requireThat(false, 400, 'INVALID_RESET_TOKEN', 'Link de recuperação inválido ou expirado. Solicite um novo.');
+    const token = typeof input.token === 'string' ? input.token : '';
+    if (!/^[\w-]{43}$/.test(token)) invalid();
+    const newPassword = text(input.newPassword, 'Nova senha', 200, 12);
+    requireThat(strongPassword(newPassword), 400, 'WEAK_PASSWORD', 'A nova senha deve ter 12 caracteres, com letras maiúsculas, minúsculas e número.');
+    const tokenHash = sha256(token);
+    const now = Date.now();
+    const passwordHash = hashPassword(newPassword);
+    if (typeof this.db.query === 'function') {
+      const found = await one(this.db, 'SELECT * FROM public.pdv_password_reset_lookup($1)', [tokenHash]);
+      if (!found) invalid();
+      await withPostgresTransaction(this.db, async client => {
+        // Consumo atômico: dois envios simultâneos do mesmo link não redefinem a senha duas vezes.
+        const used = await run(client, `UPDATE password_resets SET used_at=$1
+          WHERE tenant_id=$2 AND id=$3 AND token_hash=$4 AND used_at IS NULL AND expires_at>$1`, [now, found.tenant_id, found.id, tokenHash]);
+        if (used.changes !== 1) invalid();
+        const updated = await run(client, 'UPDATE users SET password_hash=$1 WHERE tenant_id=$2 AND id=$3 AND active=1', [passwordHash, found.tenant_id, found.user_id]);
+        if (updated.changes !== 1) invalid();
+        await run(client, 'DELETE FROM sessions WHERE tenant_id=$1 AND user_id=$2', [found.tenant_id, found.user_id]);
+        await this.auditReset(client, 'PASSWORD_RESET_COMPLETED', found.tenant_id, found.user_id, found.id);
+      }, { tenantId: found.tenant_id, userId: found.user_id });
+    } else {
+      transaction(this.db, () => {
+        const found = this.db.prepare(`SELECT r.tenant_id,r.id,r.user_id FROM password_resets r
+          JOIN users u ON u.tenant_id=r.tenant_id AND u.id=r.user_id
+          WHERE r.token_hash=? AND r.used_at IS NULL AND r.expires_at>? AND u.active=1`).get(tokenHash, now);
+        if (!found) invalid();
+        this.db.prepare('UPDATE password_resets SET used_at=? WHERE tenant_id=? AND id=?').run(now, found.tenant_id, found.id);
+        this.db.prepare('UPDATE users SET password_hash=? WHERE tenant_id=? AND id=?').run(passwordHash, found.tenant_id, found.user_id);
+        this.db.prepare('DELETE FROM sessions WHERE tenant_id=? AND user_id=?').run(found.tenant_id, found.user_id);
+        this.auditReset(this.db, 'PASSWORD_RESET_COMPLETED', found.tenant_id, found.user_id, found.id);
+      });
+    }
+    return { ok: true };
+  }
   async login(input, ip) {
     object(input, ['tenant','email','password']);
     const tenant = text(input.tenant, 'Empresa', 60).toLowerCase();

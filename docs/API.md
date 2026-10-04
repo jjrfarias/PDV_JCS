@@ -14,6 +14,14 @@ Cabeçalho `Origin` igual ao endereço local acessado, incluindo porta. `Content
 
 `GET /api/me` retorna usuário, contratante, lojas autorizadas e token CSRF. `POST /api/logout` invalida a sessão. Uma sessão expira em 12 horas.
 
+## Recuperar senha
+
+Rotas sem sessão, com o mesmo cabeçalho `Origin` do login.
+
+`POST /api/password/forgot` com `{"tenant":"demo","email":"gerente@jcs.local"}` responde sempre `200 {"ok":true}`, exista ou não a conta. Para conta ativa, invalida links anteriores e envia um link `<PUBLIC_ORIGIN>/#redefinir=<token>` válido por 30 minutos e de uso único. Limite: 3 pedidos por conta e 10 por IP a cada 15 minutos (`429 RESET_RATE_LIMIT`).
+
+`POST /api/password/reset` com `{"token":"...","newPassword":"..."}` troca a senha, consome o link e encerra todas as sessões do usuário. Link inválido, usado, expirado ou de usuário inativo retorna `400 INVALID_RESET_TOKEN`. Senha fraca retorna `400 WEAK_PASSWORD` sem consumir o link.
+
 ## Mutação e repetição
 
 As rotas de negócio abaixo exigem `Idempotency-Key` com 16 a 100 caracteres `[a-zA-Z0-9_-]`; um UUID atende. A primeira confirmação retorna 201. A repetição da mesma chave, mesmo autor e mesmo payload normalizado retorna 200, com a mesma resposta e `replayed: true`. Outra operação ou payload na mesma chave retorna 409.

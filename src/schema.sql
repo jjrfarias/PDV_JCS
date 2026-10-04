@@ -27,6 +27,12 @@ CREATE TABLE sessions (
   csrf_token TEXT NOT NULL, expires_at INTEGER NOT NULL,
   FOREIGN KEY(tenant_id,user_id) REFERENCES users(tenant_id,id)
 ) STRICT;
+CREATE TABLE password_resets (
+  tenant_id TEXT NOT NULL, id TEXT NOT NULL, user_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+  expires_at INTEGER NOT NULL, used_at INTEGER, created_at INTEGER NOT NULL,
+  PRIMARY KEY(tenant_id,id), FOREIGN KEY(tenant_id,user_id) REFERENCES users(tenant_id,id)
+) STRICT;
+CREATE INDEX password_reset_open ON password_resets(tenant_id,user_id) WHERE used_at IS NULL;
 CREATE TABLE terminals (
   tenant_id TEXT NOT NULL, store_id TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL,
   PRIMARY KEY(tenant_id,id), UNIQUE(tenant_id,store_id,id),

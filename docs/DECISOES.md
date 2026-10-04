@@ -37,6 +37,8 @@ A idempotência protege a mesma chave; criar propositalmente uma nova chave repr
 
 Testes de concorrência foram feitos com duas conexões SQLite em workers independentes. Não foram testes de PostgreSQL, várias máquinas, rede de loja, escala, falta de energia ou armazenamento defeituoso.
 
+Recuperação de senha usa link de uso único por e-mail, válido por 30 minutos. O banco guarda só o SHA-256 do token, e pedidos novos invalidam os anteriores sem apagar histórico. A resposta do pedido é idêntica para contas inexistentes e o envio não é aguardado, para não revelar e-mails cadastrados. O token viaja no fragmento da URL, que não chega a logs nem ao Referer. Concluir a redefinição encerra todas as sessões do usuário. Pedido e conclusão ficam em `audit_events` sem token nem e-mail. O provedor é o Resend, chamado por HTTPS sem dependência nova. No laboratório local sem provedor, o link aparece só no terminal do servidor. Limite: o rate limit é em memória, e atrás do proxy da Railway o IP visto pode ser o do proxy; o limite por conta continua valendo.
+
 ## Ordem sugerida de evolução
 
 **Gate 1 — conferir esta base:** executar testes no PC, validar interface e recuperação, revisar código, confirmar as regras de desconto, abertura e fechamento. Não usar dados reais.

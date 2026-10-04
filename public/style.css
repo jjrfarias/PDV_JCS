@@ -305,3 +305,7 @@ dialog::backdrop{background:#0f172a99}
   #receipt-dialog[open]{display:block!important;position:static;border:0;box-shadow:none;width:76mm;max-height:none;margin:0;padding:0}
   #receipt-dialog::backdrop{display:none}.no-print{display:none!important}#receipt{font-size:10px}#receipt p{font-size:9px}@page{margin:5mm}
 }
+.forgot-link{width:100%;margin-top:10px;border:0;color:var(--muted,#5b6575);font-weight:600}
+.login-notice{margin:12px 0 0;color:#17663a;font-weight:700}
+.login-notice:empty,.dialog-status:empty{display:none}
+.dialog-status{margin:4px 0 12px;font-weight:600}

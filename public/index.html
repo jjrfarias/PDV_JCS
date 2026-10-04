@@ -9,6 +9,8 @@
       <label>E-mail<input name="email" type="email" value="admin@jcs.local" required autocomplete="username"></label>
       <label>Senha<input name="password" type="password" required autocomplete="current-password"></label>
       <button class="primary" type="submit">Entrar</button>
+      <button id="forgot-open" class="ghost forgot-link" type="button">Esqueci minha senha</button>
+      <p id="login-notice" class="login-notice" role="status"></p>
       <p id="login-error" role="alert"></p>
     </form>
   </main>
@@ -72,3 +74,5 @@
   <dialog id="password-dialog"><form id="password-form"><h2>Alterar senha</h2><p>A nova senha deve ter 12 caracteres, com letras maiúsculas, minúsculas e número.</p><label>Senha atual<input name="currentPassword" type="password" autocomplete="current-password" required></label><label>Nova senha<input name="newPassword" type="password" autocomplete="new-password" minlength="12" required></label><label>Confirmar nova senha<input name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required></label><div class="dialog-actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Alterar senha</button></div></form></dialog>
   <dialog id="receipt-dialog"><div id="receipt"></div><div class="dialog-actions no-print"><button type="button" data-close>Fechar</button><button id="print" class="primary" type="button">Imprimir comprovante de teste</button></div></dialog>
 </body></html>
+  <dialog id="forgot-dialog"><form id="forgot-form"><h2>Recuperar senha</h2><p>Informe a empresa e o e-mail de acesso. Se estiverem cadastrados, enviaremos um link válido por 30 minutos.</p><label>Empresa<input name="tenant" required autocomplete="organization"></label><label>E-mail<input name="email" type="email" required autocomplete="username"></label><p id="forgot-status" class="dialog-status" role="status"></p><div class="dialog-actions"><button type="button" data-close>Fechar</button><button class="primary" type="submit">Enviar link</button></div></form></dialog>
+  <dialog id="reset-dialog"><form id="reset-form"><h2>Criar nova senha</h2><p>A nova senha deve ter 12 caracteres, com letras maiúsculas, minúsculas e número. Todas as sessões abertas serão encerradas.</p><label>Nova senha<input name="newPassword" type="password" autocomplete="new-password" minlength="12" required></label><label>Confirmar nova senha<input name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required></label><p id="reset-status" class="dialog-status" role="alert"></p><div class="dialog-actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Salvar nova senha</button></div></form></dialog>
