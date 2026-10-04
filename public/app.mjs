@@ -76,7 +76,11 @@ function lock(){
 }
 async function refresh(){
   if(!state.me)return;
-  state.data=await api(`/api/stores/${storeId()}/state`);
+  // Só a resposta mais recente é aplicada: um recarregamento antigo não sobrescreve um novo.
+  const seq=state.refreshSeq=(state.refreshSeq??0)+1;
+  const data=await api(`/api/stores/${storeId()}/state`);
+  if(seq!==state.refreshSeq)return;
+  state.data=data;
   $('role-label').textContent=companyAdmin()?'ADMINISTRADOR DA EMPRESA':manager()?'GERENTE NESTA LOJA':'OPERADOR NESTA LOJA';
   const prior=terminalId();$('terminal-select').replaceChildren();
   for(const terminal of state.data.terminals){const option=element('option',terminal.name);option.value=terminal.id;$('terminal-select').append(option);}
@@ -664,7 +668,8 @@ async function submitPending(){
     updateMoneyPreviews();
     message(result.replayed?'Operação recuperada. Nenhum registro foi duplicado.':'Operação confirmada.');
     if(pending.path==='/api/users'&&result.data?.linked&&!result.replayed)message(`${result.data.name} já trabalhava em outra loja. Agora também tem acesso a esta, com o perfil escolhido, e continua com a mesma senha.`);
-    await refresh();
+    // O recarregamento roda depois de liberar a tela: o próximo clique não espera mais uma viagem ao servidor.
+    state.refreshAfterWrite=true;
   }catch(error){
     // 4xx é recusa explícita; falhas de rede/5xx preservam a pendência para repetir a mesma chave.
     // 401/403 mantêm a pendência: recarregue, entre no mesmo usuário e recupere.
@@ -673,7 +678,10 @@ async function submitPending(){
     }
     if(state.pending)document.querySelectorAll('dialog[open]:not(#receipt-dialog)').forEach(d=>d.close());
     message(error.message+(state.pending?' Use Recuperar operação.':''),{sticky:Boolean(state.pending)});
-  }finally{state.busy=false;state.inflight=null;finished();lock();}
+  }finally{
+    state.busy=false;state.inflight=null;finished();lock();
+    if(state.refreshAfterWrite){state.refreshAfterWrite=false;run(refresh);}
+  }
 }
 // Gerente sem MFA: a sessão só serve para ativar. Fechar o diálogo encerra a sessão.
 async function requireMfaSetup(){
