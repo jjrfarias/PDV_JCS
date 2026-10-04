@@ -14,7 +14,8 @@
     "migrate:postgres": "node scripts/migrate-postgres.mjs",
     "reset:password:postgres": "node scripts/reset-production-password.mjs",
     "smoke:production": "node scripts/smoke-production.mjs",
-    "create:platform-admin": "node scripts/create-platform-admin.mjs"
+    "create:platform-admin": "node scripts/create-platform-admin.mjs",
+    "seed:fredbull:production": "node scripts/seed-fredbull-demo.mjs"
   },
   "dependencies": {
     "pg": "^8.16.3"
