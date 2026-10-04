@@ -176,6 +176,10 @@ Somente gerente. Atualiza nome, e-mail, perfil e status do usuário vinculado à
 
 Usuário autenticado com acesso à loja. Nome, documento, telefone, e-mail e observação são criptografados no servidor antes de persistir. A resposta da mutação não devolve dados pessoais para que a tabela de idempotência não armazene PII em texto; a tela recarrega a lista pela rota de estado. Documento, telefone, e-mail e observação são opcionais. Documento não pode duplicar dentro do contratante.
 
+## Consultar cadastro completo de cliente
+
+`GET /api/stores/:storeId/customers/:customerId` devolve nome, documento, telefone, e-mail e observação sem máscara. Exige acesso à loja e registra `CUSTOMER_VIEWED` na auditoria. Em `GET /api/stores/:storeId/state`, a lista `customers` traz só dados mascarados (`document`, `phone` e `email`) e `has_note` no lugar da observação.
+
 ## Editar cliente
 
 `POST /api/customers/update`

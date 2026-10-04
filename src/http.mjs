@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { isIP } from 'node:net';
 import { readFileSync } from 'node:fs';
 import { Auth } from './security.mjs';
 import { Platform } from './platform.mjs';
@@ -75,6 +76,13 @@ async function json(req) {
   try { return JSON.parse(Buffer.concat(parts).toString('utf8')); }
   catch { throw new AppError(400,'INVALID_JSON','JSON inválido.'); }
 }
+// Na Railway, a borda sobrescreve X-Real-IP com o IP do cliente; a conexão TCP vem do proxy e seria igual para todos.
+// Fora dela o cabeçalho poderia ser forjado, então só a conexão direta vale.
+export function clientIp(req, env = process.env) {
+  const header = String(req.headers['x-real-ip'] ?? '').trim();
+  if (env.NODE_ENV === 'production' && env.RAILWAY_ENVIRONMENT && isIP(header)) return header;
+  return req.socket.remoteAddress;
+}
 export function createApp(db,{mailer}={}) {
   const auth=new Auth(db,mailer?{mailer}:{}); const pos=new Pos(db); const platform=new Platform(db,mailer?{mailer}:{});
   const server=createServer(async(req,res)=>{
@@ -117,23 +125,23 @@ export function createApp(db,{mailer}={}) {
         requireThat(req.headers.origin===origin,403,'ORIGIN_FORBIDDEN','Origem da requisição não autorizada.');
       }
       if(req.method==='POST'&&url.pathname==='/api/login') {
-        const result=await auth.login(await json(req),req.socket.remoteAddress);
+        const result=await auth.login(await json(req),clientIp(req));
         res.setHeader('Set-Cookie',`jcs_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${production?'; Secure':''}`);
         return send(res,200,{csrfToken:result.csrfToken});
       }
       // Recuperação de senha acontece sem sessão. A Origin já foi validada acima e o link usa a origem configurada.
-      if(req.method==='POST'&&url.pathname==='/api/password/forgot') return send(res,200,await auth.requestPasswordReset(await json(req),req.socket.remoteAddress,origin));
-      if(req.method==='POST'&&url.pathname==='/api/password/reset') return send(res,200,await auth.resetPassword(await json(req),req.socket.remoteAddress));
+      if(req.method==='POST'&&url.pathname==='/api/password/forgot') return send(res,200,await auth.requestPasswordReset(await json(req),clientIp(req),origin));
+      if(req.method==='POST'&&url.pathname==='/api/password/reset') return send(res,200,await auth.resetPassword(await json(req),clientIp(req)));
       // Administração do sistema: sessão, cookie e CSRF próprios, separados dos tenants.
       if(url.pathname.startsWith('/api/platform/')) {
         const adminCookie=value=>`jcs_admin=${value}; HttpOnly; SameSite=Strict; Path=/api/platform; Max-Age=${value?28800:0}${production?'; Secure':''}`;
         if(req.method==='POST'&&url.pathname==='/api/platform/login') {
-          const result=await platform.login(await json(req),req.socket.remoteAddress);
+          const result=await platform.login(await json(req),clientIp(req));
           res.setHeader('Set-Cookie',adminCookie(result.token));
           return send(res,200,{csrfToken:result.csrfToken});
         }
-        if(req.method==='POST'&&url.pathname==='/api/platform/password/forgot') return send(res,200,await platform.requestPasswordReset(await json(req),req.socket.remoteAddress,origin));
-        if(req.method==='POST'&&url.pathname==='/api/platform/password/reset') return send(res,200,await platform.resetPassword(await json(req),req.socket.remoteAddress));
+        if(req.method==='POST'&&url.pathname==='/api/platform/password/forgot') return send(res,200,await platform.requestPasswordReset(await json(req),clientIp(req),origin));
+        if(req.method==='POST'&&url.pathname==='/api/platform/password/reset') return send(res,200,await platform.resetPassword(await json(req),clientIp(req)));
         const admin=await platform.resolve(req.headers.cookie);
         requireThat(admin,401,'AUTH_REQUIRED','Faça login para continuar.');
         if(mutating) requireThat(req.headers['x-csrf-token']===admin.csrfToken,403,'CSRF_FORBIDDEN','Sessão da tela inválida. Atualize a página.');
@@ -158,7 +166,7 @@ export function createApp(db,{mailer}={}) {
       if(req.method==='GET'&&url.pathname==='/api/me') return send(res,200,{...await pos.me(ctx),csrfToken:ctx.csrfToken});
       if(req.method==='GET'&&url.pathname==='/api/network/overview') return send(res,200,await pos.networkOverview(ctx,url.searchParams.get('from')??'',url.searchParams.get('to')??''));
       if(req.method==='POST'&&url.pathname==='/api/logout') {
-        await auth.logout(ctx); res.setHeader('Set-Cookie',`jcs_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${production?'; Secure':''}`);
+        await auth.logout(ctx,clientIp(req)); res.setHeader('Set-Cookie',`jcs_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${production?'; Secure':''}`);
         return send(res,200,{ok:true});
       }
       if(req.method==='POST'&&url.pathname==='/api/me/password') return send(res,200,await auth.changePassword(ctx,await json(req)));
@@ -166,6 +174,7 @@ export function createApp(db,{mailer}={}) {
       if(req.method==='POST'&&url.pathname==='/api/me/mfa/confirm') return send(res,200,await auth.confirmMfa(ctx,await json(req)));
       let match;
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/stores\/([\w-]+)\/state$/))) return send(res,200,await pos.state(ctx,match[1]));
+      if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/stores\/([\w-]+)\/customers\/([\w-]+)$/))) return send(res,200,await pos.customerDetail(ctx,match[1],match[2]));
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/cash\/([\w-]+)$/))) return send(res,200,await pos.cashDetail(ctx,match[1]));
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/stores\/([\w-]+)\/report(?:\.csv)?$/))) {
         const report=await pos.report(ctx,match[1],url.searchParams.get('from')??'',url.searchParams.get('to')??'');

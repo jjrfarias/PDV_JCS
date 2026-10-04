@@ -146,7 +146,7 @@ test('local SQLite database at version 8 upgrades to password resets and platfor
   // Reproduz um banco real da versão 8: sem recuperação de senha, sem plataforma e tenants sem coluna active.
   db.exec(`PRAGMA foreign_keys=OFF;
     DROP TABLE password_resets; DROP TABLE platform_audit_events; DROP TABLE platform_operations;
-    DROP TABLE platform_password_resets; DROP TABLE platform_sessions; DROP TABLE platform_admins;
+    DROP TABLE platform_password_resets; DROP TABLE platform_sessions; DROP TABLE platform_admins; DROP TABLE access_events;
     CREATE TABLE tenants_v8 (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL) STRICT;
     INSERT INTO tenants_v8 SELECT id,slug,name FROM tenants; DROP TABLE tenants; ALTER TABLE tenants_v8 RENAME TO tenants;
     PRAGMA user_version=8;`);
@@ -156,7 +156,7 @@ test('local SQLite database at version 8 upgrades to password resets and platfor
   const tables = upgraded.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('password_resets','platform_admins','platform_sessions','platform_password_resets','platform_operations','platform_audit_events') ORDER BY name").all().map(row => row.name);
   const active = upgraded.prepare('SELECT DISTINCT active FROM tenants').all().map(row => row.active);
   upgraded.close();
-  assert.equal(version, 12);
+  assert.equal(version, 13);
   assert.deepEqual(tables, ['password_resets','platform_admins','platform_audit_events','platform_operations','platform_password_resets','platform_sessions']);
   assert.deepEqual(active, [1]);
 });

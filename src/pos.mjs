@@ -4,6 +4,7 @@ import { decryptField, encryptField, fieldDigest, hashPassword, sha256 } from '.
 import { requireThat, object, text, integer, id, operationKey } from './errors.mjs';
 import { PostgresPos } from './postgres-pos.mjs';
 import { reportRange } from './time.mjs';
+import { customerSummary } from './privacy.mjs';
 
 const now = () => new Date().toISOString();
 const PAYMENT_METHODS = new Set(['CASH','PIX','CARD']);
@@ -186,6 +187,15 @@ export class Pos {
     return row ? {id:row.id,store_id:row.store_id,name:decryptField(row.name_enc),
       document:decryptField(row.document_enc),phone:decryptField(row.phone_enc),email:decryptField(row.email_enc),
       note:decryptField(row.note_enc),active:row.active,created_at:row.created_at,updated_at:row.updated_at} : null;
+  }
+  // Cadastro completo de um cliente, sob demanda. Cada consulta fica auditada.
+  customerDetail(ctx,storeId,customerId) {
+    id(storeId);id(customerId);
+    this.authorize(ctx,storeId);
+    const row=this.one('SELECT * FROM customers WHERE tenant_id=? AND store_id=? AND id=?',ctx.tenantId,storeId,customerId);
+    requireThat(row,404,'CUSTOMER_NOT_FOUND','Cliente não encontrado nesta loja.');
+    this.audit(ctx,storeId,'CUSTOMER_VIEWED',customerId,{});
+    return this.customerRow(row);
   }
   customerMutationResult(row) {
     return {id:row.id,storeId:row.store_id,active:row.active,createdAt:row.created_at,updatedAt:row.updated_at};
@@ -559,7 +569,7 @@ export class Pos {
       users:this.user(ctx).role==='MANAGER'?this.all(`SELECT u.id,u.email,u.name,u.role,u.active
         FROM users u JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
         WHERE u.tenant_id=? AND m.store_id=? ORDER BY u.name`,ctx.tenantId,storeId):[],
-      customers:this.all('SELECT * FROM customers WHERE tenant_id=? AND store_id=? ORDER BY updated_at DESC LIMIT 100',ctx.tenantId,storeId).map(row=>this.customerRow(row)),
+      customers:this.all('SELECT * FROM customers WHERE tenant_id=? AND store_id=? ORDER BY updated_at DESC LIMIT 100',ctx.tenantId,storeId).map(row=>customerSummary(this.customerRow(row))),
       cash:open.map(c=>this.cash(ctx,c.id)),
       cashMovements:this.all(`SELECT m.id,m.cash_session_id,m.kind,m.amount_cents,m.reason,m.created_at,u.name actor_name
         FROM cash_movements m JOIN users u ON u.tenant_id=m.tenant_id AND u.id=m.actor_id

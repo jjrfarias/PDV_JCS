@@ -202,3 +202,10 @@ CREATE TABLE audit_events (
 CREATE INDEX sale_history ON sales(tenant_id,store_id,created_at);
 CREATE INDEX sale_return_history ON sale_returns(tenant_id,store_id,created_at);
 CREATE INDEX stock_history ON stock_movements(tenant_id,store_id,created_at);
+CREATE TABLE access_events (
+  tenant_id TEXT NOT NULL REFERENCES tenants(id), id TEXT NOT NULL, user_id TEXT NOT NULL,
+  action TEXT NOT NULL CHECK(action IN ('LOGIN_SUCCEEDED','LOGIN_FAILED','LOGOUT')), ip TEXT NOT NULL, created_at INTEGER NOT NULL,
+  PRIMARY KEY(tenant_id,id), FOREIGN KEY(tenant_id,user_id) REFERENCES users(tenant_id,id)
+) STRICT;
+CREATE INDEX access_events_history ON access_events(tenant_id,created_at);
+CREATE INDEX access_events_user ON access_events(tenant_id,user_id,created_at);

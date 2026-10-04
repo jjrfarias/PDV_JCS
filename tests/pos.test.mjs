@@ -324,8 +324,12 @@ test('22g - cliente fica criptografado no banco e operacao nao guarda PII em cla
   assert.equal(stored.includes('12345678901'),false);
   const listed=pos.state(DEMO.cashier,DEMO.storeA).customers[0];
   assert.equal(listed.name,body.name);
-  assert.equal(listed.document,'12345678901');
-  assert.equal(listed.email,body.email);
+  assert.equal(listed.document,'•••8901');
+  assert.notEqual(listed.email,body.email);
+  const detail=pos.customerDetail(DEMO.cashier,DEMO.storeA,customer.id);
+  assert.equal(detail.document,'12345678901');
+  assert.equal(detail.email,body.email);
+  fails(()=>pos.customerDetail(DEMO.other,DEMO.storeA,customer.id),'STORE_FORBIDDEN');
   const updated=pos.updateCustomer(DEMO.cashier,key(),{...body,customerId:customer.id,name:'Cliente Editado',active:0}).data;
   assert.equal(updated.active,0);
   assert.equal(pos.state(DEMO.cashier,DEMO.storeA).customers[0].name,'Cliente Editado');

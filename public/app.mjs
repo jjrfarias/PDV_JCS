@@ -381,8 +381,8 @@ function renderManagement(){
     if(manager()){const edit=element('button','Editar');edit.type='button';edit.dataset.userAction='edit';edit.addEventListener('click',()=>openUserEdit(u));actions.append(edit);}
     return [u.name,u.email,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo',actions];
   }));}
-  if(state.tab==='customers'){const rows=(d.customers??[]).filter(c=>includes([c.name,c.document,c.phone,c.email,c.note,c.active===1?'Ativo':'Inativo'],query));renderSummary([['Clientes',rows.length],['Ativos',rows.filter(c=>c.active===1).length],['Com documento',rows.filter(c=>c.document).length]]);content=table(['Nome','Documento','Telefone','E-mail','Status','Ações'],rows.map(c=>{
-    const actions=element('div',undefined,'row-actions'),edit=element('button','Editar');edit.type='button';edit.dataset.customerAction='edit';edit.addEventListener('click',()=>openCustomerEdit(c));actions.append(edit);
+  if(state.tab==='customers'){const rows=(d.customers??[]).filter(c=>includes([c.name,c.document,c.phone,c.email,c.active===1?'Ativo':'Inativo'],query));renderSummary([['Clientes',rows.length],['Ativos',rows.filter(c=>c.active===1).length],['Com documento',rows.filter(c=>c.document).length]]);content=table(['Nome','Documento','Telefone','E-mail','Status','Ações'],rows.map(c=>{
+    const actions=element('div',undefined,'row-actions'),edit=element('button','Editar');edit.type='button';edit.dataset.customerAction='edit';edit.addEventListener('click',()=>run(()=>openCustomerEdit(c)));actions.append(edit);
     return [c.name,c.document??'—',c.phone??'—',c.email??'—',c.active===1?'Ativo':'Inativo',actions];
   }));}
   if(state.tab==='history'){const rows=d.sales.filter(s=>includes([date(s.created_at),s.id,s.operator_name,s.terminal_name,customerName(s.customer_id),brl(s.discount_cents),brl(s.total_cents),s.canceled_at?'Cancelada':'Confirmada',s.cancel_reason],query));const active=rows.filter(s=>!s.canceled_at);renderSummary([['Vendas',rows.length],['Total líquido',brl(active.reduce((n,s)=>n+moneyValue(s.total_cents)-moneyValue(s.returned_cents),0))],['Devolvido',brl(active.reduce((n,s)=>n+moneyValue(s.returned_cents),0))],['Canceladas',rows.filter(s=>s.canceled_at).length]]);content=table(['Data','Venda','Cliente','Operador','Terminal','Status','Devolvido','Total','Ações'],rows.map(s=>{
@@ -634,7 +634,8 @@ $('sale-return-form').addEventListener('submit',event=>{event.preventDefault();r
 });});
 $('new-customer').addEventListener('click',()=>$('customer-dialog').showModal());
 $('customer-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/customers',{storeId:storeId(),name:f.name,document:f.document||null,phone:f.phone||null,email:f.email||null,note:f.note||null});});});
-function openCustomerEdit(customer){
+async function openCustomerEdit(summary){
+  const customer=await api(`/api/stores/${storeId()}/customers/${summary.id}`);
   const form=$('customer-edit-form');
   form.customerId.value=customer.id;form.name.value=customer.name;form.document.value=customer.document??'';form.phone.value=customer.phone??'';form.email.value=customer.email??'';form.note.value=customer.note??'';form.active.value=String(customer.active);
   $('customer-edit-dialog').showModal();

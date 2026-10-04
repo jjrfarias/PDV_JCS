@@ -30,6 +30,7 @@ O responsável pelo produto deve manter registro das categorias tratadas, finali
 | Categoria | Regra operacional inicial |
 |---|---|
 | Sessões | Expiram automaticamente; sessões antigas devem ser removidas por rotina de manutenção. |
+| Registros de acesso (`access_events`) | Login, falha de login e logout com IP e horário, exigidos pelo Marco Civil por no mínimo 6 meses. A aplicação só insere e lê; o descarte após o prazo definido pelo controlador é feito com conexão administrativa. |
 | Tokens de recuperação e convite | Uso único; registros expirados podem ser removidos após o período necessário à auditoria. |
 | Usuários e permissões | Durante o vínculo e pelo prazo necessário para auditoria e defesa de direitos; desativar imediatamente no desligamento. |
 | Clientes | Enquanto houver finalidade válida; depois, eliminar ou anonimizar os campos pessoais opcionais. |
@@ -38,6 +39,10 @@ O responsável pelo produto deve manter registro das categorias tratadas, finali
 | Backups | Prazo documentado na política de backup; eliminação segura ao vencer. |
 
 Nenhum prazo fiscal ou contábil deve ser inventado pelo software. A empresa cliente deve definir esses prazos com sua assessoria. Quando uma venda precisar ser preservada, os dados opcionais do cliente devem ser desvinculados ou anonimizados quando juridicamente possível.
+
+## Minimização na tela
+
+Listas de clientes mostram nome, documento e telefone com os quatro últimos dígitos e e-mail mascarado. Observações não saem na lista. O cadastro completo só é carregado ao abrir a edição, para usuário com acesso à loja, e cada consulta gera `CUSTOMER_VIEWED` na auditoria.
 
 ## Direitos dos titulares
 
@@ -56,7 +61,7 @@ Trimestralmente: revisar usuários privilegiados, dependências, fornecedores, a
 1. Procedimento seguro de recuperação do MFA quando o administrador ou gerente perde o autenticador. Administradores e gerentes já dispõem de MFA TOTP.
 2. Backup criptografado com restauração homologada e evidência periódica.
 3. Rotação versionada das chaves de criptografia.
-4. Rate limit compartilhado entre instâncias e consciente do proxy confiável.
+4. Rate limit compartilhado entre instâncias. O IP real já vem do cabeçalho `X-Real-IP` da borda da Railway, aceito só em produção na Railway; o contador ainda é em memória e reinicia a cada deploy.
 5. Alertas de segurança e auditoria de exportações.
 6. Dados jurídicos e canal formal de privacidade no aviso e nos contratos.
 7. Validação jurídica das bases legais, prazos e cláusulas controlador-operador.

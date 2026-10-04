@@ -9,13 +9,13 @@ export function connect(filename) {
   const db = new DatabaseSync(filename);
   db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 12) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
+  if (version > 13) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
   if (version === 0) {
     transaction(db, () => {
       if (db.prepare('PRAGMA user_version').get().user_version !== 0) return;
       db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
       createImmutableTriggers(db);
-      db.exec('PRAGMA user_version=12;');
+      db.exec('PRAGMA user_version=13;');
     });
   }
   if (version === 1) {
@@ -216,6 +216,19 @@ export function connect(filename) {
       if(!columns.has('mfa_pending_secret_enc'))db.exec('ALTER TABLE users ADD COLUMN mfa_pending_secret_enc TEXT');
       if(!columns.has('mfa_enabled'))db.exec('ALTER TABLE users ADD COLUMN mfa_enabled INTEGER NOT NULL DEFAULT 0 CHECK(mfa_enabled IN (0,1))');
       db.exec('PRAGMA user_version=12;');
+    });
+  }
+  if (version <= 12) {
+    transaction(db, () => {
+      if (db.prepare('PRAGMA user_version').get().user_version !== 12) return;
+      db.exec(`CREATE TABLE access_events (
+          tenant_id TEXT NOT NULL REFERENCES tenants(id), id TEXT NOT NULL, user_id TEXT NOT NULL,
+          action TEXT NOT NULL CHECK(action IN ('LOGIN_SUCCEEDED','LOGIN_FAILED','LOGOUT')), ip TEXT NOT NULL, created_at INTEGER NOT NULL,
+          PRIMARY KEY(tenant_id,id), FOREIGN KEY(tenant_id,user_id) REFERENCES users(tenant_id,id)
+        ) STRICT;
+        CREATE INDEX access_events_history ON access_events(tenant_id,created_at);
+        CREATE INDEX access_events_user ON access_events(tenant_id,user_id,created_at);`);
+      db.exec('PRAGMA user_version=13;');
     });
   }
   return db;

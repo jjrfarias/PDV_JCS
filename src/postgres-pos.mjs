@@ -6,6 +6,7 @@ import { decryptField, encryptField, fieldDigest, hashPassword, sha256 } from '.
 import { requireThat, object, text, integer, id, operationKey } from './errors.mjs';
 import { hourlySales } from './pos.mjs';
 import { reportRange } from './time.mjs';
+import { customerSummary } from './privacy.mjs';
 
 const now = () => new Date().toISOString();
 const MAX_MONEY = 100_000_000;
@@ -186,7 +187,7 @@ class TransactionPos {
         : [],
       customers: (await this.all(`SELECT * FROM customers
         WHERE tenant_id=$1 AND store_id=$2 ORDER BY updated_at DESC LIMIT 100`, ctx.tenantId, storeId))
-        .map(row => this.customerRow(row)),
+        .map(row => customerSummary(this.customerRow(row))),
       cash,
       sales: (await this.all(`SELECT s.id,s.customer_id,s.total_cents,s.discount_cents,s.created_at,u.name operator_name,c.terminal_id,t.name terminal_name,
           x.created_at canceled_at,x.reason cancel_reason,COALESCE(SUM(r.total_cents),0) returned_cents
@@ -308,6 +309,15 @@ class TransactionPos {
     payments: [...payments.values()], hourly: hourlySales(sales), stores };
   }
 
+  async customerDetail(ctx, storeId, customerId) {
+    id(storeId); id(customerId);
+    await this.authorize(ctx, storeId);
+    const row = await this.one('SELECT * FROM customers WHERE tenant_id=$1 AND store_id=$2 AND id=$3', ctx.tenantId, storeId, customerId);
+    requireThat(row, 404, 'CUSTOMER_NOT_FOUND', 'Cliente não encontrado nesta loja.');
+    await this.audit(ctx, storeId, 'CUSTOMER_VIEWED', customerId, {});
+    return this.customerRow(row);
+  }
+
   customerRow(row) {
     return row ? {
       id: row.id, store_id: row.store_id, name: decryptField(row.name_enc),
@@ -346,6 +356,8 @@ export class PostgresPos {
   async cashDetail(ctx, cashId) { return this.#transaction(ctx, true, tx => tx.cashDetail(ctx, cashId)); }
   async receipt(ctx, saleId) { return this.#transaction(ctx, true, tx => tx.receipt(ctx, saleId)); }
   async state(ctx, storeId) { return this.#transaction(ctx, true, tx => tx.state(ctx, storeId)); }
+  // Não é somente leitura: grava a auditoria da consulta.
+  async customerDetail(ctx, storeId, customerId) { return this.#transaction(ctx, false, tx => tx.customerDetail(ctx, storeId, customerId)); }
   async report(ctx, storeId, from, to) { return this.#transaction(ctx, true, tx => tx.report(ctx, storeId, from, to)); }
   async networkOverview(ctx, from, to) { return this.#transaction(ctx, true, tx => tx.networkOverview(ctx, from, to)); }
 

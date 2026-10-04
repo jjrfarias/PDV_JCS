@@ -35,7 +35,7 @@ async function web(t) {
   return { db, call, login };
 }
 
-test('HTTP customer create/update lists decrypted data without storing PII in operations', async t => {
+test('HTTP customer list is masked, detail is audited and operations keep no PII', async t => {
   const w = await web(t);
   await w.login();
   const body = {
@@ -47,9 +47,24 @@ test('HTTP customer create/update lists decrypted data without storing PII in op
   assert.equal(created.data.data.name, undefined);
   const state = await w.call('/api/stores/store-a/state');
   const customer = state.data.customers.find(row => row.id === created.data.data.id);
+  // Lista: só o suficiente para reconhecer o cliente.
   assert.equal(customer.name, body.name);
-  assert.equal(customer.document, '12345678901');
-  assert.equal(customer.email, body.email);
+  assert.equal(customer.document, '•••8901');
+  assert.equal(customer.phone, '•••7777');
+  assert.equal(customer.email, 'c•••@jcs.local');
+  assert.equal(customer.note, undefined);
+  assert.equal(customer.has_note, true);
+  assert.equal(JSON.stringify(state.data).includes(body.email), false);
+  assert.equal(JSON.stringify(state.data).includes('preferencia de contato'), false);
+  // Detalhe: completo, sob demanda e auditado.
+  const detail = await w.call(`/api/stores/${DEMO.storeA}/customers/${customer.id}`);
+  assert.equal(detail.response.status, 200);
+  assert.equal(detail.data.document, '12345678901');
+  assert.equal(detail.data.email, body.email);
+  assert.equal(detail.data.note, body.note);
+  assert.equal(w.db.prepare("SELECT COUNT(*) n FROM audit_events WHERE action='CUSTOMER_VIEWED' AND entity_id=?").get(customer.id).n, 1);
+  assert.equal((await w.call(`/api/stores/${DEMO.storeB}/customers/${customer.id}`)).response.status, 404);
+  assert.equal((await w.call(`/api/stores/${DEMO.otherStore}/customers/${customer.id}`)).response.status, 403);
   const raw = JSON.stringify(w.db.prepare('SELECT * FROM customers').all()) +
     JSON.stringify(w.db.prepare("SELECT response_json FROM operations WHERE kind LIKE 'CUSTOMER_%'").all());
   assert.equal(raw.includes(body.email), false);

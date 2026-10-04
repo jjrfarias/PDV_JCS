@@ -163,6 +163,14 @@ export class Auth {
     }
     return { ok: true };
   }
+  // Registro de acesso (Marco Civil). Só para contas existentes: sem conta não há tenant a quem o registro pertença.
+  async accessEvent(tenantId, userId, action, ip, client = null) {
+    const values = [tenantId, randomUUID(), userId, action, String(ip ?? 'desconhecido').slice(0, 64), Date.now()];
+    const sql = 'INSERT INTO access_events(tenant_id,id,user_id,action,ip,created_at) VALUES($1,$2,$3,$4,$5,$6)';
+    if (typeof this.db.query !== 'function') return this.db.prepare(sql.replace(/\$\d/g, '?')).run(...values);
+    if (client) return run(client, sql, values);
+    return withPostgresTransaction(this.db, tx => run(tx, sql, values), { tenantId, userId });
+  }
   async login(input, ip) {
     object(input, ['tenant','email','password','code']);
     const tenant = text(input.tenant, 'Empresa', 60).toLowerCase();
@@ -183,9 +191,13 @@ export class Auth {
       : this.db.prepare(`SELECT u.*, t.slug FROM users u JOIN tenants t ON t.id=u.tenant_id
         WHERE t.slug=? AND u.email=? AND u.active=1 AND t.active=1`).get(tenant, email);
     const valid = await verifyPassword(password, user?.password_hash ?? this.dummyHash);
+    if (user && !valid) await this.accessEvent(user.tenant_id, user.id, 'LOGIN_FAILED', ip);
     requireThat(user && valid, 401, 'INVALID_LOGIN', 'Empresa, e-mail ou senha inválidos.');
-    if(user.role==='MANAGER'&&user.mfa_enabled===1) requireThat(verifyTotp(decryptField(user.mfa_secret_enc),input.code),401,'MFA_REQUIRED',
-      input.code?'Código de autenticação inválido.':'Informe o código do aplicativo autenticador.');
+    if(user.role==='MANAGER'&&user.mfa_enabled===1&&!verifyTotp(decryptField(user.mfa_secret_enc),input.code)) {
+      // Pedir o código pela primeira vez não é falha; código errado é.
+      if(input.code) await this.accessEvent(user.tenant_id, user.id, 'LOGIN_FAILED', ip);
+      requireThat(false,401,'MFA_REQUIRED',input.code?'Código de autenticação inválido.':'Informe o código do aplicativo autenticador.');
+    }
     const token = randomToken();
     const csrfToken = randomToken();
     // Revalidar depois do scrypt; o lock impede desativação no meio da criação da sessão.
@@ -196,12 +208,14 @@ export class Auth {
         await run(client,'DELETE FROM sessions WHERE tenant_id=$1 AND expires_at<$2',[user.tenant_id,now]);
         await run(client,`INSERT INTO sessions(token_hash,tenant_id,user_id,csrf_token,expires_at) VALUES($1,$2,$3,$4,$5)`,
           [sha256(token),user.tenant_id,user.id,csrfToken,now+12*60*60_000]);
+        await this.accessEvent(user.tenant_id, user.id, 'LOGIN_SUCCEEDED', ip, client);
       }, {tenantId:user.tenant_id,userId:user.id});
     } else {
       const current=this.db.prepare('SELECT active,password_hash FROM users WHERE tenant_id=? AND id=?').get(user.tenant_id,user.id);
       requireThat(current?.active===1 && current.password_hash===user.password_hash,401,'INVALID_LOGIN','Acesso indisponível.');
       this.db.prepare('DELETE FROM sessions WHERE tenant_id=? AND expires_at<?').run(user.tenant_id,now);
       this.db.prepare('INSERT INTO sessions VALUES(?,?,?,?,?)').run(sha256(token),user.tenant_id,user.id,csrfToken,now+12*60*60_000);
+      await this.accessEvent(user.tenant_id, user.id, 'LOGIN_SUCCEEDED', ip);
     }
     return { token, csrfToken };
   }
@@ -215,11 +229,16 @@ export class Auth {
         WHERE s.token_hash=? AND s.expires_at>? AND u.active=1 AND t.active=1`).get(sha256(token),Date.now());
     return session ? { tenantId: session.tenant_id, userId: session.user_id, csrfToken: session.csrf_token, tokenHash: session.token_hash } : null;
   }
-  async logout(ctx) {
+  async logout(ctx, ip) {
     if (typeof this.db.query === 'function') {
-      await withPostgresTransaction(this.db, client => run(client,
-        'DELETE FROM sessions WHERE tenant_id=$1 AND user_id=$2 AND token_hash=$3', [ctx.tenantId,ctx.userId,ctx.tokenHash]), ctx);
-    } else this.db.prepare('DELETE FROM sessions WHERE tenant_id=? AND user_id=? AND token_hash=?').run(ctx.tenantId,ctx.userId,ctx.tokenHash);
+      await withPostgresTransaction(this.db, async client => {
+        await run(client, 'DELETE FROM sessions WHERE tenant_id=$1 AND user_id=$2 AND token_hash=$3', [ctx.tenantId,ctx.userId,ctx.tokenHash]);
+        await this.accessEvent(ctx.tenantId, ctx.userId, 'LOGOUT', ip, client);
+      }, ctx);
+    } else {
+      this.db.prepare('DELETE FROM sessions WHERE tenant_id=? AND user_id=? AND token_hash=?').run(ctx.tenantId,ctx.userId,ctx.tokenHash);
+      await this.accessEvent(ctx.tenantId, ctx.userId, 'LOGOUT', ip);
+    }
   }
   async changePassword(ctx, input) {
     object(input, ['currentPassword', 'newPassword']);
