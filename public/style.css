@@ -52,18 +52,18 @@ p{color:var(--muted);font-size:14px}
 .login-form .primary{width:100%;padding:13px}
 .login-form code{font-size:12px;overflow-wrap:anywhere}
 #login-error{margin:16px 0 0;color:var(--danger);font-weight:700}
-.header{position:sticky;top:0;z-index:5;padding:7px 20px;display:grid;grid-template-columns:auto minmax(240px,1fr) auto;gap:16px;align-items:center;background:#ffffff;box-shadow:0 1px 0 var(--line)}
+.header{position:sticky;top:0;z-index:5;min-height:84px;padding:7px 20px;display:grid;grid-template-columns:150px minmax(280px,1fr) auto;gap:16px;align-items:center;background:#ffffff;box-shadow:0 1px 0 var(--line)}
 .main-nav{display:flex;justify-content:center;gap:6px}
 .main-nav button{border:0;background:transparent;color:#64748b;border-radius:999px;padding:8px 15px;font-size:13px}
 .main-nav button:hover{background:#f1f5f9}
 .main-nav .selected{background:#0f172a;color:#fff}
 .head-controls{display:flex;gap:9px;align-items:center}
-.head-controls label{margin:0;font-size:10px;letter-spacing:.7px;text-transform:uppercase}
-.head-controls select{min-width:150px;font-size:13px;padding:7px 10px}
-.operator-card{border-left:1px solid var(--line);padding-left:14px;min-width:140px}
+.head-controls label{width:260px;margin:0;font-size:10px;letter-spacing:.7px;text-transform:uppercase}.head-controls label.terminal-context{width:190px}
+.head-controls select{width:100%;min-width:0;font-size:13px;padding:7px 10px}
+.operator-card{border-left:1px solid var(--line);padding-left:14px;min-width:230px}
 .head-controls small{font-size:10px;color:var(--muted);font-weight:800;letter-spacing:.8px}
 #user-label{font-size:13px;font-weight:800}
-.page-heading{margin:8px clamp(14px,1.6vw,28px) 8px;display:flex;justify-content:space-between;align-items:flex-end;gap:18px}
+.page-heading{min-height:76px;margin:0 clamp(14px,1.6vw,28px);display:flex;justify-content:space-between;align-items:center;gap:18px}
 .eyebrow{display:block;font-size:10px;font-weight:900;letter-spacing:1.8px;color:var(--brand);margin-bottom:5px}
 .register-actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
 .badge{font-size:12px;border:1px solid #99f6e4;background:#ccfbf1;color:#115e59;border-radius:999px;padding:7px 12px;font-weight:900}
@@ -85,8 +85,11 @@ p{color:var(--muted);font-size:14px}
 .cash-movements .table-wrap{max-height:360px}
 .view-panel{margin:0 clamp(14px,1.6vw,28px)}
 .network-dashboard{overflow:hidden;background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
-.network-context .store-context,.network-context #cash-label,.network-context #refresh{display:none}
-.network-context .page-heading{margin-top:6px;margin-bottom:10px}.network-context .page-heading h1{font-size:27px}
+.network-context #cash-label,.network-context #refresh{display:none}.network-context .page-heading h1{font-size:27px}
+
+@media(min-width:1181px){
+  .network-context .store-context,.management-context .terminal-context{visibility:hidden;pointer-events:none}
+}
 .network-toolbar{display:grid;grid-template-columns:minmax(280px,1fr) auto minmax(170px,.55fr);align-items:center;gap:24px;padding:16px 26px;border-bottom:1px solid #edf1f5;background:linear-gradient(90deg,#fff 0%,#fbfdff 100%)}
 .network-period-context{display:grid;gap:2px;min-width:0}.network-period-label,.network-period-picker>span{font-size:8px!important;line-height:1.2;color:#64748b!important;font-weight:900!important;letter-spacing:.8px;text-transform:uppercase}.network-toolbar strong{font-size:17px;line-height:1.25}.network-period-meta{display:flex;align-items:center;gap:7px;min-width:0}.network-period-meta span{font-size:10px;color:var(--muted);font-weight:700}.network-period-meta span+span:not(:empty)::before{content:'•';margin-right:7px;color:#cbd5e1}.network-period-picker{display:grid;gap:5px}.network-period-picker>span{padding-left:4px}
 .network-period-controls{display:flex;align-items:center;gap:5px;padding:3px;border:1px solid #dbe3ec;border-radius:10px;background:#f8fafc}.network-period-controls button{padding:6px 9px;border:0;border-radius:7px;background:transparent;color:#526174;font-size:10px}.network-period-controls button.selected{background:#0f172a;color:#fff}.network-period-controls button:disabled{cursor:wait;opacity:.58}
@@ -226,7 +229,7 @@ dialog::backdrop{background:#0f172a99}
 #receipt th,#receipt td{padding:9px 4px}
 #receipt .grand-total strong{font-size:26px}
 @media(max-width:1180px){
-  .header{grid-template-columns:1fr;gap:10px}.main-nav{justify-content:flex-start}.head-controls{gap:10px;flex-wrap:wrap}.head-controls label select{min-width:120px}
+  .header{grid-template-columns:1fr;gap:10px}.main-nav{justify-content:flex-start}.head-controls{gap:10px;flex-wrap:wrap}.head-controls label{width:auto}.head-controls label select{min-width:120px}.network-context .store-context,.management-context .terminal-context{display:none}
   .sale-layout{grid-template-columns:minmax(0,1fr) 330px;gap:14px}
   .cash-strip{grid-template-columns:repeat(2,1fr)}
   .network-summary{grid-template-columns:1.4fr repeat(3,1fr)}
@@ -399,7 +402,7 @@ dialog::backdrop{background:#0f172a99}
 .mfa-required-note{padding:10px 12px;border-radius:10px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-weight:700}
 
 /* Gestão: abas agrupadas, busca e ações na mesma faixa, indicadores que filtram, linhas clicáveis. */
-.management-context label:has(#terminal-select),.management-context #cash-label,.management-context #refresh{display:none}
+.management-context #cash-label,.management-context #refresh{display:none}
 .management .tabs{gap:28px;flex-wrap:wrap;align-items:flex-end}
 .tab-group{display:flex;gap:20px;align-items:flex-end}
 .tab-group+.tab-group{padding-left:28px;border-left:1px solid var(--line)}
