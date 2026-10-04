@@ -7,6 +7,7 @@
     <form id="login-form" class="login-form"><h2>Acesso do administrador</h2><p>Use o e-mail de administrador do sistema.</p>
       <label>E-mail<input name="email" type="email" required autocomplete="username"></label>
       <label>Senha<input name="password" type="password" required autocomplete="current-password"></label>
+      <label>Código do autenticador<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="Somente se MFA estiver ativo"></label>
       <button class="primary" type="submit">Entrar</button>
       <button id="forgot-open" class="ghost forgot-link" type="button">Esqueci minha senha</button>
       <p id="login-notice" class="login-notice" role="status"></p>
@@ -14,7 +15,7 @@
     </form>
   </main>
   <div id="workspace" class="admin-workspace" hidden>
-    <header class="admin-header"><div class="admin-brand"><span class="wordmark">JCS <span>PDV</span></span><span class="admin-tag">Administração do sistema</span></div><div class="admin-user"><div><small>ADMINISTRADOR</small><strong id="admin-label"></strong></div><button id="logout" type="button">Sair</button></div></header>
+    <header class="admin-header"><div class="admin-brand"><span class="wordmark">JCS <span>PDV</span></span><span class="admin-tag">Administração do sistema</span></div><div class="admin-user"><div><small>ADMINISTRADOR</small><strong id="admin-label"></strong></div><button id="mfa-open" type="button">Ativar MFA</button><button id="logout" type="button">Sair</button></div></header>
     <main class="admin-main">
       <div class="admin-heading"><div><span class="eyebrow">EMPRESAS</span><h1>Empresas contratantes</h1><p>Crie empresas e controle o acesso delas ao PDV. Esta área não mostra dados de operação.</p></div><div class="admin-actions"><button id="refresh" type="button">Atualizar</button><button id="new-tenant" class="primary" type="button">+ Nova empresa</button></div></div>
       <div id="message" class="message admin-message" role="status" aria-live="polite" hidden></div>
@@ -31,4 +32,5 @@
     <div class="dialog-actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Criar empresa</button></div></form></dialog>
   <dialog id="forgot-dialog"><form id="forgot-form"><h2>Recuperar senha</h2><p>Se o e-mail for de um administrador ativo, enviaremos um link válido por 30 minutos.</p><label>E-mail<input name="email" type="email" required autocomplete="username"></label><p id="forgot-status" class="dialog-status" role="status"></p><div class="dialog-actions"><button type="button" data-close>Fechar</button><button class="primary" type="submit">Enviar link</button></div></form></dialog>
   <dialog id="reset-dialog"><form id="reset-form"><h2>Criar nova senha</h2><p>A nova senha deve ter 12 caracteres, com letras maiúsculas, minúsculas e número.</p><label>Nova senha<input name="newPassword" type="password" autocomplete="new-password" minlength="12" required></label><label>Confirmar nova senha<input name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required></label><p id="reset-status" class="dialog-status" role="alert"></p><div class="dialog-actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Salvar nova senha</button></div></form></dialog>
+  <dialog id="mfa-dialog"><form id="mfa-form"><h2>Ativar autenticação em duas etapas</h2><p>Adicione a chave abaixo no Google Authenticator, Microsoft Authenticator ou outro aplicativo compatível.</p><label>Chave de configuração<input id="mfa-secret" readonly></label><label>Código de 6 dígitos<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label><p class="muted">Guarde a chave em local seguro antes de confirmar. Ela não será exibida novamente.</p><div class="dialog-actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Confirmar e ativar</button></div></form></dialog>
 </body></html>

@@ -4,7 +4,8 @@
 import { randomUUID } from 'node:crypto';
 import { AppError, requireThat, text, object, id as checkId, operationKey } from './errors.mjs';
 import { withPostgresTransaction } from './postgres.mjs';
-import { sha256, randomToken, hashPassword, verifyPassword } from './security.mjs';
+import { sha256, randomToken, hashPassword, verifyPassword, encryptField, decryptField } from './security.mjs';
+import { totpSecret, verifyTotp, otpauthUri } from './totp.mjs';
 import { createMailer } from './mailer.mjs';
 
 const SESSION_TTL_MS = 8 * 60 * 60_000;
@@ -73,13 +74,17 @@ export class Platform {
   }
 
   async login(input, ip) {
-    object(input, ['email', 'password']);
+    object(input, ['email', 'password', 'code']);
     const address = text(input.email, 'E-mail', 120).toLowerCase();
     const password = text(input.password, 'Senha', 200, 1);
     this.limit([[`admin-ip:${ip}`, 20], [`admin-account:${ip}:${address}`, 5]], 'LOGIN_RATE_LIMIT', 'Muitas tentativas. Tente novamente em 15 minutos.');
     const admin = await this.q.one('SELECT * FROM platform_admins WHERE email=$1 AND active=1', [address]);
     const valid = await verifyPassword(password, admin?.password_hash ?? this.dummyHash);
     requireThat(admin && valid, 401, 'INVALID_LOGIN', 'E-mail ou senha inválidos.');
+    if (admin.mfa_enabled === 1) {
+      requireThat(verifyTotp(decryptField(admin.mfa_secret_enc), input.code), 401, 'MFA_REQUIRED',
+        input.code ? 'Código de autenticação inválido.' : 'Informe o código do aplicativo autenticador.');
+    }
     const token = randomToken(); const csrfToken = randomToken(); const now = Date.now();
     await this.tx({}, async q => {
       const current = await q.one('SELECT active,password_hash FROM platform_admins WHERE id=$1', [admin.id]);
@@ -99,9 +104,26 @@ export class Platform {
   }
   async logout(ctx) { await this.q.run('DELETE FROM platform_sessions WHERE token_hash=$1 AND admin_id=$2', [ctx.tokenHash, ctx.adminId]); }
   async me(ctx) {
-    const admin = await this.q.one('SELECT id,email,name FROM platform_admins WHERE id=$1 AND active=1', [ctx.adminId]);
+    const admin = await this.q.one('SELECT id,email,name,mfa_enabled FROM platform_admins WHERE id=$1 AND active=1', [ctx.adminId]);
     requireThat(admin, 401, 'AUTH_REQUIRED', 'Faça login para continuar.');
     return { admin, csrfToken: ctx.csrfToken };
+  }
+  async beginMfa(ctx) {
+    const admin=await this.q.one('SELECT id,email FROM platform_admins WHERE id=$1 AND active=1',[ctx.adminId]);
+    requireThat(admin,401,'AUTH_REQUIRED','Faça login novamente.');
+    const secret=totpSecret();
+    await this.q.run('UPDATE platform_admins SET mfa_pending_secret_enc=$1 WHERE id=$2',[encryptField(secret),ctx.adminId]);
+    return { secret, uri: otpauthUri(secret,admin.email) };
+  }
+  async confirmMfa(ctx,input) {
+    object(input,['code']);const code=text(input.code,'Código',6,6);
+    await this.tx({},async q=>{const admin=await q.one('SELECT mfa_pending_secret_enc FROM platform_admins WHERE id=$1',[ctx.adminId]);
+      requireThat(admin?.mfa_pending_secret_enc,400,'MFA_NOT_STARTED','Inicie a configuração novamente.');
+      requireThat(verifyTotp(decryptField(admin.mfa_pending_secret_enc),code),400,'INVALID_MFA_CODE','Código de autenticação inválido.');
+      await q.run('UPDATE platform_admins SET mfa_secret_enc=mfa_pending_secret_enc,mfa_pending_secret_enc=NULL,mfa_enabled=1 WHERE id=$1',[ctx.adminId]);
+      await q.run('DELETE FROM platform_sessions WHERE admin_id=$1 AND token_hash<>$2',[ctx.adminId,ctx.tokenHash]);
+      await this.audit(q,ctx.adminId,'PLATFORM_MFA_ENABLED',ctx.adminId);
+    });return {ok:true};
   }
 
   // Resposta idêntica com ou sem conta, para não revelar quem administra o sistema.

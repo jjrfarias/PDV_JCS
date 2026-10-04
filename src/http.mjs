@@ -138,6 +138,8 @@ export function createApp(db,{mailer}={}) {
         requireThat(admin,401,'AUTH_REQUIRED','Faça login para continuar.');
         if(mutating) requireThat(req.headers['x-csrf-token']===admin.csrfToken,403,'CSRF_FORBIDDEN','Sessão da tela inválida. Atualize a página.');
         if(req.method==='GET'&&url.pathname==='/api/platform/me') return send(res,200,await platform.me(admin));
+        if(req.method==='POST'&&url.pathname==='/api/platform/mfa/start') return send(res,200,await platform.beginMfa(admin));
+        if(req.method==='POST'&&url.pathname==='/api/platform/mfa/confirm') return send(res,200,await platform.confirmMfa(admin,await json(req)));
         if(req.method==='POST'&&url.pathname==='/api/platform/logout') { await platform.logout(admin); res.setHeader('Set-Cookie',adminCookie('')); return send(res,200,{ok:true}); }
         if(req.method==='GET'&&url.pathname==='/api/platform/tenants') return send(res,200,await platform.listTenants());
         if(req.method==='POST'&&url.pathname==='/api/platform/tenants') {

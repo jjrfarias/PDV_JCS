@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createApp } from '../src/http.mjs';
 import { hashPassword } from '../src/security.mjs';
+import { totpCode } from '../src/totp.mjs';
 import { fixture, PASSWORD, key } from './helpers.mjs';
 
 const ADMIN_EMAIL = 'admin.sistema@jcs.local';
@@ -34,8 +35,8 @@ async function web(t) {
     return { response, data };
   }
   const cookieOf = result => result.response.headers.get('set-cookie')?.split(';')[0] ?? '';
-  async function adminLogin(email = ADMIN_EMAIL, password = ADMIN_PASSWORD) {
-    const result = await call('/api/platform/login', { body: { email, password } });
+  async function adminLogin(email = ADMIN_EMAIL, password = ADMIN_PASSWORD, code) {
+    const result = await call('/api/platform/login', { body: { email, password, ...(code ? { code } : {}) } });
     return { status: result.response.status, cookie: cookieOf(result), csrf: result.data.csrfToken };
   }
   async function tenantLogin(tenant, email, password) {
@@ -52,6 +53,19 @@ async function web(t) {
 }
 
 const NEW_TENANT = { slug: 'mercado-silva', name: 'Mercado Silva', storeName: 'Loja Centro', managerName: 'Ana Silva', managerEmail: 'ana@silva.local' };
+
+test('admin ativa MFA TOTP e novos logins exigem código válido', async t => {
+  const w=await web(t),admin=await w.adminLogin();
+  const started=await w.as(admin).post('/api/platform/mfa/start',{});
+  assert.match(started.data.secret,/^[A-Z2-7]{32}$/);
+  assert.match(started.data.uri,/^otpauth:\/\/totp\//);
+  assert.equal((await w.as(admin).post('/api/platform/mfa/confirm',{code:totpCode(started.data.secret)})).response.status,200);
+  assert.equal((await w.adminLogin()).status,401);
+  assert.equal((await w.adminLogin(ADMIN_EMAIL,ADMIN_PASSWORD,'000000')).status,401);
+  assert.equal((await w.adminLogin(ADMIN_EMAIL,ADMIN_PASSWORD,totpCode(started.data.secret))).status,200);
+  const stored=w.db.prepare('SELECT mfa_secret_enc,mfa_enabled FROM platform_admins WHERE id=?').get('admin-1');
+  assert.equal(stored.mfa_enabled,1);assert.doesNotMatch(stored.mfa_secret_enc,new RegExp(started.data.secret));
+});
 
 test('admin page is served and admin login is separate from tenant sessions', async t => {
   const w = await web(t);

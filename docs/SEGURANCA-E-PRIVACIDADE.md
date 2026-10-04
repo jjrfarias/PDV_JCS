@@ -53,7 +53,7 @@ Trimestralmente: revisar usuários privilegiados, dependências, fornecedores, a
 
 ## Pendências para liberação comercial ampliada
 
-1. MFA para administradores e gerentes.
+1. MFA para gerentes. O administrador da plataforma já dispõe de MFA TOTP.
 2. Backup criptografado com restauração homologada e evidência periódica.
 3. Rotação versionada das chaves de criptografia.
 4. Rate limit compartilhado entre instâncias e consciente do proxy confiável.
