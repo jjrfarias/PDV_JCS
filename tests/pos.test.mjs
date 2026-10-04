@@ -283,6 +283,21 @@ test('22b.1 - transferência só altera saldos no envio e no recebimento',t=>{
   assert.equal(db.prepare('SELECT status FROM stock_transfers WHERE tenant_id=? AND id=?').get(DEMO.manager.tenantId,transfer.id).status,'RECEIVED');
   assert.deepEqual(db.prepare("SELECT quantity FROM stock_movements WHERE reason LIKE 'Transferência %' ORDER BY created_at,id").all().map(row=>row.quantity).sort((a,b)=>a-b),[-5,5]);
 });
+test('22b.2 - reserva protege saldo disponível e baixa o físico apenas na retirada',t=>{
+  const {pos,db}=fixture(t);
+  const customer=pos.createCustomer(DEMO.cashier,key(),{storeId:DEMO.storeA,name:'Cliente Reserva',document:null,phone:'11999990000',email:null,note:null}).data;
+  const request=pos.reserveStock(DEMO.cashier,key(),{action:'REQUEST',storeId:DEMO.storeA,pickupStoreId:DEMO.storeB,productId:DEMO.product,customerId:customer.id,quantity:4,expiresHours:24}).data;
+  assert.equal(request.status,'REQUESTED');
+  assert.equal(db.prepare('SELECT quantity FROM stock WHERE tenant_id=? AND store_id=? AND product_id=?').get(DEMO.manager.tenantId,DEMO.storeB,DEMO.product).quantity,30);
+  pos.reserveStock(DEMO.manager,key(),{action:'CONFIRM',storeId:DEMO.storeB,reservationId:request.id});
+  const store=pos.stockLookup(DEMO.cashier,'DEMO-001').products[0].stores.find(item=>item.id===DEMO.storeB);
+  assert.deepEqual({physical:store.quantity,reserved:store.reserved_quantity,available:store.available_quantity},{physical:30,reserved:4,available:26});
+  const cash=open(pos,DEMO.manager,DEMO.terminalB);
+  fails(()=>pos.sell(DEMO.manager,key(),saleInput(cash,{items:[{productId:DEMO.product,quantity:27}],discountCents:0,discountReason:null,tenderedCents:100000})),'INSUFFICIENT_STOCK');
+  pos.reserveStock(DEMO.manager,key(),{action:'COLLECT',storeId:DEMO.storeB,reservationId:request.id});
+  assert.equal(db.prepare('SELECT quantity FROM stock WHERE tenant_id=? AND store_id=? AND product_id=?').get(DEMO.manager.tenantId,DEMO.storeB,DEMO.product).quantity,26);
+  assert.equal(db.prepare('SELECT status FROM stock_reservations WHERE tenant_id=? AND id=?').get(DEMO.manager.tenantId,request.id).status,'COLLECTED');
+});
 test('22c - gerente edita produto sem alterar snapshot de venda antiga',t=>{
   const {pos}=fixture(t);const cash=open(pos);
   const sale=pos.sell(DEMO.manager,key(),saleInput(cash,{discountCents:0,discountReason:null,tenderedCents:5000})).data;

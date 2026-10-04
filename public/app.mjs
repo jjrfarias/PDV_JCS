@@ -220,7 +220,7 @@ async function loadNetworkOperations(){
 }
 function networkStockRows(){
   const grouped=new Map();
-  for(const row of state.networkOperations?.stock??[]){const item=grouped.get(row.id)??{...row,total:0,stores:[]};item.total+=row.quantity;item.stores.push({id:row.store_id,name:row.store_name,quantity:row.quantity});grouped.set(row.id,item);}
+  for(const row of state.networkOperations?.stock??[]){const item=grouped.get(row.id)??{...row,total:0,stores:[]};item.total+=row.available_quantity??row.quantity;item.stores.push({id:row.store_id,name:row.store_name,quantity:row.available_quantity??row.quantity,physical:row.quantity,reserved:row.reserved_quantity??0});grouped.set(row.id,item);}
   return [...grouped.values()];
 }
 function stockMatrix(rows,stores){
@@ -242,7 +242,7 @@ function renderNetworkDetail(){
   if(state.networkSection==='overview')return;
   const data=state.networkOperations;if(!data)return;
   const query=$('network-detail-search').value.trim().toLowerCase(),summary=$('network-detail-summary'),content=$('network-detail-content');
-  const titles={stock:['Estoque da rede','Saldo atual de cada produto em todas as lojas gerenciadas.'],transfers:['Transferências entre lojas','Acompanhe solicitações, aprovações, mercadorias em trânsito e recebimentos.'],movements:['Movimentações de estoque','Entradas, saídas por venda, devoluções e ajustes no período.'],sales:['Vendas recentes','Vendas de todas as lojas gerenciadas no período selecionado.'],closures:['Fechamentos','Conferências de caixa realizadas no período.'],reports:['Relatório consolidado','Indicadores comparativos das lojas no período selecionado.']};
+  const titles={stock:['Estoque da rede','Saldo atual de cada produto em todas as lojas gerenciadas.'],transfers:['Transferências entre lojas','Acompanhe solicitações, aprovações, mercadorias em trânsito e recebimentos.'],reservations:['Reservas para retirada','Acompanhe pedidos feitos em outras lojas, confirme a separação e registre a retirada.'],movements:['Movimentações de estoque','Entradas, saídas por venda, devoluções e ajustes no período.'],sales:['Vendas recentes','Vendas de todas as lojas gerenciadas no período selecionado.'],closures:['Fechamentos','Conferências de caixa realizadas no período.'],reports:['Relatório consolidado','Indicadores comparativos das lojas no período selecionado.']};
   const [title,note]=titles[state.networkSection];$('network-detail-title').textContent=title;$('network-detail-note').textContent=note;
   $('new-transfer').hidden=state.networkSection!=='transfers';
   if(state.networkSection==='stock'){
@@ -271,6 +271,21 @@ function renderNetworkDetail(){
       if(['REQUESTED','APPROVED'].includes(t.status)&&(managed.has(t.origin_store_id)||managed.has(t.destination_store_id)))action('Cancelar','CANCEL','danger-text');
       return {cells:[date(t.created_at),`${t.product_name} · ${t.sku}`,t.origin_name,t.destination_name,t.quantity,labels[t.status]??t.status,t.requested_by_name,actions]};
     }),'Nenhuma transferência no período.'));
+  }
+  if(state.networkSection==='reservations'){
+    const labels={REQUESTED:'Aguardando confirmação',CONFIRMED:'Confirmada',COLLECTED:'Retirada',CANCELED:'Cancelada'};
+    const nowMs=Date.now(),rows=(data.reservations??[]).filter(r=>includes([r.product_name,r.sku,r.requesting_store_name,r.pickup_store_name,r.customer_name,r.requested_by_name,labels[r.status]],query));
+    const managed=new Set((state.me?.stores??[]).filter(store=>store.role==='MANAGER').map(store=>store.id));
+    const active=r=>['REQUESTED','CONFIRMED'].includes(r.status)&&new Date(r.expires_at).getTime()>nowMs;
+    summary.replaceChildren(...[['Aguardando',rows.filter(r=>r.status==='REQUESTED'&&active(r)).length],['Separadas',rows.filter(r=>r.status==='CONFIRMED'&&active(r)).length],['Retiradas',rows.filter(r=>r.status==='COLLECTED').length],['Expiradas',rows.filter(r=>['REQUESTED','CONFIRMED'].includes(r.status)&&!active(r)).length]].map(([l,v])=>{const c=element('div',undefined,'summary-card');c.append(element('span',l),element('strong',v));return c;}));
+    content.replaceChildren(dataTable([{label:'Solicitada'},{label:'Produto'},{label:'Cliente'},{label:'Solicitante'},{label:'Retirada em'},{label:'Qtd.',className:'number'},{label:'Prazo'},{label:'Status'},{label:'Ações'}],rows.map(r=>{
+      const expired=['REQUESTED','CONFIRMED'].includes(r.status)&&!active(r),actions=element('div',undefined,'row-actions');
+      const action=(label,value,tone='')=>{const button=element('button',label,tone);button.type='button';button.addEventListener('click',()=>run(()=>command('/api/stock/reserve',{action:value,storeId:r.pickup_store_id,reservationId:r.id})));actions.append(button);};
+      if(!expired&&r.status==='REQUESTED'&&managed.has(r.pickup_store_id))action('Confirmar','CONFIRM','primary');
+      if(!expired&&r.status==='CONFIRMED'&&managed.has(r.pickup_store_id))action('Registrar retirada','COLLECT','primary');
+      if(['REQUESTED','CONFIRMED'].includes(r.status)&&managed.has(r.pickup_store_id))action('Cancelar','CANCEL','danger-text');
+      return {cells:[date(r.created_at),`${r.product_name} · ${r.sku}`,r.customer_name,r.requesting_store_name,r.pickup_store_name,r.quantity,date(r.expires_at),expired?'Expirada':labels[r.status]??r.status,actions]};
+    }),'Nenhuma reserva no período.'));
   }
   if(state.networkSection==='sales'){
     const rows=data.sales.filter(s=>includes([s.id,s.store_name,s.operator_name,paymentName(s.method),s.canceled_at?'Cancelada':'Confirmada'],query)),active=rows.filter(s=>!s.canceled_at);
@@ -691,6 +706,7 @@ async function submitPending(){
     if(pending.path==='/api/products/update')$('product-edit-form').reset();
     if(pending.path==='/api/stock/adjust')$('stock-form').reset();
     if(pending.path==='/api/stock/transfer'){state.networkOperations=null;$('transfer-form').reset();}
+    if(pending.path==='/api/stock/reserve'){state.networkOperations=null;$('reservation-form').reset();}
     if(pending.path==='/api/sales/cancel')$('sale-cancel-form').reset();
     if(pending.path==='/api/sales/return')$('sale-return-form').reset();
     if(pending.path==='/api/users')$('user-form').reset();
@@ -783,18 +799,29 @@ async function searchAvailability(query){
     const total=product.stores.reduce((sum,store)=>sum+store.quantity,0);head.append(identity,element('b',`${total} un. na rede`));
     const stores=element('div',undefined,'availability-stores');
     stores.append(...product.stores.sort((a,b)=>b.quantity-a.quantity||a.name.localeCompare(b.name,'pt-BR')).map(store=>{
-      const row=element('div',undefined,store.quantity>0?'available':'unavailable'),name=element('span',store.name);
+      const available=store.available_quantity??store.quantity,row=element('div',undefined,available>0?'available':'unavailable'),name=element('span',store.name),balance=element('div',undefined,'availability-balance');
       if(store.id===storeId())name.append(element('small','Loja atual'));
-      row.append(name,element('strong',store.quantity>0?`${store.quantity} disponível(is)`:'Sem estoque'));return row;
+      balance.append(element('strong',available>0?`${available} disponível(is)`:'Sem estoque'));
+      if(store.reserved_quantity)balance.append(element('small',`${store.quantity} físico · ${store.reserved_quantity} reservado(s)`));
+      if(store.id!==storeId()&&available>0){const reserve=element('button','Reservar','primary');reserve.type='button';reserve.addEventListener('click',()=>openReservationDialog(product,store));balance.append(reserve);}
+      row.append(name,balance);return row;
     }));
     card.append(head,stores);return card;
   }));
+}
+function openReservationDialog(product,store){
+  const customerId=selectedCustomerId();if(!customerId)throw new Error('Selecione o cliente da venda antes de solicitar a reserva.');
+  const customer=state.data.customers.find(item=>item.id===customerId),form=$('reservation-form');
+  form.productId.value=product.id;form.pickupStoreId.value=store.id;form.quantity.value='1';form.expiresHours.value='24';
+  $('reservation-product').textContent=`${product.name} · ${product.sku}`;$('reservation-store').textContent=`Retirada: ${store.name}`;$('reservation-customer').textContent=`Cliente: ${customer?.name??'selecionado'}`;
+  $('availability-dialog').close();$('reservation-dialog').showModal();
 }
 $('availability-open').addEventListener('click',()=>{
   const query=$('search').value.trim();$('availability-search').value=query;$('availability-results').replaceChildren(element('p','Digite o produto que o cliente procura.'));
   $('availability-dialog').showModal();setTimeout(()=>{if(query)run(()=>searchAvailability(query));else $('availability-search').focus();});
 });
 $('availability-form').addEventListener('submit',event=>{event.preventDefault();run(()=>searchAvailability($('availability-search').value.trim()));});
+$('reservation-form').addEventListener('submit',event=>{event.preventDefault();const form=event.currentTarget,customerId=selectedCustomerId();run(async()=>{if(!customerId)throw new Error('Selecione o cliente da venda.');return command('/api/stock/reserve',{action:'REQUEST',storeId:storeId(),pickupStoreId:form.pickupStoreId.value,productId:form.productId.value,customerId,quantity:Number(form.quantity.value),expiresHours:Number(form.expiresHours.value)});});});
 $('new-transfer').addEventListener('click',openTransferDialog);
 $('transfer-form').addEventListener('submit',event=>{event.preventDefault();const form=event.currentTarget;run(()=>command('/api/stock/transfer',{action:'REQUEST',storeId:form.destinationStoreId.value,originStoreId:form.originStoreId.value,destinationStoreId:form.destinationStoreId.value,productId:form.productId.value,quantity:Number(form.quantity.value),note:form.note.value||null}));});
 document.querySelectorAll('.money-input').forEach(input=>input.addEventListener('input',()=>{updateMoneyPreviews();if(input.id==='discount'||input.id==='tendered')renderTotals();}));

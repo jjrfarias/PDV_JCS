@@ -1,7 +1,7 @@
 ﻿import { randomUUID } from 'node:crypto';
 import { transaction } from './database.mjs';
 import { decryptField, encryptField, fieldDigest, hashPassword, sha256 } from './security.mjs';
-import { requireThat, object, text, integer, id, operationKey } from './errors.mjs';
+import { AppError, requireThat, object, text, integer, id, operationKey } from './errors.mjs';
 import { PostgresPos } from './postgres-pos.mjs';
 import { reportRange } from './time.mjs';
 import { customerSummary } from './privacy.mjs';
@@ -363,11 +363,26 @@ export class Pos {
     return this.mutate(ctx,`TRANSFER_${action}`,key,input,user=>{requireThat(user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente movimenta transferências.');
       const transfer=this.one('SELECT * FROM stock_transfers WHERE tenant_id=? AND id=?',ctx.tenantId,input.transferId);requireThat(transfer,404,'TRANSFER_NOT_FOUND','Transferência não encontrada.');const timestamp=now();
       if(action==='APPROVE'){requireThat(input.storeId===transfer.origin_store_id,403,'STORE_FORBIDDEN','A loja de origem deve aprovar.');requireThat(transfer.status==='REQUESTED',409,'TRANSFER_STATUS','Esta transferência não aguarda aprovação.');this.run("UPDATE stock_transfers SET status='APPROVED',approved_by=?,approved_at=? WHERE tenant_id=? AND id=?",ctx.userId,timestamp,ctx.tenantId,input.transferId);}
-      else if(action==='SHIP'){requireThat(input.storeId===transfer.origin_store_id,403,'STORE_FORBIDDEN','A loja de origem deve enviar.');requireThat(transfer.status==='APPROVED',409,'TRANSFER_STATUS','A transferência precisa estar aprovada.');const changed=this.run('UPDATE stock SET quantity=quantity-? WHERE tenant_id=? AND store_id=? AND product_id=? AND quantity>=?',transfer.quantity,ctx.tenantId,transfer.origin_store_id,transfer.product_id,transfer.quantity);requireThat(changed.changes===1,409,'INSUFFICIENT_STOCK','Saldo insuficiente na loja de origem.');this.run("UPDATE stock_transfers SET status='IN_TRANSIT',shipped_by=?,shipped_at=? WHERE tenant_id=? AND id=?",ctx.userId,timestamp,ctx.tenantId,input.transferId);this.run('INSERT INTO stock_movements VALUES(?,?,?,?,?,?,?,?,?,?)',ctx.tenantId,randomUUID(),transfer.origin_store_id,transfer.product_id,null,-transfer.quantity,'ADJUSTMENT',`Transferência enviada ${transfer.id}`,ctx.userId,timestamp);}
+      else if(action==='SHIP'){requireThat(input.storeId===transfer.origin_store_id,403,'STORE_FORBIDDEN','A loja de origem deve enviar.');requireThat(transfer.status==='APPROVED',409,'TRANSFER_STATUS','A transferência precisa estar aprovada.');const changed=this.run(`UPDATE stock SET quantity=quantity-? WHERE tenant_id=? AND store_id=? AND product_id=? AND quantity-(SELECT COALESCE(SUM(r.quantity),0) FROM stock_reservations r WHERE r.tenant_id=stock.tenant_id AND r.pickup_store_id=stock.store_id AND r.product_id=stock.product_id AND r.status='CONFIRMED' AND r.expires_at>CURRENT_TIMESTAMP)>=?`,transfer.quantity,ctx.tenantId,transfer.origin_store_id,transfer.product_id,transfer.quantity);requireThat(changed.changes===1,409,'INSUFFICIENT_STOCK','Saldo insuficiente na loja de origem.');this.run("UPDATE stock_transfers SET status='IN_TRANSIT',shipped_by=?,shipped_at=? WHERE tenant_id=? AND id=?",ctx.userId,timestamp,ctx.tenantId,input.transferId);this.run('INSERT INTO stock_movements VALUES(?,?,?,?,?,?,?,?,?,?)',ctx.tenantId,randomUUID(),transfer.origin_store_id,transfer.product_id,null,-transfer.quantity,'ADJUSTMENT',`Transferência enviada ${transfer.id}`,ctx.userId,timestamp);}
       else if(action==='RECEIVE'){requireThat(input.storeId===transfer.destination_store_id,403,'STORE_FORBIDDEN','A loja de destino deve receber.');requireThat(transfer.status==='IN_TRANSIT',409,'TRANSFER_STATUS','A transferência ainda não foi enviada.');this.run('UPDATE stock SET quantity=quantity+? WHERE tenant_id=? AND store_id=? AND product_id=?',transfer.quantity,ctx.tenantId,transfer.destination_store_id,transfer.product_id);this.run("UPDATE stock_transfers SET status='RECEIVED',received_by=?,received_at=? WHERE tenant_id=? AND id=?",ctx.userId,timestamp,ctx.tenantId,input.transferId);this.run('INSERT INTO stock_movements VALUES(?,?,?,?,?,?,?,?,?,?)',ctx.tenantId,randomUUID(),transfer.destination_store_id,transfer.product_id,null,transfer.quantity,'ADJUSTMENT',`Transferência recebida ${transfer.id}`,ctx.userId,timestamp);}
       else if(action==='CANCEL'){requireThat(input.storeId===transfer.origin_store_id||input.storeId===transfer.destination_store_id,403,'STORE_FORBIDDEN','Somente uma loja envolvida pode cancelar.');requireThat(['REQUESTED','APPROVED'].includes(transfer.status),409,'TRANSFER_STATUS','Transferência enviada não pode ser cancelada.');this.run("UPDATE stock_transfers SET status='CANCELED',canceled_by=?,canceled_at=? WHERE tenant_id=? AND id=?",ctx.userId,timestamp,ctx.tenantId,input.transferId);}
       else throw new AppError(400,'INVALID_INPUT','Ação de transferência inválida.');
       const status=action==='APPROVE'?'APPROVED':action==='SHIP'?'IN_TRANSIT':action==='RECEIVE'?'RECEIVED':'CANCELED';this.audit(ctx,input.storeId,`TRANSFER_${status}`,input.transferId,{status});return {id:input.transferId,status};});
+  }
+  reserveStock(ctx,key,raw) {
+    const action=String(raw?.action??'REQUEST').toUpperCase();
+    if(action==='REQUEST'){
+      object(raw,['action','storeId','pickupStoreId','productId','customerId','quantity','expiresHours']);
+      const input={action,storeId:id(raw.storeId),pickupStoreId:id(raw.pickupStoreId),productId:id(raw.productId),customerId:id(raw.customerId),quantity:integer(raw.quantity,'Quantidade',1,100),expiresHours:integer(raw.expiresHours,'Prazo',1,168)};
+      requireThat(input.storeId!==input.pickupStoreId,400,'INVALID_INPUT','Escolha outra loja para retirada.');
+      return this.mutate(ctx,'RESERVATION_REQUEST',key,input,()=>{requireThat(this.one('SELECT 1 FROM customers WHERE tenant_id=? AND id=? AND store_id=? AND active=1',ctx.tenantId,input.customerId,input.storeId),404,'CUSTOMER_NOT_FOUND','Selecione um cliente ativo desta loja.');requireThat(this.one('SELECT 1 FROM stores WHERE tenant_id=? AND id=? AND active=1',ctx.tenantId,input.pickupStoreId),404,'STORE_NOT_FOUND','Loja de retirada não encontrada.');requireThat(this.one('SELECT 1 FROM stock s JOIN products p ON p.tenant_id=s.tenant_id AND p.id=s.product_id WHERE s.tenant_id=? AND s.store_id=? AND s.product_id=? AND p.active=1',ctx.tenantId,input.pickupStoreId,input.productId),404,'PRODUCT_NOT_FOUND','Produto não disponível na loja escolhida.');const reservationId=randomUUID(),createdAt=now(),expiresAt=new Date(Date.now()+input.expiresHours*3600000).toISOString();this.run(`INSERT INTO stock_reservations(tenant_id,id,requesting_store_id,pickup_store_id,product_id,customer_id,quantity,status,requested_by,created_at,expires_at) VALUES(?,?,?,?,?,?,?,'REQUESTED',?,?,?)`,ctx.tenantId,reservationId,input.storeId,input.pickupStoreId,input.productId,input.customerId,input.quantity,ctx.userId,createdAt,expiresAt);this.audit(ctx,input.storeId,'RESERVATION_REQUESTED',reservationId,{pickupStoreId:input.pickupStoreId,productId:input.productId,quantity:input.quantity});return {id:reservationId,status:'REQUESTED',expiresAt};});
+    }
+    object(raw,['action','storeId','reservationId']);const input={action,storeId:id(raw.storeId),reservationId:id(raw.reservationId)};
+    return this.mutate(ctx,`RESERVATION_${action}`,key,input,user=>{requireThat(user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente confirma reservas.');const reservation=this.one('SELECT * FROM stock_reservations WHERE tenant_id=? AND id=?',ctx.tenantId,input.reservationId);requireThat(reservation,404,'RESERVATION_NOT_FOUND','Reserva não encontrada.');requireThat(input.storeId===reservation.pickup_store_id,403,'STORE_FORBIDDEN','A loja de retirada deve processar a reserva.');const timestamp=now();
+      if(action==='CONFIRM'){requireThat(reservation.status==='REQUESTED',409,'RESERVATION_STATUS','Esta reserva não aguarda confirmação.');requireThat(new Date(reservation.expires_at)>new Date(),409,'RESERVATION_EXPIRED','O prazo desta reserva venceu.');const balance=this.one(`SELECT s.quantity-COALESCE((SELECT SUM(r.quantity) FROM stock_reservations r WHERE r.tenant_id=s.tenant_id AND r.pickup_store_id=s.store_id AND r.product_id=s.product_id AND r.status='CONFIRMED' AND r.expires_at>?),0) available FROM stock s WHERE s.tenant_id=? AND s.store_id=? AND s.product_id=?`,timestamp,ctx.tenantId,input.storeId,reservation.product_id);requireThat(balance&&balance.available>=reservation.quantity,409,'INSUFFICIENT_STOCK','Saldo disponível insuficiente para confirmar a reserva.');this.run("UPDATE stock_reservations SET status='CONFIRMED',confirmed_by=?,confirmed_at=? WHERE tenant_id=? AND id=?",ctx.userId,timestamp,ctx.tenantId,input.reservationId);}
+      else if(action==='COLLECT'){requireThat(reservation.status==='CONFIRMED',409,'RESERVATION_STATUS','A reserva precisa estar confirmada.');requireThat(new Date(reservation.expires_at)>new Date(),409,'RESERVATION_EXPIRED','O prazo desta reserva venceu.');const changed=this.run('UPDATE stock SET quantity=quantity-? WHERE tenant_id=? AND store_id=? AND product_id=? AND quantity>=?',reservation.quantity,ctx.tenantId,input.storeId,reservation.product_id,reservation.quantity);requireThat(changed.changes===1,409,'INSUFFICIENT_STOCK','Saldo físico insuficiente.');this.run("UPDATE stock_reservations SET status='COLLECTED',collected_by=?,collected_at=? WHERE tenant_id=? AND id=?",ctx.userId,timestamp,ctx.tenantId,input.reservationId);this.run('INSERT INTO stock_movements VALUES(?,?,?,?,?,?,?,?,?,?)',ctx.tenantId,randomUUID(),input.storeId,reservation.product_id,null,-reservation.quantity,'ADJUSTMENT',`Retirada da reserva ${reservation.id}`,ctx.userId,timestamp);}
+      else if(action==='CANCEL'){requireThat(['REQUESTED','CONFIRMED'].includes(reservation.status),409,'RESERVATION_STATUS','Esta reserva não pode ser cancelada.');this.run("UPDATE stock_reservations SET status='CANCELED',canceled_by=?,canceled_at=? WHERE tenant_id=? AND id=?",ctx.userId,timestamp,ctx.tenantId,input.reservationId);}
+      else throw new AppError(400,'INVALID_INPUT','Ação de reserva inválida.');const status=action==='CONFIRM'?'CONFIRMED':action==='COLLECT'?'COLLECTED':'CANCELED';this.audit(ctx,input.storeId,`RESERVATION_${status}`,input.reservationId,{status});return {id:input.reservationId,status};});
   }
   openCash(ctx,key,raw) {
     object(raw,['storeId','terminalId','openingCents']);
@@ -482,7 +497,8 @@ export class Pos {
         const product=this.one(`SELECT p.*,s.quantity stock_quantity FROM products p JOIN stock s ON s.tenant_id=p.tenant_id AND s.product_id=p.id
           WHERE p.tenant_id=? AND s.store_id=? AND p.id=? AND p.active=1`,ctx.tenantId,input.storeId,item.productId);
         requireThat(product,404,'PRODUCT_NOT_FOUND','Produto não disponível nesta loja.');
-        requireThat(product.stock_quantity>=item.quantity,409,'INSUFFICIENT_STOCK',`Estoque insuficiente: ${product.name}.`);
+        const reserved=this.one("SELECT COALESCE(SUM(quantity),0) quantity FROM stock_reservations WHERE tenant_id=? AND pickup_store_id=? AND product_id=? AND status='CONFIRMED' AND expires_at>?",ctx.tenantId,input.storeId,item.productId,now()).quantity;
+        requireThat(product.stock_quantity-reserved>=item.quantity,409,'INSUFFICIENT_STOCK',`Estoque disponivel insuficiente: ${product.name}.`);
         return {...item,sku:product.sku,name:product.name,priceCents:product.price_cents,lineCents:integer(product.price_cents*item.quantity,'Total do item',1)};
       });
       const subtotal=integer(lines.reduce((n,l)=>n+l.lineCents,0),'Subtotal',1);
@@ -502,8 +518,8 @@ export class Pos {
         subtotal,input.discountCents,input.discountCents>0?input.discountReason:null,input.discountCents>0?ctx.userId:null,total,now());
       for (const line of lines) {
         // BEGIN IMMEDIATE serializa escritores. A condição de saldo é uma defesa adicional.
-        const changed=this.run(`UPDATE stock SET quantity=quantity-? WHERE tenant_id=? AND store_id=? AND product_id=? AND quantity>=?`,
-          line.quantity,ctx.tenantId,input.storeId,line.productId,line.quantity);
+        const changed=this.run(`UPDATE stock SET quantity=quantity-? WHERE tenant_id=? AND store_id=? AND product_id=? AND quantity-(SELECT COALESCE(SUM(r.quantity),0) FROM stock_reservations r WHERE r.tenant_id=stock.tenant_id AND r.pickup_store_id=stock.store_id AND r.product_id=stock.product_id AND r.status='CONFIRMED' AND r.expires_at>?)>=?`,
+          line.quantity,ctx.tenantId,input.storeId,line.productId,now(),line.quantity);
         requireThat(changed.changes===1,409,'INSUFFICIENT_STOCK','Saldo mudou. Consulte o estoque.');
         this.run('INSERT INTO sale_items VALUES(?,?,?,?,?,?,?,?)',ctx.tenantId,saleId,line.productId,line.sku,line.name,line.quantity,line.priceCents,line.lineCents);
         this.run('INSERT INTO stock_movements VALUES(?,?,?,?,?,?,?,?,?,?)',ctx.tenantId,randomUUID(),input.storeId,line.productId,saleId,-line.quantity,'SALE','Venda confirmada de teste',ctx.userId,now());
@@ -685,21 +701,21 @@ export class Pos {
   stockLookup(ctx,query='') {
     this.user(ctx);
     const term=String(query??'').trim().slice(0,120),pattern=`%${term.replaceAll('%','\\%').replaceAll('_','\\_')}%`;
-    const rows=this.all(`SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,s.id store_id,s.name store_name,st.quantity
+    const rows=this.all(`SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,s.id store_id,s.name store_name,st.quantity, COALESCE((SELECT SUM(r.quantity) FROM stock_reservations r WHERE r.tenant_id=st.tenant_id AND r.pickup_store_id=st.store_id AND r.product_id=st.product_id AND r.status='CONFIRMED' AND r.expires_at>CURRENT_TIMESTAMP),0) reserved_quantity, st.quantity-COALESCE((SELECT SUM(r.quantity) FROM stock_reservations r WHERE r.tenant_id=st.tenant_id AND r.pickup_store_id=st.store_id AND r.product_id=st.product_id AND r.status='CONFIRMED' AND r.expires_at>CURRENT_TIMESTAMP),0) available_quantity
       FROM products p JOIN stock st ON st.tenant_id=p.tenant_id AND st.product_id=p.id
       JOIN stores s ON s.tenant_id=st.tenant_id AND s.id=st.store_id
       WHERE p.tenant_id=? AND p.active=1 AND s.active=1
         AND (?='' OR p.name LIKE ? ESCAPE '\\' OR p.sku LIKE ? ESCAPE '\\' OR COALESCE(p.barcode,'') LIKE ? ESCAPE '\\')
       ORDER BY p.name,s.name LIMIT 250`,ctx.tenantId,term,pattern,pattern,pattern);
     const products=new Map();
-    for(const row of rows){const product=products.get(row.id)??{id:row.id,sku:row.sku,barcode:row.barcode,name:row.name,price_cents:row.price_cents,total_quantity:0,stores:[]};product.total_quantity+=row.quantity;product.stores.push({id:row.store_id,name:row.store_name,quantity:row.quantity});products.set(row.id,product);}
+    for(const row of rows){const reserved_quantity=Number(row.reserved_quantity),available_quantity=row.quantity-reserved_quantity;const product=products.get(row.id)??{id:row.id,sku:row.sku,barcode:row.barcode,name:row.name,price_cents:row.price_cents,total_quantity:0,total_available_quantity:0,stores:[]};product.total_quantity+=row.quantity;product.total_available_quantity+=available_quantity;product.stores.push({id:row.store_id,name:row.store_name,quantity:row.quantity,reserved_quantity,available_quantity});products.set(row.id,product);}
     return {query:term,products:[...products.values()]};
   }
   networkOperations(ctx,from,to) {
     const me=this.me(ctx),stores=me.stores.filter(store=>store.role==='MANAGER');
     requireThat(stores.length>0,403,'MANAGER_REQUIRED','Somente gerente acompanha a operação da rede.');
     const range=reportRange(from,to),access=`JOIN memberships access ON access.tenant_id=? AND access.user_id=? AND access.store_id=s.id AND access.active=1 AND access.role='MANAGER'`;
-    const stock=this.all(`SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,s.id store_id,s.name store_name,st.quantity
+    const stock=this.all(`SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,s.id store_id,s.name store_name,st.quantity, COALESCE((SELECT SUM(r.quantity) FROM stock_reservations r WHERE r.tenant_id=st.tenant_id AND r.pickup_store_id=st.store_id AND r.product_id=st.product_id AND r.status='CONFIRMED' AND r.expires_at>CURRENT_TIMESTAMP),0) reserved_quantity, st.quantity-COALESCE((SELECT SUM(r.quantity) FROM stock_reservations r WHERE r.tenant_id=st.tenant_id AND r.pickup_store_id=st.store_id AND r.product_id=st.product_id AND r.status='CONFIRMED' AND r.expires_at>CURRENT_TIMESTAMP),0) available_quantity
       FROM stores s ${access} JOIN stock st ON st.tenant_id=s.tenant_id AND st.store_id=s.id
       JOIN products p ON p.tenant_id=st.tenant_id AND p.id=st.product_id
       WHERE s.tenant_id=? AND s.active=1 AND p.active=1 ORDER BY p.name,s.name`,ctx.tenantId,ctx.userId,ctx.tenantId);
@@ -724,14 +740,23 @@ export class Pos {
       WHERE x.tenant_id=? AND (x.created_at>=? AND x.created_at<? OR x.status IN('REQUESTED','APPROVED','IN_TRANSIT'))
         AND EXISTS(SELECT 1 FROM memberships m WHERE m.tenant_id=x.tenant_id AND m.user_id=? AND m.active=1 AND m.role='MANAGER' AND m.store_id IN(x.origin_store_id,x.destination_store_id))
       ORDER BY CASE x.status WHEN 'IN_TRANSIT' THEN 1 WHEN 'REQUESTED' THEN 2 WHEN 'APPROVED' THEN 3 ELSE 4 END,x.created_at DESC LIMIT 300`,ctx.tenantId,range.start,range.end,ctx.userId);
-    return {range,stores,stock,movements,sales,closures,transfers};
+    const reservations=this.all(`SELECT r.*,p.sku,p.name product_name,requesting.name requesting_store_name,pickup.name pickup_store_name,u.name requested_by_name,c.name_enc customer_name_enc
+      FROM stock_reservations r JOIN products p ON p.tenant_id=r.tenant_id AND p.id=r.product_id
+      JOIN stores requesting ON requesting.tenant_id=r.tenant_id AND requesting.id=r.requesting_store_id
+      JOIN stores pickup ON pickup.tenant_id=r.tenant_id AND pickup.id=r.pickup_store_id
+      JOIN users u ON u.tenant_id=r.tenant_id AND u.id=r.requested_by JOIN customers c ON c.tenant_id=r.tenant_id AND c.id=r.customer_id
+      WHERE r.tenant_id=? AND (r.created_at>=? AND r.created_at<? OR r.status IN('REQUESTED','CONFIRMED'))
+        AND EXISTS(SELECT 1 FROM memberships m WHERE m.tenant_id=r.tenant_id AND m.user_id=? AND m.active=1 AND m.role='MANAGER' AND m.store_id IN(r.requesting_store_id,r.pickup_store_id))
+      ORDER BY CASE r.status WHEN 'REQUESTED' THEN 1 WHEN 'CONFIRMED' THEN 2 ELSE 3 END,r.created_at DESC LIMIT 300`,ctx.tenantId,range.start,range.end,ctx.userId)
+      .map(row=>({...row,customer_name:decryptField(row.customer_name_enc),customer_name_enc:undefined}));
+    return {range,stores,stock,movements,sales,closures,transfers,reservations};
   }
   state(ctx,storeId) {
     id(storeId);
     const storeUser=this.authorize(ctx,storeId);
     const open=this.all("SELECT id FROM cash_sessions WHERE tenant_id=? AND store_id=? AND status='OPEN' ORDER BY terminal_id",ctx.tenantId,storeId);
     return {
-      products:this.all(`SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,s.quantity FROM products p JOIN stock s ON s.tenant_id=p.tenant_id AND s.product_id=p.id
+      products:this.all(`SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,s.quantity, COALESCE((SELECT SUM(r.quantity) FROM stock_reservations r WHERE r.tenant_id=s.tenant_id AND r.pickup_store_id=s.store_id AND r.product_id=s.product_id AND r.status='CONFIRMED' AND r.expires_at>CURRENT_TIMESTAMP),0) reserved_quantity, s.quantity-COALESCE((SELECT SUM(r.quantity) FROM stock_reservations r WHERE r.tenant_id=s.tenant_id AND r.pickup_store_id=s.store_id AND r.product_id=s.product_id AND r.status='CONFIRMED' AND r.expires_at>CURRENT_TIMESTAMP),0) available_quantity FROM products p JOIN stock s ON s.tenant_id=p.tenant_id AND s.product_id=p.id
         WHERE s.tenant_id=? AND s.store_id=? AND p.active=1 ORDER BY p.name`,ctx.tenantId,storeId),
       terminals:this.all('SELECT id,name FROM terminals WHERE tenant_id=? AND store_id=? ORDER BY id',ctx.tenantId,storeId),
       users:storeUser.role==='MANAGER'?this.all(`SELECT u.id,u.email,u.name,m.role,u.company_admin,m.active,

@@ -3,7 +3,7 @@ import { all, one, run, withPostgresTransaction } from './postgres.mjs';
 import { PostgresProducts } from './postgres-products.mjs';
 import { PostgresOperations } from './postgres-operations.mjs';
 import { decryptField, encryptField, fieldDigest, hashPassword, sha256 } from './security.mjs';
-import { requireThat, object, text, integer, id, operationKey } from './errors.mjs';
+import { AppError, requireThat, object, text, integer, id, operationKey } from './errors.mjs';
 import { hourlySales } from './pos.mjs';
 import { reportRange } from './time.mjs';
 import { customerSummary } from './privacy.mjs';
@@ -349,7 +349,8 @@ class TransactionPos {
     const term = String(query ?? '').trim().slice(0, 120);
     const pattern = `%${term.replaceAll('%', '\\%').replaceAll('_', '\\_')}%`;
     const rows = await this.all(`SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,
-        s.id store_id,s.name store_name,st.quantity
+        s.id store_id,s.name store_name,st.quantity,
+        COALESCE((SELECT SUM(r.quantity) FROM stock_reservations r WHERE r.tenant_id=st.tenant_id AND r.pickup_store_id=st.store_id AND r.product_id=st.product_id AND r.status='CONFIRMED' AND r.expires_at>CURRENT_TIMESTAMP),0) reserved_quantity, st.quantity-COALESCE((SELECT SUM(r.quantity) FROM stock_reservations r WHERE r.tenant_id=st.tenant_id AND r.pickup_store_id=st.store_id AND r.product_id=st.product_id AND r.status='CONFIRMED' AND r.expires_at>CURRENT_TIMESTAMP),0) available_quantity
       FROM products p
       JOIN stock st ON st.tenant_id=p.tenant_id AND st.product_id=p.id
       JOIN stores s ON s.tenant_id=st.tenant_id AND s.id=st.store_id
@@ -360,9 +361,9 @@ class TransactionPos {
     for (const row of rows) {
       const product = products.get(row.id) ?? { id: row.id, sku: row.sku, barcode: row.barcode,
         name: row.name, price_cents: cashInteger(row.price_cents), total_quantity: 0, stores: [] };
-      const quantity = cashInteger(row.quantity);
-      product.total_quantity += quantity;
-      product.stores.push({ id: row.store_id, name: row.store_name, quantity });
+      const quantity = cashInteger(row.quantity), reserved_quantity = cashInteger(row.reserved_quantity), available_quantity = quantity - reserved_quantity;
+      product.total_quantity += quantity; product.total_available_quantity = (product.total_available_quantity ?? 0) + available_quantity;
+      product.stores.push({ id: row.store_id, name: row.store_name, quantity, reserved_quantity, available_quantity });
       products.set(row.id, product);
     }
     return { query: term, products: [...products.values()] };
@@ -373,12 +374,12 @@ class TransactionPos {
     requireThat(stores.length > 0, 403, 'MANAGER_REQUIRED', 'Somente gerente acompanha a operação da rede.');
     const range = reportRange(from, to);
     const membership = `JOIN memberships access ON access.tenant_id=$1 AND access.user_id=$2 AND access.store_id=s.id AND access.active=1 AND access.role='MANAGER'`;
-    const stock = (await this.all(`SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,s.id store_id,s.name store_name,st.quantity
+    const stock = (await this.all(`SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,s.id store_id,s.name store_name,st.quantity, COALESCE((SELECT SUM(r.quantity) FROM stock_reservations r WHERE r.tenant_id=st.tenant_id AND r.pickup_store_id=st.store_id AND r.product_id=st.product_id AND r.status='CONFIRMED' AND r.expires_at>CURRENT_TIMESTAMP),0) reserved_quantity, st.quantity-COALESCE((SELECT SUM(r.quantity) FROM stock_reservations r WHERE r.tenant_id=st.tenant_id AND r.pickup_store_id=st.store_id AND r.product_id=st.product_id AND r.status='CONFIRMED' AND r.expires_at>CURRENT_TIMESTAMP),0) available_quantity
       FROM stores s ${membership}
       JOIN stock st ON st.tenant_id=s.tenant_id AND st.store_id=s.id
       JOIN products p ON p.tenant_id=st.tenant_id AND p.id=st.product_id
       WHERE s.tenant_id=$1 AND s.active=1 AND p.active=1 ORDER BY p.name,s.name`, ctx.tenantId, ctx.userId))
-      .map(row => ({ ...row, price_cents: cashInteger(row.price_cents), quantity: cashInteger(row.quantity) }));
+      .map(row => { const quantity=cashInteger(row.quantity),reserved_quantity=cashInteger(row.reserved_quantity);return {...row,price_cents:cashInteger(row.price_cents),quantity,reserved_quantity,available_quantity:quantity-reserved_quantity}; });
     const movements = (await this.all(`SELECT m.id,m.created_at,m.kind,m.quantity,m.reason,p.sku,p.name,
         s.id store_id,s.name store_name,u.name actor_name
       FROM stores s ${membership}
@@ -421,7 +422,16 @@ class TransactionPos {
         AND EXISTS(SELECT 1 FROM memberships m WHERE m.tenant_id=x.tenant_id AND m.user_id=$2 AND m.active=1 AND m.role='MANAGER' AND m.store_id IN(x.origin_store_id,x.destination_store_id))
       ORDER BY CASE x.status WHEN 'IN_TRANSIT' THEN 1 WHEN 'REQUESTED' THEN 2 WHEN 'APPROVED' THEN 3 ELSE 4 END,x.created_at DESC LIMIT 300`,ctx.tenantId,ctx.userId,range.start,range.end))
       .map(row=>({...row,quantity:cashInteger(row.quantity),created_at:row.created_at instanceof Date?row.created_at.toISOString():row.created_at}));
-    return { range, stores, stock, movements, sales, closures, transfers };
+    const reservations=(await this.all(`SELECT r.*,p.sku,p.name product_name,requesting.name requesting_store_name,pickup.name pickup_store_name,u.name requested_by_name,c.name_enc customer_name_enc
+      FROM stock_reservations r JOIN products p ON p.tenant_id=r.tenant_id AND p.id=r.product_id
+      JOIN stores requesting ON requesting.tenant_id=r.tenant_id AND requesting.id=r.requesting_store_id
+      JOIN stores pickup ON pickup.tenant_id=r.tenant_id AND pickup.id=r.pickup_store_id
+      JOIN users u ON u.tenant_id=r.tenant_id AND u.id=r.requested_by JOIN customers c ON c.tenant_id=r.tenant_id AND c.id=r.customer_id
+      WHERE r.tenant_id=$1 AND (r.created_at>=$3 AND r.created_at<$4 OR r.status IN('REQUESTED','CONFIRMED'))
+        AND EXISTS(SELECT 1 FROM memberships m WHERE m.tenant_id=r.tenant_id AND m.user_id=$2 AND m.active=1 AND m.role='MANAGER' AND m.store_id IN(r.requesting_store_id,r.pickup_store_id))
+      ORDER BY CASE r.status WHEN 'REQUESTED' THEN 1 WHEN 'CONFIRMED' THEN 2 ELSE 3 END,r.created_at DESC LIMIT 300`,ctx.tenantId,ctx.userId,range.start,range.end))
+      .map(row=>({...row,quantity:cashInteger(row.quantity),customer_name:decryptField(row.customer_name_enc),customer_name_enc:undefined,created_at:row.created_at instanceof Date?row.created_at.toISOString():row.created_at,expires_at:row.expires_at instanceof Date?row.expires_at.toISOString():row.expires_at}));
+    return { range, stores, stock, movements, sales, closures, transfers, reservations };
   }
 
   async customerDetail(ctx, storeId, customerId) {
@@ -831,11 +841,66 @@ export class PostgresPos {
       requireThat(user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente movimenta transferências.');
       const transfer=await tx.one('SELECT * FROM stock_transfers WHERE tenant_id=$1 AND id=$2 FOR UPDATE',ctx.tenantId,input.transferId);requireThat(transfer,404,'TRANSFER_NOT_FOUND','Transferência não encontrada.');const timestamp=now();
       if(action==='APPROVE'){requireThat(input.storeId===transfer.origin_store_id,403,'STORE_FORBIDDEN','A loja de origem deve aprovar.');requireThat(transfer.status==='REQUESTED',409,'TRANSFER_STATUS','Esta transferência não aguarda aprovação.');await tx.run("UPDATE stock_transfers SET status='APPROVED',approved_by=$1,approved_at=$2 WHERE tenant_id=$3 AND id=$4",ctx.userId,timestamp,ctx.tenantId,input.transferId);}
-      else if(action==='SHIP'){requireThat(input.storeId===transfer.origin_store_id,403,'STORE_FORBIDDEN','A loja de origem deve enviar.');requireThat(transfer.status==='APPROVED',409,'TRANSFER_STATUS','A transferência precisa estar aprovada.');const changed=await tx.run('UPDATE stock SET quantity=quantity-$1 WHERE tenant_id=$2 AND store_id=$3 AND product_id=$4 AND quantity>=$1',transfer.quantity,ctx.tenantId,transfer.origin_store_id,transfer.product_id);requireThat(changed.changes===1,409,'INSUFFICIENT_STOCK','Saldo insuficiente na loja de origem.');await tx.run("UPDATE stock_transfers SET status='IN_TRANSIT',shipped_by=$1,shipped_at=$2 WHERE tenant_id=$3 AND id=$4",ctx.userId,timestamp,ctx.tenantId,input.transferId);await tx.run(`INSERT INTO stock_movements(tenant_id,id,store_id,product_id,sale_id,quantity,kind,reason,actor_id,created_at) VALUES($1,$2,$3,$4,NULL,$5,'ADJUSTMENT',$6,$7,$8)`,ctx.tenantId,randomUUID(),transfer.origin_store_id,transfer.product_id,-cashInteger(transfer.quantity),`Transferência enviada ${transfer.id}`,ctx.userId,timestamp);}
+      else if(action==='SHIP'){requireThat(input.storeId===transfer.origin_store_id,403,'STORE_FORBIDDEN','A loja de origem deve enviar.');requireThat(transfer.status==='APPROVED',409,'TRANSFER_STATUS','A transferência precisa estar aprovada.');const changed=await tx.run(`UPDATE stock SET quantity=quantity-$1 WHERE tenant_id=$2 AND store_id=$3 AND product_id=$4 AND quantity-COALESCE((SELECT SUM(r.quantity) FROM stock_reservations r WHERE r.tenant_id=stock.tenant_id AND r.pickup_store_id=stock.store_id AND r.product_id=stock.product_id AND r.status='CONFIRMED' AND r.expires_at>CURRENT_TIMESTAMP),0)>=$1`,transfer.quantity,ctx.tenantId,transfer.origin_store_id,transfer.product_id);requireThat(changed.changes===1,409,'INSUFFICIENT_STOCK','Saldo insuficiente na loja de origem.');await tx.run("UPDATE stock_transfers SET status='IN_TRANSIT',shipped_by=$1,shipped_at=$2 WHERE tenant_id=$3 AND id=$4",ctx.userId,timestamp,ctx.tenantId,input.transferId);await tx.run(`INSERT INTO stock_movements(tenant_id,id,store_id,product_id,sale_id,quantity,kind,reason,actor_id,created_at) VALUES($1,$2,$3,$4,NULL,$5,'ADJUSTMENT',$6,$7,$8)`,ctx.tenantId,randomUUID(),transfer.origin_store_id,transfer.product_id,-cashInteger(transfer.quantity),`Transferência enviada ${transfer.id}`,ctx.userId,timestamp);}
       else if(action==='RECEIVE'){requireThat(input.storeId===transfer.destination_store_id,403,'STORE_FORBIDDEN','A loja de destino deve receber.');requireThat(transfer.status==='IN_TRANSIT',409,'TRANSFER_STATUS','A transferência ainda não foi enviada.');await tx.run('UPDATE stock SET quantity=quantity+$1 WHERE tenant_id=$2 AND store_id=$3 AND product_id=$4',transfer.quantity,ctx.tenantId,transfer.destination_store_id,transfer.product_id);await tx.run("UPDATE stock_transfers SET status='RECEIVED',received_by=$1,received_at=$2 WHERE tenant_id=$3 AND id=$4",ctx.userId,timestamp,ctx.tenantId,input.transferId);await tx.run(`INSERT INTO stock_movements(tenant_id,id,store_id,product_id,sale_id,quantity,kind,reason,actor_id,created_at) VALUES($1,$2,$3,$4,NULL,$5,'ADJUSTMENT',$6,$7,$8)`,ctx.tenantId,randomUUID(),transfer.destination_store_id,transfer.product_id,cashInteger(transfer.quantity),`Transferência recebida ${transfer.id}`,ctx.userId,timestamp);}
       else if(action==='CANCEL'){requireThat(input.storeId===transfer.origin_store_id||input.storeId===transfer.destination_store_id,403,'STORE_FORBIDDEN','Somente uma loja envolvida pode cancelar.');requireThat(['REQUESTED','APPROVED'].includes(transfer.status),409,'TRANSFER_STATUS','Transferência enviada não pode ser cancelada.');await tx.run("UPDATE stock_transfers SET status='CANCELED',canceled_by=$1,canceled_at=$2 WHERE tenant_id=$3 AND id=$4",ctx.userId,timestamp,ctx.tenantId,input.transferId);}
       else throw new AppError(400,'INVALID_INPUT','Ação de transferência inválida.');
       const status=action==='APPROVE'?'APPROVED':action==='SHIP'?'IN_TRANSIT':action==='RECEIVE'?'RECEIVED':'CANCELED';await tx.audit(ctx,input.storeId,`TRANSFER_${status}`,input.transferId,{status});return {id:input.transferId,status};
+    });
+  }
+
+  async reserveStock(ctx, key, raw) {
+    const action = String(raw?.action ?? 'REQUEST').toUpperCase();
+    if (action === 'REQUEST') {
+      object(raw, ['action','storeId','pickupStoreId','productId','customerId','quantity','expiresHours']);
+      const input = { action, storeId:id(raw.storeId), pickupStoreId:id(raw.pickupStoreId), productId:id(raw.productId),
+        customerId:id(raw.customerId), quantity:integer(raw.quantity,'Quantidade',1,100), expiresHours:integer(raw.expiresHours,'Prazo',1,168) };
+      requireThat(input.storeId !== input.pickupStoreId,400,'INVALID_INPUT','Escolha outra loja para retirada.');
+      return this.#mutate(ctx,'RESERVATION_REQUEST',key,input,async(tx)=>{
+        const customer=await tx.one('SELECT 1 FROM customers WHERE tenant_id=$1 AND store_id=$2 AND id=$3 AND active=1',ctx.tenantId,input.storeId,input.customerId);
+        requireThat(customer,404,'CUSTOMER_NOT_FOUND','Selecione um cliente ativo desta loja.');
+        const product=await tx.one(`SELECT p.name,st.quantity FROM products p JOIN stock st ON st.tenant_id=p.tenant_id AND st.product_id=p.id
+          JOIN stores pickup ON pickup.tenant_id=st.tenant_id AND pickup.id=st.store_id
+          WHERE p.tenant_id=$1 AND p.id=$2 AND st.store_id=$3 AND p.active=1 AND pickup.active=1`,ctx.tenantId,input.productId,input.pickupStoreId);
+        requireThat(product,404,'PRODUCT_NOT_FOUND','Produto nao disponivel na loja de retirada.');
+        const reservationId=randomUUID(),createdAt=now(),expiresAt=new Date(Date.now()+input.expiresHours*3600000).toISOString();
+        await tx.run(`INSERT INTO stock_reservations(tenant_id,id,requesting_store_id,pickup_store_id,product_id,customer_id,quantity,status,requested_by,created_at,expires_at)
+          VALUES($1,$2,$3,$4,$5,$6,$7,'REQUESTED',$8,$9,$10)`,ctx.tenantId,reservationId,input.storeId,input.pickupStoreId,input.productId,input.customerId,input.quantity,ctx.userId,createdAt,expiresAt);
+        await tx.audit(ctx,input.storeId,'RESERVATION_REQUESTED',reservationId,{pickupStoreId:input.pickupStoreId,productId:input.productId,quantity:input.quantity});
+        return {id:reservationId,status:'REQUESTED',productName:product.name,expiresAt};
+      });
+    }
+    object(raw,['action','storeId','reservationId']);
+    const input={action,storeId:id(raw.storeId),reservationId:id(raw.reservationId)};
+    return this.#mutate(ctx,`RESERVATION_${action}`,key,input,async(tx,user)=>{
+      requireThat(user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente da loja de retirada movimenta reservas.');
+      const reservation=await tx.one('SELECT * FROM stock_reservations WHERE tenant_id=$1 AND id=$2 FOR UPDATE',ctx.tenantId,input.reservationId);
+      requireThat(reservation,404,'RESERVATION_NOT_FOUND','Reserva nao encontrada.');
+      requireThat(input.storeId===reservation.pickup_store_id,403,'STORE_FORBIDDEN','A loja de retirada deve movimentar a reserva.');
+      const timestamp=now();
+      if(action==='CONFIRM'){
+        requireThat(reservation.status==='REQUESTED',409,'RESERVATION_STATUS','Esta reserva nao aguarda confirmacao.');
+        requireThat(new Date(reservation.expires_at)>new Date(),409,'RESERVATION_EXPIRED','O prazo desta reserva venceu.');
+        const stock=await tx.one('SELECT quantity FROM stock WHERE tenant_id=$1 AND store_id=$2 AND product_id=$3 FOR UPDATE',ctx.tenantId,input.storeId,reservation.product_id);
+        const held=await tx.one(`SELECT COALESCE(SUM(quantity),0) quantity FROM stock_reservations
+          WHERE tenant_id=$1 AND pickup_store_id=$2 AND product_id=$3 AND status='CONFIRMED' AND expires_at>$4`,ctx.tenantId,input.storeId,reservation.product_id,timestamp);
+        requireThat(stock&&cashInteger(stock.quantity)-cashInteger(held.quantity)>=cashInteger(reservation.quantity),409,'INSUFFICIENT_STOCK','Saldo disponivel insuficiente para confirmar a reserva.');
+        await tx.run("UPDATE stock_reservations SET status='CONFIRMED',confirmed_by=$1,confirmed_at=$2 WHERE tenant_id=$3 AND id=$4",ctx.userId,timestamp,ctx.tenantId,input.reservationId);
+      } else if(action==='COLLECT'){
+        requireThat(reservation.status==='CONFIRMED',409,'RESERVATION_STATUS','A reserva precisa estar confirmada.');
+        requireThat(new Date(reservation.expires_at)>new Date(),409,'RESERVATION_EXPIRED','O prazo desta reserva venceu.');
+        const changed=await tx.run('UPDATE stock SET quantity=quantity-$1 WHERE tenant_id=$2 AND store_id=$3 AND product_id=$4 AND quantity>=$1',reservation.quantity,ctx.tenantId,input.storeId,reservation.product_id);
+        requireThat(changed.changes===1,409,'INSUFFICIENT_STOCK','Saldo fisico insuficiente.');
+        await tx.run("UPDATE stock_reservations SET status='COLLECTED',collected_by=$1,collected_at=$2 WHERE tenant_id=$3 AND id=$4",ctx.userId,timestamp,ctx.tenantId,input.reservationId);
+        await tx.run(`INSERT INTO stock_movements(tenant_id,id,store_id,product_id,sale_id,quantity,kind,reason,actor_id,created_at)
+          VALUES($1,$2,$3,$4,NULL,$5,'ADJUSTMENT',$6,$7,$8)`,ctx.tenantId,randomUUID(),input.storeId,reservation.product_id,-cashInteger(reservation.quantity),`Retirada da reserva ${reservation.id}`,ctx.userId,timestamp);
+      } else if(action==='CANCEL'){
+        requireThat(['REQUESTED','CONFIRMED'].includes(reservation.status),409,'RESERVATION_STATUS','Esta reserva nao pode mais ser cancelada.');
+        await tx.run("UPDATE stock_reservations SET status='CANCELED',canceled_by=$1,canceled_at=$2 WHERE tenant_id=$3 AND id=$4",ctx.userId,timestamp,ctx.tenantId,input.reservationId);
+      } else throw new AppError(400,'INVALID_INPUT','Acao de reserva invalida.');
+      const status=action==='CONFIRM'?'CONFIRMED':action==='COLLECT'?'COLLECTED':'CANCELED';
+      await tx.audit(ctx,input.storeId,`RESERVATION_${status}`,input.reservationId,{status});
+      return {id:input.reservationId,status};
     });
   }
 
@@ -950,7 +1015,8 @@ export class PostgresPos {
       for (const item of input.items) {
         const product = await tx.products.findForSale(ctx.tenantId, input.storeId, item.productId, { lock: true });
         requireThat(product, 404, 'PRODUCT_NOT_FOUND', 'Produto não disponível nesta loja.');
-        requireThat(product.stock_quantity >= item.quantity, 409, 'INSUFFICIENT_STOCK', `Estoque insuficiente: ${product.name}.`);
+        const held=await tx.one("SELECT COALESCE(SUM(quantity),0) quantity FROM stock_reservations WHERE tenant_id=$1 AND pickup_store_id=$2 AND product_id=$3 AND status='CONFIRMED' AND expires_at>CURRENT_TIMESTAMP",ctx.tenantId,input.storeId,item.productId);
+        requireThat(cashInteger(product.stock_quantity)-cashInteger(held.quantity)>=item.quantity,409,'INSUFFICIENT_STOCK',`Estoque disponivel insuficiente: ${product.name}.`);
         lines.push({ ...item, sku: product.sku, name: product.name, priceCents: product.price_cents,
           lineCents: integer(product.price_cents * item.quantity, 'Total do item', 1) });
       }

@@ -5,7 +5,9 @@ export class PostgresProducts {
   constructor(client) { this.client = client; }
 
   async listForStore(tenantId, storeId) {
-    return all(this.client, `SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,s.quantity
+    return all(this.client, `SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,s.quantity,
+        COALESCE((SELECT SUM(r.quantity) FROM stock_reservations r WHERE r.tenant_id=s.tenant_id AND r.pickup_store_id=s.store_id AND r.product_id=s.product_id AND r.status='CONFIRMED' AND r.expires_at>CURRENT_TIMESTAMP),0) reserved_quantity,
+        s.quantity-COALESCE((SELECT SUM(r.quantity) FROM stock_reservations r WHERE r.tenant_id=s.tenant_id AND r.pickup_store_id=s.store_id AND r.product_id=s.product_id AND r.status='CONFIRMED' AND r.expires_at>CURRENT_TIMESTAMP),0) available_quantity
       FROM products p JOIN stock s ON s.tenant_id=p.tenant_id AND s.product_id=p.id
       WHERE p.tenant_id=$1 AND s.store_id=$2 AND p.active=1 ORDER BY p.name`, [tenantId, storeId]);
   }
@@ -20,7 +22,8 @@ export class PostgresProducts {
   async decrementStock(tenantId, storeId, productId, quantity) {
     integer(quantity, 'Quantidade', 1, 10_000);
     const result = await run(this.client, `UPDATE stock SET quantity=quantity-$1
-      WHERE tenant_id=$2 AND store_id=$3 AND product_id=$4 AND quantity >= $1`,
+      WHERE tenant_id=$2 AND store_id=$3 AND product_id=$4
+        AND quantity-COALESCE((SELECT SUM(r.quantity) FROM stock_reservations r WHERE r.tenant_id=stock.tenant_id AND r.pickup_store_id=stock.store_id AND r.product_id=stock.product_id AND r.status='CONFIRMED' AND r.expires_at>CURRENT_TIMESTAMP),0) >= $1`,
       [quantity, tenantId, storeId, productId]);
     return result.changes === 1;
   }

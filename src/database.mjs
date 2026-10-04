@@ -9,7 +9,7 @@ export function connect(filename) {
   const db = new DatabaseSync(filename);
   db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 18) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
+  if (version > 19) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
   if (version === 0) {
     transaction(db, () => {
       if (db.prepare('PRAGMA user_version').get().user_version !== 0) return;
@@ -292,6 +292,26 @@ export function connect(filename) {
         ) STRICT;
         CREATE INDEX stock_transfer_history ON stock_transfers(tenant_id,created_at);
         PRAGMA user_version=18;`);
+    });
+  }
+  if (version <= 18) {
+    transaction(db, () => {
+      if (db.prepare('PRAGMA user_version').get().user_version !== 18) return;
+      db.exec(`CREATE TABLE stock_reservations (
+          tenant_id TEXT NOT NULL, id TEXT NOT NULL, requesting_store_id TEXT NOT NULL, pickup_store_id TEXT NOT NULL,
+          product_id TEXT NOT NULL, customer_id TEXT NOT NULL, quantity INTEGER NOT NULL CHECK(quantity BETWEEN 1 AND 100),
+          status TEXT NOT NULL CHECK(status IN('REQUESTED','CONFIRMED','COLLECTED','CANCELED')),
+          requested_by TEXT NOT NULL, confirmed_by TEXT, collected_by TEXT, canceled_by TEXT,
+          created_at TEXT NOT NULL, expires_at TEXT NOT NULL, confirmed_at TEXT, collected_at TEXT, canceled_at TEXT,
+          PRIMARY KEY(tenant_id,id), FOREIGN KEY(tenant_id,requesting_store_id) REFERENCES stores(tenant_id,id),
+          FOREIGN KEY(tenant_id,pickup_store_id,product_id) REFERENCES stock(tenant_id,store_id,product_id),
+          FOREIGN KEY(tenant_id,product_id) REFERENCES products(tenant_id,id), FOREIGN KEY(tenant_id,customer_id) REFERENCES customers(tenant_id,id),
+          FOREIGN KEY(tenant_id,requested_by) REFERENCES users(tenant_id,id), FOREIGN KEY(tenant_id,confirmed_by) REFERENCES users(tenant_id,id),
+          FOREIGN KEY(tenant_id,collected_by) REFERENCES users(tenant_id,id), FOREIGN KEY(tenant_id,canceled_by) REFERENCES users(tenant_id,id)
+        ) STRICT;
+        CREATE INDEX stock_reservation_history ON stock_reservations(tenant_id,created_at);
+        CREATE INDEX stock_reservation_hold ON stock_reservations(tenant_id,pickup_store_id,product_id,status,expires_at);
+        PRAGMA user_version=19;`);
     });
   }
   return db;
