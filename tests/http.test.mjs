@@ -5,6 +5,7 @@ import { request } from 'node:http';
 import { createApp } from '../src/http.mjs';
 import { fixture,PASSWORD,DEMO,key } from './helpers.mjs';
 import { businessDate } from '../src/time.mjs';
+import { totpCode } from '../src/totp.mjs';
 
 async function web(t){
   const {db,pos}=fixture(t);const server=createApp(db);server.listen(0,'127.0.0.1');await once(server,'listening');
@@ -16,8 +17,8 @@ async function web(t){
     const content=await response.text();let data;try{data=JSON.parse(content);}catch{data=content;}
     return {response,data};
   }
-  async function login(email='gerente@jcs.local',tenant='demo') {
-    const result=await call('/api/login',{method:'POST',body:{tenant,email,password:PASSWORD}});
+  async function login(email='gerente@jcs.local',tenant='demo',code) {
+    const result=await call('/api/login',{method:'POST',body:{tenant,email,password:PASSWORD,...(code?{code}:{})}});
     assert.equal(result.response.status,200);
     cookie=result.response.headers.get('set-cookie').split(';')[0];csrf=result.data.csrfToken;
     return result;
@@ -29,6 +30,20 @@ test('HTTP 01 · login emite cookie HttpOnly/SameSite e sessão não vai ao JSON
   const w=await web(t),result=await w.login();const header=result.response.headers.get('set-cookie');
   assert.match(header,/HttpOnly/);assert.match(header,/SameSite=Strict/);assert.equal(result.data.token,undefined);
   const me=await w.call('/api/me');assert.equal(me.data.user.role,'MANAGER');assert.equal(me.data.stores.length,2);
+});
+
+test('HTTP 01.2 · gerente ativa MFA e novos logins exigem TOTP',async t=>{
+  const w=await web(t);await w.login();
+  const started=await w.call('/api/me/mfa/start',{method:'POST',body:{}});
+  assert.match(started.data.secret,/^[A-Z2-7]{32}$/);
+  assert.equal((await w.call('/api/me/mfa/confirm',{method:'POST',body:{code:totpCode(started.data.secret)}})).response.status,200);
+  const without=await w.call('/api/login',{method:'POST',body:{tenant:'demo',email:'gerente@jcs.local',password:PASSWORD}});
+  assert.equal(without.response.status,401);assert.equal(without.data.error.code,'MFA_REQUIRED');
+  const wrong=await w.call('/api/login',{method:'POST',body:{tenant:'demo',email:'gerente@jcs.local',password:PASSWORD,code:'000000'}});
+  assert.equal(wrong.response.status,401);
+  assert.equal((await w.login('gerente@jcs.local','demo',totpCode(started.data.secret))).response.status,200);
+  assert.equal(w.db.prepare('SELECT mfa_enabled FROM users WHERE id=?').get(DEMO.manager.userId).mfa_enabled,1);
+  assert.equal(w.db.prepare("SELECT COUNT(*) n FROM audit_events WHERE action='MFA_ENABLED'").get().n,1);
 });
 
 test('HTTP 01.1 · aviso de privacidade e cabeçalhos defensivos são públicos',async t=>{

@@ -1,4 +1,4 @@
-﻿# Operacao do PDV JCS
+# Operacao do PDV JCS
 
 ## Estado atual
 
@@ -140,7 +140,7 @@ A conta nasce sem senha utilizável. O administrador abre `/admin`, usa "Esqueci
 
 - Fiscal ainda desativado: sem NFC-e/NF-e.
 - Sem PIX automático, TEF, cartão integrado ou impressora fiscal. PIX/cartão são apenas registro manual após confirmação externa.
-- A redefinicao de senha e os convites por e-mail dependem da configuracao do provedor. Ainda nao ha MFA nem troca obrigatoria no primeiro login.
+- A redefinicao de senha e os convites por e-mail dependem da configuracao do provedor. Administrador da plataforma e gerentes podem ativar MFA TOTP; ainda nao ha troca obrigatoria no primeiro login nem recuperacao automatica do autenticador.
 - Sem backup/restauracao homologados registrados neste repositorio.
 - A senha inicial salva em `.codex-validation/` e local e nao deve ser commitada.
 

@@ -62,7 +62,7 @@ class TransactionPos {
   run(sql, ...args) { return run(this.client, sql, args); }
 
   async user(ctx) {
-    const user = await this.one(`SELECT id,name,email,role FROM users
+    const user = await this.one(`SELECT id,name,email,role,mfa_enabled FROM users
       WHERE tenant_id=$1 AND id=$2 AND active=1${this.readOnly ? '' : ' FOR SHARE'}`, ctx.tenantId, ctx.userId);
     requireThat(user, 401, 'AUTH_REQUIRED', 'Faça login novamente.');
     return user;

@@ -9,13 +9,13 @@ export function connect(filename) {
   const db = new DatabaseSync(filename);
   db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 11) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
+  if (version > 12) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
   if (version === 0) {
     transaction(db, () => {
       if (db.prepare('PRAGMA user_version').get().user_version !== 0) return;
       db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
       createImmutableTriggers(db);
-      db.exec('PRAGMA user_version=11;');
+      db.exec('PRAGMA user_version=12;');
     });
   }
   if (version === 1) {
@@ -206,6 +206,16 @@ export function connect(filename) {
         ALTER TABLE platform_admins ADD COLUMN mfa_pending_secret_enc TEXT;
         ALTER TABLE platform_admins ADD COLUMN mfa_enabled INTEGER NOT NULL DEFAULT 0 CHECK(mfa_enabled IN (0,1));
         PRAGMA user_version=11;`);
+    });
+  }
+  if (version <= 11) {
+    transaction(db, () => {
+      if (db.prepare('PRAGMA user_version').get().user_version !== 11) return;
+      const columns=new Set(db.prepare('PRAGMA table_info(users)').all().map(column=>column.name));
+      if(!columns.has('mfa_secret_enc'))db.exec('ALTER TABLE users ADD COLUMN mfa_secret_enc TEXT');
+      if(!columns.has('mfa_pending_secret_enc'))db.exec('ALTER TABLE users ADD COLUMN mfa_pending_secret_enc TEXT');
+      if(!columns.has('mfa_enabled'))db.exec('ALTER TABLE users ADD COLUMN mfa_enabled INTEGER NOT NULL DEFAULT 0 CHECK(mfa_enabled IN (0,1))');
+      db.exec('PRAGMA user_version=12;');
     });
   }
   return db;

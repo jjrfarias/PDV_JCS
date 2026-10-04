@@ -505,6 +505,7 @@ async function boot(){
   state.me=await api('/api/me');state.csrf=state.me.csrfToken;
   $('login-panel').hidden=true;$('workspace').hidden=false;$('user-label').textContent=state.me.user.name;
   $('role-label').textContent=manager()?'GERENTE':'OPERADOR';
+  $('mfa-open').hidden=!manager();$('mfa-open').textContent=state.me.user.mfa_enabled===1?'MFA ativo':'Ativar MFA';$('mfa-open').disabled=state.me.user.mfa_enabled===1;
   $('network-nav').hidden=!manager();
   $('store-select').replaceChildren();
   for(const store of state.me.stores){const option=element('option',store.name);option.value=store.id;$('store-select').append(option);}
@@ -515,11 +516,13 @@ async function boot(){
 }
 $('login-form').addEventListener('submit',async event=>{
   event.preventDefault();const button=event.submitter;button.disabled=true;
-  try{await api('/api/login',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(event.target)))});$('login-error').textContent='';event.target.password.value='';await boot();}
+  try{await api('/api/login',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(event.target)))});$('login-error').textContent='';event.target.password.value='';event.target.code.value='';await boot();}
   catch(error){$('login-error').textContent=error.message;}finally{button.disabled=false;}
 });
 $('logout').addEventListener('click',()=>run(async()=>{if(state.pending)throw new Error('Resolva a pendência antes de sair.');await api('/api/logout',{method:'POST',body:'{}'});location.reload();}));
 $('password-open').addEventListener('click',()=>$('password-dialog').showModal());
+$('mfa-open').addEventListener('click',()=>run(async()=>{const result=await api('/api/me/mfa/start',{method:'POST',body:'{}'});$('mfa-form').reset();$('mfa-secret').value=result.secret;$('mfa-dialog').showModal();}));
+$('mfa-form').addEventListener('submit',event=>{event.preventDefault();run(async()=>{await api('/api/me/mfa/confirm',{method:'POST',body:JSON.stringify({code:event.target.code.value})});$('mfa-dialog').close();message('MFA ativado. Os próximos acessos exigirão o código do aplicativo.');await boot();});});
 $('password-form').addEventListener('submit',event=>{event.preventDefault();run(async()=>{
   const data=Object.fromEntries(new FormData(event.target));
   if(data.newPassword!==data.confirmPassword)throw new Error('A confirmação da nova senha não confere.');

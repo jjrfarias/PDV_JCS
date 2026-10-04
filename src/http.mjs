@@ -162,6 +162,8 @@ export function createApp(db,{mailer}={}) {
         return send(res,200,{ok:true});
       }
       if(req.method==='POST'&&url.pathname==='/api/me/password') return send(res,200,await auth.changePassword(ctx,await json(req)));
+      if(req.method==='POST'&&url.pathname==='/api/me/mfa/start') return send(res,200,await auth.beginMfa(ctx));
+      if(req.method==='POST'&&url.pathname==='/api/me/mfa/confirm') return send(res,200,await auth.confirmMfa(ctx,await json(req)));
       let match;
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/stores\/([\w-]+)\/state$/))) return send(res,200,await pos.state(ctx,match[1]));
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/cash\/([\w-]+)$/))) return send(res,200,await pos.cashDetail(ctx,match[1]));

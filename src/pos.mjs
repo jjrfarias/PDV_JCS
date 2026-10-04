@@ -59,7 +59,7 @@ export class Pos {
   all(sql, ...args) { return this.db.prepare(sql).all(...args); }
   run(sql, ...args) { return this.db.prepare(sql).run(...args); }
   user(ctx) {
-    const user = this.one('SELECT id,name,email,role FROM users WHERE tenant_id=? AND id=? AND active=1',ctx.tenantId,ctx.userId);
+    const user = this.one('SELECT id,name,email,role,mfa_enabled FROM users WHERE tenant_id=? AND id=? AND active=1',ctx.tenantId,ctx.userId);
     requireThat(user,401,'AUTH_REQUIRED','Faça login novamente.');
     return user;
   }

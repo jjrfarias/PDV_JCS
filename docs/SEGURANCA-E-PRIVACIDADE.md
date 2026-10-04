@@ -13,7 +13,7 @@ Antes da expansão comercial, o contrato deve identificar razão social, CNPJ, e
 - Acesso individual; é proibido compartilhar contas.
 - Menor privilégio por perfil, empresa e loja. Acesso de suporte a dados operacionais não existe por padrão.
 - Senha forte, sessão limitada e encerramento de acessos ao desligar uma pessoa.
-- MFA será obrigatório para administradores da plataforma e gerentes assim que implementado.
+- MFA TOTP está disponível para administradores da plataforma e gerentes e deve ser ativado nas contas privilegiadas.
 - Segredos ficam somente no cofre da plataforma, nunca no Git, em mensagens ou arquivos de demonstração.
 - Produção usa HTTPS, PostgreSQL com RLS e usuário runtime sem superusuário, `BYPASSRLS` ou propriedade das tabelas.
 - Dados pessoais opcionais de clientes permanecem criptografados. A chave deve ter cópia segura e acesso restrito.
@@ -53,7 +53,7 @@ Trimestralmente: revisar usuários privilegiados, dependências, fornecedores, a
 
 ## Pendências para liberação comercial ampliada
 
-1. MFA para gerentes. O administrador da plataforma já dispõe de MFA TOTP.
+1. Procedimento seguro de recuperação do MFA quando o administrador ou gerente perde o autenticador. Administradores e gerentes já dispõem de MFA TOTP.
 2. Backup criptografado com restauração homologada e evidência periódica.
 3. Rotação versionada das chaves de criptografia.
 4. Rate limit compartilhado entre instâncias e consciente do proxy confiável.

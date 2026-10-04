@@ -38,4 +38,4 @@ Registros de incidentes com dados pessoais devem ser conservados por pelo menos 
 
 ## Lacuna atual
 
-Este repositório ainda não contém automação de backup/restauração, MFA, rotação de chave nem plataforma externa de alertas. Esses controles permanecem bloqueadores para uma expansão comercial sem piloto controlado.
+Este repositório ainda não contém automação de backup/restauração, recuperação automática do MFA, rotação de chave nem plataforma externa de alertas. Esses controles permanecem bloqueadores para uma expansão comercial sem piloto controlado.

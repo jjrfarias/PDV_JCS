@@ -156,7 +156,7 @@ test('local SQLite database at version 8 upgrades to password resets and platfor
   const tables = upgraded.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('password_resets','platform_admins','platform_sessions','platform_password_resets','platform_operations','platform_audit_events') ORDER BY name").all().map(row => row.name);
   const active = upgraded.prepare('SELECT DISTINCT active FROM tenants').all().map(row => row.active);
   upgraded.close();
-  assert.equal(version, 11);
+  assert.equal(version, 12);
   assert.deepEqual(tables, ['password_resets','platform_admins','platform_audit_events','platform_operations','platform_password_resets','platform_sessions']);
   assert.deepEqual(active, [1]);
 });
