@@ -220,8 +220,23 @@ async function loadNetworkOperations(){
 }
 function networkStockRows(){
   const grouped=new Map();
-  for(const row of state.networkOperations?.stock??[]){const item=grouped.get(row.id)??{...row,total:0,stores:[]};item.total+=row.quantity;item.stores.push({name:row.store_name,quantity:row.quantity});grouped.set(row.id,item);}
+  for(const row of state.networkOperations?.stock??[]){const item=grouped.get(row.id)??{...row,total:0,stores:[]};item.total+=row.quantity;item.stores.push({id:row.store_id,name:row.store_name,quantity:row.quantity});grouped.set(row.id,item);}
   return [...grouped.values()];
+}
+function stockMatrix(rows,stores){
+  const table=element('table',undefined,'stock-matrix'),head=element('tr');
+  head.append(element('th','Código','stock-code'),element('th','Produto','stock-product'),element('th','Total','number stock-total'));
+  for(const store of stores){const th=element('th',store.name.replace(/^FREDBU(?:LL)?\s*·\s*/i,''),'number store-stock');th.title=store.name;head.append(th);}
+  const thead=element('thead');thead.append(head);table.append(thead);
+  const body=element('tbody');
+  for(const product of rows){
+    const tr=element('tr'),byStore=new Map(product.stores.map(store=>[store.id,store.quantity]));
+    tr.append(element('td',product.sku,'stock-code'),element('td',product.name,'stock-product'),element('td',product.total,'number stock-total'));
+    for(const store of stores){const quantity=byStore.get(store.id)??0,tone=quantity===0?' stock-zero':quantity<=LOW_STOCK?' stock-low':'';const td=element('td',quantity,`number store-stock${tone}`);td.title=`${product.name} · ${store.name}: ${quantity}`;tr.append(td);}
+    body.append(tr);
+  }
+  if(!rows.length){const tr=element('tr'),td=element('td','Nenhum produto encontrado.','empty-result');td.colSpan=3+stores.length;tr.append(td);body.append(tr);}
+  table.append(body);return table;
 }
 function renderNetworkDetail(){
   if(state.networkSection==='overview')return;
@@ -231,9 +246,10 @@ function renderNetworkDetail(){
   const [title,note]=titles[state.networkSection];$('network-detail-title').textContent=title;$('network-detail-note').textContent=note;
   if(state.networkSection==='stock'){
     const rows=networkStockRows().filter(p=>includes([p.name,p.sku,p.barcode,...p.stores.map(s=>s.name)],query));
+    const stores=[...(data.stores??[])].sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'));
     const zero=rows.reduce((n,p)=>n+p.stores.filter(s=>s.quantity===0).length,0),low=rows.reduce((n,p)=>n+p.stores.filter(s=>s.quantity>0&&s.quantity<=LOW_STOCK).length,0);
     summary.replaceChildren(...[['Produtos',rows.length],['Unidades na rede',rows.reduce((n,p)=>n+p.total,0)],['Sem estoque por loja',zero],['Estoque baixo por loja',low]].map(([l,v])=>{const c=element('div',undefined,'summary-card');c.append(element('span',l),element('strong',v));return c;}));
-    content.replaceChildren(dataTable([{label:'Código'},{label:'Produto'},{label:'Preço',className:'number'},{label:'Total',className:'number'},{label:'Disponibilidade por loja'}],rows.map(p=>({cells:[p.sku,p.name,brl(p.price_cents),p.total,p.stores.map(s=>`${s.name}: ${s.quantity}`).join(' · ')]})),'Nenhum produto encontrado.'));
+    content.replaceChildren(stockMatrix(rows,stores));
   }
   if(state.networkSection==='movements'){
     const names={SALE:'Venda',INITIAL:'Entrada inicial',ADJUSTMENT:'Ajuste'},rows=data.movements.filter(m=>includes([m.name,m.sku,m.store_name,m.actor_name,m.reason,names[m.kind]],query));
