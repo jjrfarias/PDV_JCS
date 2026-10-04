@@ -363,3 +363,21 @@ dialog::backdrop{background:#0f172a99}
   .admin-table td.number{display:none}
   .admin-table .actions{grid-column:2;grid-row:1 / span 2;align-self:center}
 }
+
+/* Visão de rede: alertas acionáveis, aviso de histórico e vendas por hora. */
+.network-history-note{display:block;margin-top:2px;font-size:11px;color:var(--muted);font-weight:600}
+.network-history-note:empty{display:none}
+.network-alerts.has-alerts span.alert-critical{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+.network-alerts.has-alerts span.alert-warning{background:#fffbeb;color:#92400e;border:1px solid #fde68a}
+.network-alerts.has-alerts>strong{color:#991b1b}
+.network-store-table tr.needs-attention td:first-child{box-shadow:inset 3px 0 0 #dc2626}
+.network-store-table td.alert-cell{color:#b91c1c;font-weight:800}
+.network-store-card.needs-attention{border-color:#fecaca;box-shadow:inset 3px 0 0 #dc2626}
+.network-payment-legend strong small{margin-left:6px;font-size:11px;font-weight:700;color:var(--muted)}
+.network-hourly{display:flex;align-items:flex-end;gap:4px;height:150px;padding-top:8px}
+.hour-column{flex:1;min-width:0;height:100%;display:flex;flex-direction:column;gap:4px}
+.hour-bars{position:relative;flex:1;display:flex;align-items:flex-end;justify-content:center}
+.hour-bars span{display:block;width:70%;max-width:18px;border-radius:4px 4px 0 0}
+.hour-now{position:relative;background:var(--brand)}
+.hour-past{position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:100%!important;max-width:24px!important;background:#cbd5e1;opacity:.7}
+.hour-column small{height:14px;font-size:10px;color:var(--muted);text-align:center;font-weight:700}

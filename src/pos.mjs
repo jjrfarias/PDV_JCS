@@ -50,6 +50,17 @@ function reportRange(from, to) {
   return {from,to,start:start.toISOString(),end:end.toISOString()};
 }
 
+// Vendas líquidas por hora (início da hora em UTC). A tela converte para o horário local.
+export function hourlySales(sales) {
+  const hours = new Map();
+  for (const sale of sales) {
+    if (sale.canceled_at) continue;
+    const start = new Date(sale.created_at); start.setUTCMinutes(0, 0, 0);
+    const key = start.toISOString();
+    hours.set(key, (hours.get(key) ?? 0) + Number(sale.total_cents) - Number(sale.returned_cents ?? 0));
+  }
+  return [...hours].sort(([a], [b]) => a.localeCompare(b)).map(([hour, gross_cents]) => ({ hour, gross_cents }));
+}
 export class Pos {
   constructor(db, hooks = {}) {
     if (typeof db.query === 'function' && typeof db.connect === 'function') return new PostgresPos(db, hooks);
@@ -527,8 +538,10 @@ export class Pos {
   networkOverview(ctx,from,to) {
     const me=this.me(ctx);
     requireThat(me.user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente acompanha a rede de lojas.');
+    const sales=[];
     const stores=me.stores.map(store=>{
       const report=this.report(ctx,store.id,from,to);
+      sales.push(...report.sales);
       const open_cash_count=this.one("SELECT COUNT(*) count FROM cash_sessions WHERE tenant_id=? AND store_id=? AND status='OPEN'",ctx.tenantId,store.id).count;
       const last_sale_at=this.one('SELECT MAX(created_at) value FROM sales WHERE tenant_id=? AND store_id=?',ctx.tenantId,store.id).value;
       return {...store,...report.summary,open_cash_count,last_sale_at,payments:report.payments};
@@ -544,7 +557,7 @@ export class Pos {
       discount_cents:sum.discount_cents+store.discount_cents,returned_cents:sum.returned_cents+store.returned_cents,
       open_cash_count:sum.open_cash_count+store.open_cash_count
     }),{sale_count:0,active_sale_count:0,canceled_sale_count:0,gross_cents:0,discount_cents:0,returned_cents:0,open_cash_count:0});
-    return {generated_at:now(),range:reportRange(from,to),totals:{...totals,ticket_average_cents:totals.active_sale_count?Math.round(totals.gross_cents/totals.active_sale_count):0},payments:[...payments.values()],stores};
+    return {generated_at:now(),range:reportRange(from,to),totals:{...totals,ticket_average_cents:totals.active_sale_count?Math.round(totals.gross_cents/totals.active_sale_count):0},payments:[...payments.values()],hourly:hourlySales(sales),stores};
   }
   state(ctx,storeId) {
     id(storeId);

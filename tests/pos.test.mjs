@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { Worker } from 'node:worker_threads';
 import { connect } from '../src/database.mjs';
-import { Pos } from '../src/pos.mjs';
+import { Pos, hourlySales } from '../src/pos.mjs';
 import { transaction } from '../src/database.mjs';
 import { seedDemo } from '../src/demo.mjs';
 import { cents } from '../public/money.mjs';
@@ -169,7 +169,17 @@ test('17f.1 - painel da rede consolida somente lojas autorizadas do tenant',t=>{
   assert.equal(overview.totals.gross_cents,7500);assert.equal(overview.totals.open_cash_count,2);
   assert.equal(overview.stores.some(store=>store.id===DEMO.otherStore),false);
   assert.equal(overview.payments.find(payment=>payment.method==='PIX').amount_cents,5000);
+  assert.equal(overview.hourly.reduce((sum,hour)=>sum+hour.gross_cents,0),overview.totals.gross_cents);
+  assert.ok(overview.hourly.every(hour=>/T\d{2}:00:00\.000Z$/.test(hour.hour)));
   fails(()=>pos.networkOverview(DEMO.cashier,today,today),'MANAGER_REQUIRED');
+});
+test('17f.2 - vendas por hora somam liquido e ignoram canceladas',()=>{
+  const hourly=hourlySales([
+    {created_at:'2026-10-03T13:05:00.000Z',total_cents:1000,returned_cents:0},
+    {created_at:'2026-10-03T13:55:00.000Z',total_cents:2000,returned_cents:500},
+    {created_at:'2026-10-03T14:10:00.000Z',total_cents:3000,returned_cents:0,canceled_at:'2026-10-03T14:20:00.000Z'},
+    {created_at:'2026-10-03T15:00:00.000Z',total_cents:700,returned_cents:0}]);
+  assert.deepEqual(hourly,[{hour:'2026-10-03T13:00:00.000Z',gross_cents:2500},{hour:'2026-10-03T15:00:00.000Z',gross_cents:700}]);
 });
 test('17g - gerente registra devolucao parcial com estoque, caixa e relatorio liquido',t=>{
   const {pos,db}=fixture(t);const cash=open(pos);

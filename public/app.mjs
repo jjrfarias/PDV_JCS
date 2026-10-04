@@ -112,28 +112,77 @@ async function loadNetwork(){
   try{const today=localDay(),reference=dayOffset(-7);const [current,previous]=await Promise.all([api(`/api/network/overview?from=${today}&to=${today}`),api(`/api/network/overview?from=${reference}&to=${reference}`)]);state.network={current,previous};renderNetwork();}
   finally{state.networkLoading=false;$('network-status').textContent='Ao vivo';$('network-status').classList.remove('loading');}
 }
+// Caixa aberto sem venda por mais tempo que isto vira alerta: risco de caixa esquecido aberto.
+const IDLE_ALERT_MS=2*60*60_000;
+const plural=(count,one,many)=>`${count} ${count===1?one:many}`;
+const elapsed=ms=>{const minutes=Math.floor(ms/60_000);if(minutes<60)return `${minutes} min`;const hours=Math.floor(minutes/60),rest=minutes%60;return rest?`${hours} h ${rest} min`:`${hours} h`;};
+function storeAttention(store,now){
+  if(!store.open_cash_count)return null;
+  const last=store.last_sale_at?new Date(store.last_sale_at).getTime():null;
+  const idle=last===null?Infinity:now-last;
+  return idle>=IDLE_ALERT_MS?{idle,text:last===null?`${store.name}: caixa aberto e nenhuma venda registrada`:`${store.name}: caixa aberto sem venda há ${elapsed(idle)}`}:null;
+}
 function renderNetwork(){
   const overview=state.network?.current,previous=state.network?.previous;if(!overview)return;
-  const totals=overview.totals;
-  const variation=(value,reference)=>reference?`${value>=reference?'▲':'▼'} ${Math.abs((value-reference)/reference*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}% vs. semana passada`:'Sem histórico comparável';
-  const summary=[['Vendas líquidas',brl(totals.gross_cents),variation(totals.gross_cents,previous.totals.gross_cents),'primary'],['Vendas confirmadas',totals.active_sale_count,variation(totals.active_sale_count,previous.totals.active_sale_count)],['Ticket médio',brl(totals.ticket_average_cents),variation(totals.ticket_average_cents,previous.totals.ticket_average_cents)],['Caixas abertos',totals.open_cash_count,`${overview.stores.filter(store=>store.open_cash_count).length} de ${overview.stores.length} lojas`]];
-  $('network-summary').replaceChildren(...summary.map(([label,value,note,kind])=>{const card=element('div',undefined,kind==='primary'?'primary-metric':'');card.append(element('span',label),element('strong',value),element('small',note,note.startsWith('▲')?'positive':note.startsWith('▼')?'negative':''));return card;}));
-  const withoutSales=overview.stores.filter(store=>store.active_sale_count===0).length,closed=overview.stores.filter(store=>!store.open_cash_count).length;
-  const alerts=[withoutSales?`${withoutSales} loja(s) sem venda no período`:null,closed?`${closed} loja(s) com caixas fechados`:null,totals.canceled_sale_count?`${totals.canceled_sale_count} venda(s) cancelada(s)`:null,totals.returned_cents?`${brl(totals.returned_cents)} em devoluções`:null].filter(Boolean);
-  $('network-alerts').replaceChildren(element('strong',alerts.length?'Atenção agora':'Operação sem exceções'),...(alerts.length?alerts.map(value=>element('span',value)): [element('span','Nenhum alerta comercial registrado no período.') ]));
+  const totals=overview.totals,now=new Date(overview.generated_at).getTime();
+  const hasHistory=previous.totals.gross_cents>0;
+  const variation=(value,reference)=>reference?`${value>=reference?'▲':'▼'} ${Math.abs((value-reference)/reference*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}% vs. semana passada`:'';
+  const openStores=overview.stores.filter(store=>store.open_cash_count).length;
+  const summary=[['Vendas líquidas',brl(totals.gross_cents),variation(totals.gross_cents,previous.totals.gross_cents),'primary'],['Vendas confirmadas',totals.active_sale_count,variation(totals.active_sale_count,previous.totals.active_sale_count)],['Ticket médio',brl(totals.ticket_average_cents),variation(totals.ticket_average_cents,previous.totals.ticket_average_cents)],['Caixas abertos',totals.open_cash_count,`em ${plural(openStores,'loja','lojas')} de ${overview.stores.length}`]];
+  $('network-summary').replaceChildren(...summary.map(([label,value,note,kind])=>{const card=element('div',undefined,kind==='primary'?'primary-metric':'');card.append(element('span',label),element('strong',value));if(note)card.append(element('small',note,note.startsWith('▲')?'positive':note.startsWith('▼')?'negative':''));return card;}));
+  $('network-history-note').textContent=hasHistory?'':'A comparação com a semana passada aparece quando houver vendas no mesmo dia da semana anterior.';
+  // Alertas: só exceções que pedem ação. Caixa fechado à noite é normal e não entra aqui.
+  const attention=new Map(overview.stores.map(store=>[store.id,storeAttention(store,now)]));
+  const idleAlerts=[...attention.values()].filter(Boolean).sort((a,b)=>b.idle-a.idle);
+  const alerts=[...idleAlerts.map(item=>({text:item.text,level:'critical'})),
+    ...(totals.canceled_sale_count?[{text:plural(totals.canceled_sale_count,'venda cancelada','vendas canceladas'),level:'warning'}]:[]),
+    ...(totals.returned_cents?[{text:`${brl(totals.returned_cents)} em devoluções`,level:'warning'}]:[])];
+  $('network-alerts').classList.toggle('has-alerts',alerts.length>0);
+  $('network-alerts').replaceChildren(element('strong',alerts.length?'Atenção agora':'Operação sem exceções'),...(alerts.length?alerts.map(alert=>element('span',alert.text,`alert-${alert.level}`)):[element('span','Nenhum caixa parado, cancelamento ou devolução no período.')]));
   const methods=['CASH','PIX','CARD'];
   const paymentData=methods.map(method=>{const payment=overview.payments.find(item=>item.method===method);return {method,amount:payment?.amount_cents??0,count:payment?.sale_count??0};});
-  const paymentTotal=paymentData.reduce((sum,item)=>sum+item.amount,0);$('network-payment-bar').replaceChildren(...paymentData.map(item=>{const part=element('span',undefined,`payment-${item.method.toLowerCase()}`);part.style.width=`${paymentTotal?item.amount/paymentTotal*100:0}%`;part.title=`${paymentName(item.method)}: ${brl(item.amount)}`;return part;}));
-  $('network-payment-legend').replaceChildren(...paymentData.map(item=>{const row=element('div');row.append(element('i',undefined,`payment-${item.method.toLowerCase()}`),element('span',paymentName(item.method)),element('strong',brl(item.amount)),element('small',`${paymentTotal?Math.round(item.amount/paymentTotal*100):0}%`));return row;}));
+  const paymentTotal=paymentData.reduce((sum,item)=>sum+item.amount,0);
+  const share=item=>`${paymentTotal?Math.round(item.amount/paymentTotal*100):0}%`;
+  $('network-payment-bar').replaceChildren(...paymentData.map(item=>{const part=element('span',undefined,`payment-${item.method.toLowerCase()}`);part.style.width=`${paymentTotal?item.amount/paymentTotal*100:0}%`;part.title=`${paymentName(item.method)}: ${brl(item.amount)}`;return part;}));
+  $('network-payment-legend').replaceChildren(...paymentData.map(item=>{const row=element('div');const value=element('strong',brl(item.amount));value.append(element('small',share(item)));row.append(element('i',undefined,`payment-${item.method.toLowerCase()}`),element('span',paymentName(item.method)),value);return row;}));
   const previousStores=new Map(previous.stores.map(store=>[store.id,store]));
-  const stores=[...overview.stores].sort((a,b)=>(a.active_sale_count===0)-(b.active_sale_count===0)||b.gross_cents-a.gross_cents);
+  // Ordem: lojas com alerta primeiro (mais tempo parado no topo), depois por faturamento.
+  const stores=[...overview.stores].sort((a,b)=>(attention.get(b.id)?.idle??-1)-(attention.get(a.id)?.idle??-1)||b.gross_cents-a.gross_cents);
   const openStore=store=>run(async()=>{$('store-select').value=store.id;state.cart=[];await refresh();setView('management');});
-  $('network-store-rows').replaceChildren(...stores.map(store=>{const reference=previousStores.get(store.id),ticket=store.active_sale_count?Math.round(store.gross_cents/store.active_sale_count):0,tr=element('tr');tr.tabIndex=0;tr.append(element('td',store.name),element('td',brl(store.gross_cents),'number'),element('td',variation(store.gross_cents,reference?.gross_cents??0),reference?.gross_cents?(store.gross_cents>=reference.gross_cents?'positive':'negative'):'muted-cell'),element('td',store.active_sale_count,'number'),element('td',brl(ticket),'number'),element('td',store.open_cash_count?`${store.open_cash_count} aberto(s)`:'Fechados',store.open_cash_count?'positive':'muted-cell'),element('td',store.last_sale_at?date(store.last_sale_at):'Sem venda'),element('td','Abrir','row-link'));tr.addEventListener('click',()=>openStore(store));tr.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openStore(store);}});return tr;}));
-  $('network-store-cards').replaceChildren(...stores.map(store=>{const card=element('button',undefined,'network-store-card');card.type='button';const reference=previousStores.get(store.id),ticket=store.active_sale_count?Math.round(store.gross_cents/store.active_sale_count):0;card.append(element('strong',store.name),element('b',brl(store.gross_cents)),element('span',variation(store.gross_cents,reference?.gross_cents??0),reference?.gross_cents?(store.gross_cents>=reference.gross_cents?'positive':'negative'):'muted-cell'),element('small',`${store.active_sale_count} vendas · ticket ${brl(ticket)} · ${store.open_cash_count?`${store.open_cash_count} caixa(s) aberto(s)`:'caixas fechados'}`));card.addEventListener('click',()=>openStore(store));return card;}));
-  const previousTotal=previous.totals.gross_cents,delta=totals.gross_cents-previousTotal;
-  $('network-comparison').replaceChildren(element('strong',brl(totals.gross_cents)),element('span',previousTotal?`${delta>=0?'+':'−'} ${brl(Math.abs(delta))} em relação à referência`:'A comparação aparecerá quando houver vendas no mesmo dia da semana anterior.'),element('div',undefined,previousTotal?(delta>=0?'comparison-positive':'comparison-negative'):'comparison-empty'));
+  const cashLabel=store=>store.open_cash_count?plural(store.open_cash_count,'aberto','abertos'):'Fechados';
+  document.querySelectorAll('.compare-col').forEach(cell=>{cell.hidden=!hasHistory;});
+  $('network-store-rows').replaceChildren(...stores.map(store=>{const reference=previousStores.get(store.id),ticket=store.active_sale_count?Math.round(store.gross_cents/store.active_sale_count):0,tr=element('tr');tr.tabIndex=0;if(attention.get(store.id))tr.className='needs-attention';
+    const compare=element('td',variation(store.gross_cents,reference?.gross_cents??0)||'—',`compare-col ${reference?.gross_cents?(store.gross_cents>=reference.gross_cents?'positive':'negative'):'muted-cell'}`);compare.hidden=!hasHistory;
+    tr.append(element('td',store.name),element('td',brl(store.gross_cents),'number'),compare,element('td',store.active_sale_count,'number'),element('td',brl(ticket),'number'),element('td',cashLabel(store),attention.get(store.id)?'alert-cell':store.open_cash_count?'positive':'muted-cell'),element('td',store.last_sale_at?date(store.last_sale_at):'Sem venda'),element('td','Abrir','row-link'));
+    tr.addEventListener('click',()=>openStore(store));tr.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openStore(store);}});return tr;}));
+  $('network-store-cards').replaceChildren(...stores.map(store=>{const card=element('button',undefined,`network-store-card${attention.get(store.id)?' needs-attention':''}`);card.type='button';const reference=previousStores.get(store.id),ticket=store.active_sale_count?Math.round(store.gross_cents/store.active_sale_count):0,note=variation(store.gross_cents,reference?.gross_cents??0);card.append(element('strong',store.name),element('b',brl(store.gross_cents)));if(note)card.append(element('span',note,store.gross_cents>=reference.gross_cents?'positive':'negative'));card.append(element('small',`${plural(store.active_sale_count,'venda','vendas')} · ticket ${brl(ticket)} · ${store.open_cash_count?plural(store.open_cash_count,'caixa aberto','caixas abertos'):'caixas fechados'}`));card.addEventListener('click',()=>openStore(store));return card;}));
+  renderHourly(overview.hourly??[],hasHistory?previous.hourly??[]:[]);
   $('network-period').textContent=`Hoje, ${new Date(`${localDay()}T12:00:00`).toLocaleDateString('pt-BR')}`;
   $('network-updated').textContent=`Atualizado às ${new Date(overview.generated_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
+}
+// Vendas por hora no horário local. Com histórico, a semana passada aparece como barra clara atrás.
+function renderHourly(today,reference){
+  const byHour=list=>{const map=new Map();for(const item of list){const hour=new Date(item.hour).getHours();map.set(hour,(map.get(hour)??0)+item.gross_cents);}return map;};
+  const current=byHour(today),past=byHour(reference);
+  const hours=[...current.keys(),...past.keys()];
+  const chart=$('network-hourly');
+  if(!hours.length){chart.replaceChildren(element('p','Nenhuma venda registrada hoje.','muted-cell'));return;}
+  const first=Math.min(...hours),last=Math.max(...hours,new Date().getHours());
+  const max=Math.max(...current.values(),...past.values(),1);
+  const columns=[];
+  for(let hour=first;hour<=last;hour++){
+    const column=element('div',undefined,'hour-column');
+    const value=current.get(hour)??0,before=past.get(hour)??0;
+    column.title=`${String(hour).padStart(2,'0')}h: ${brl(value)}${reference.length?` · semana passada ${brl(before)}`:''}`;
+    const bars=element('div',undefined,'hour-bars');
+    if(reference.length){const ghost=element('span',undefined,'hour-past');ghost.style.height=`${before/max*100}%`;bars.append(ghost);}
+    const bar=element('span',undefined,'hour-now');bar.style.height=`${value/max*100}%`;bars.append(bar);
+    column.append(bars,element('small',hour%2===first%2?`${String(hour).padStart(2,'0')}h`:''));
+    columns.push(column);
+  }
+  chart.replaceChildren(...columns);
+  const best=[...current].sort((a,b)=>b[1]-a[1])[0];
+  $('network-hourly-note').textContent=best?`Pico às ${String(best[0]).padStart(2,'0')}h, com ${brl(best[1])}.`:'';
 }
 function renderSearch(){
   const query=$('search').value.trim().toLowerCase();$('search-results').replaceChildren();

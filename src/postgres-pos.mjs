@@ -4,6 +4,7 @@ import { PostgresProducts } from './postgres-products.mjs';
 import { PostgresOperations } from './postgres-operations.mjs';
 import { decryptField, encryptField, fieldDigest, hashPassword, sha256 } from './security.mjs';
 import { requireThat, object, text, integer, id, operationKey } from './errors.mjs';
+import { hourlySales } from './pos.mjs';
 
 const now = () => new Date().toISOString();
 const MAX_MONEY = 100_000_000;
@@ -291,8 +292,10 @@ class TransactionPos {
     const me = await this.me(ctx);
     requireThat(me.user.role === 'MANAGER', 403, 'MANAGER_REQUIRED', 'Somente gerente acompanha a rede de lojas.');
     const stores = [];
+    const sales = [];
     for (const store of me.stores) {
       const report = await this.report(ctx, store.id, from, to);
+      sales.push(...report.sales);
       const status = await this.one(`SELECT
           COUNT(*) FILTER (WHERE status='OPEN') open_cash_count,
           (SELECT MAX(created_at) FROM sales WHERE tenant_id=$1 AND store_id=$2) last_sale_at
@@ -314,7 +317,7 @@ class TransactionPos {
     }), { sale_count: 0, active_sale_count: 0, canceled_sale_count: 0, gross_cents: 0, discount_cents: 0, returned_cents: 0, open_cash_count: 0 });
     return { generated_at: now(), range: reportRange(from, to), totals: { ...totals,
       ticket_average_cents: totals.active_sale_count ? Math.round(totals.gross_cents / totals.active_sale_count) : 0 },
-    payments: [...payments.values()], stores };
+    payments: [...payments.values()], hourly: hourlySales(sales), stores };
   }
 
   customerRow(row) {
