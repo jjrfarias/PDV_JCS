@@ -1,6 +1,6 @@
 ﻿import {cents,brl} from './money.mjs';
 const $=id=>document.getElementById(id);
-const state={me:null,data:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:'',reportSection:'resumo'};
+const state={me:null,data:null,network:null,networkLoading:false,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:'',reportSection:'resumo'};
 let messageTimer=null;
 function element(tag,content,className=''){const node=document.createElement(tag);if(content!==undefined)node.textContent=String(content);if(className)node.className=className;return node;}
 function message(value,{sticky=false}={}){
@@ -74,6 +74,7 @@ async function refresh(){
   const selected=(state.data.customers??[]).find(c=>c.id===customer&&c.active===1);
   if(selected){$('sale-customer').value=selected.id;$('sale-customer-search').value=customerLabel(selected);}else if(customer)clearSaleCustomer();
   if(state.tab==='reports')await loadReport();
+  if(state.view==='network'&&manager())await loadNetwork();
   renderCash();renderSearch();renderManagement();renderCart();
 }
 function renderCash(){
@@ -93,10 +94,37 @@ function renderCash(){
   lock();
 }
 function setView(view){
+  if(view==='network'&&!manager())return;
   state.view=view;
   document.querySelectorAll('[data-panel]').forEach(panel=>{panel.hidden=panel.dataset.panel!==view;});
   document.querySelectorAll('[data-view]').forEach(button=>button.classList.toggle('selected',button.dataset.view===view));
+  const headings={network:['REDE DE LOJAS','Acompanhamento em tempo real'],sale:['FRENTE DE CAIXA','Nova venda'],cash:['CAIXA','Operação do caixa'],management:['GESTÃO','Produtos, equipe e movimentações']};
+  $('page-eyebrow').textContent=headings[view][0];$('page-title').textContent=headings[view][1];
   if(view==='sale')setTimeout(()=>$('search').focus(),0);
+  if(view==='network')run(loadNetwork);
+}
+const localDay=()=>{const now=new Date(),pad=value=>String(value).padStart(2,'0');return `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;};
+async function loadNetwork(){
+  if(!manager()||state.networkLoading)return;
+  state.networkLoading=true;$('network-status').textContent='Atualizando';$('network-status').classList.add('loading');
+  try{const today=localDay();state.network=await api(`/api/network/overview?from=${today}&to=${today}`);renderNetwork();}
+  finally{state.networkLoading=false;$('network-status').textContent='Ao vivo';$('network-status').classList.remove('loading');}
+}
+function renderNetwork(){
+  const overview=state.network;if(!overview)return;
+  const totals=overview.totals;
+  const summary=[['Vendas líquidas',brl(totals.gross_cents)],['Vendas',totals.active_sale_count],['Ticket médio',brl(totals.ticket_average_cents)],['Caixas abertos',totals.open_cash_count],['Canceladas',totals.canceled_sale_count],['Devoluções',brl(totals.returned_cents)]];
+  $('network-summary').replaceChildren(...summary.map(([label,value])=>{const card=element('div');card.append(element('span',label),element('strong',value));return card;}));
+  const methods=['CASH','PIX','CARD'];
+  $('network-payment-cards').replaceChildren(...methods.map(method=>{const payment=overview.payments.find(item=>item.method===method);const card=element('div');card.append(element('span',paymentName(method)),element('strong',brl(payment?.amount_cents??0)),element('small',`${payment?.sale_count??0} vendas`));return card;}));
+  $('network-store-grid').replaceChildren(...overview.stores.map(store=>{
+    const card=element('button',undefined,'network-store-card');card.type='button';
+    const header=element('div',undefined,'network-store-head');header.append(element('strong',store.name),element('span',store.open_cash_count?`${store.open_cash_count} caixa(s) aberto(s)`:'Caixas fechados',store.open_cash_count?'store-open':'store-closed'));
+    const values=element('div',undefined,'network-store-values');values.append(element('strong',brl(store.gross_cents)),element('span',`${store.active_sale_count} vendas · ticket ${brl(store.active_sale_count?Math.round(store.gross_cents/store.active_sale_count):0)}`));
+    const last=element('small',store.last_sale_at?`Última venda: ${date(store.last_sale_at)}`:'Nenhuma venda registrada','network-last-sale');
+    card.append(header,values,last);card.addEventListener('click',()=>run(async()=>{$('store-select').value=store.id;state.cart=[];await refresh();setView('management');}));return card;
+  }));
+  $('network-updated').textContent=`Atualizado às ${new Date(overview.generated_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
 }
 function renderSearch(){
   const query=$('search').value.trim().toLowerCase();$('search-results').replaceChildren();
@@ -406,11 +434,13 @@ async function boot(){
   state.me=await api('/api/me');state.csrf=state.me.csrfToken;
   $('login-panel').hidden=true;$('workspace').hidden=false;$('user-label').textContent=state.me.user.name;
   $('role-label').textContent=manager()?'GERENTE':'OPERADOR';
+  $('network-nav').hidden=!manager();
   $('store-select').replaceChildren();
   for(const store of state.me.stores){const option=element('option',store.name);option.value=store.id;$('store-select').append(option);}
   const raw=localStorage.getItem(scope());state.pending=raw?JSON.parse(raw):null;
   if(state.pending&&state.me.stores.some(s=>s.id===state.pending.body.storeId))$('store-select').value=state.pending.body.storeId;
   await refresh();
+  if(manager())setView('network');
 }
 $('login-form').addEventListener('submit',async event=>{
   event.preventDefault();const button=event.submitter;button.disabled=true;
@@ -532,3 +562,4 @@ document.addEventListener('keydown',event=>{
   if(event.key==='Escape'&&!document.querySelector('dialog[open]')&&state.cart.length){event.preventDefault();clearSale();}
 });
 boot().catch(error=>{if(error.status!==401)$('login-error').textContent=error.message;});
+setInterval(()=>{if(state.me&&state.view==='network'&&document.visibilityState==='visible')run(loadNetwork);},5000);

@@ -524,6 +524,28 @@ export class Pos {
       ORDER BY c.closed_at`,ctx.tenantId,storeId,range.start,range.end);
     return {range,summary,payments,products,operators,cashClosures,sales};
   }
+  networkOverview(ctx,from,to) {
+    const me=this.me(ctx);
+    requireThat(me.user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente acompanha a rede de lojas.');
+    const stores=me.stores.map(store=>{
+      const report=this.report(ctx,store.id,from,to);
+      const open_cash_count=this.one("SELECT COUNT(*) count FROM cash_sessions WHERE tenant_id=? AND store_id=? AND status='OPEN'",ctx.tenantId,store.id).count;
+      const last_sale_at=this.one('SELECT MAX(created_at) value FROM sales WHERE tenant_id=? AND store_id=?',ctx.tenantId,store.id).value;
+      return {...store,...report.summary,open_cash_count,last_sale_at,payments:report.payments};
+    });
+    const payments=new Map();
+    for(const store of stores)for(const payment of store.payments){
+      const current=payments.get(payment.method)??{method:payment.method,sale_count:0,amount_cents:0};
+      current.sale_count+=Number(payment.sale_count);current.amount_cents+=Number(payment.amount_cents);payments.set(payment.method,current);
+    }
+    const totals=stores.reduce((sum,store)=>({
+      sale_count:sum.sale_count+store.sale_count,active_sale_count:sum.active_sale_count+store.active_sale_count,
+      canceled_sale_count:sum.canceled_sale_count+store.canceled_sale_count,gross_cents:sum.gross_cents+store.gross_cents,
+      discount_cents:sum.discount_cents+store.discount_cents,returned_cents:sum.returned_cents+store.returned_cents,
+      open_cash_count:sum.open_cash_count+store.open_cash_count
+    }),{sale_count:0,active_sale_count:0,canceled_sale_count:0,gross_cents:0,discount_cents:0,returned_cents:0,open_cash_count:0});
+    return {generated_at:now(),range:reportRange(from,to),totals:{...totals,ticket_average_cents:totals.active_sale_count?Math.round(totals.gross_cents/totals.active_sale_count):0},payments:[...payments.values()],stores};
+  }
   state(ctx,storeId) {
     id(storeId);
     this.authorize(ctx,storeId);

@@ -287,6 +287,36 @@ class TransactionPos {
     return { range, summary, payments, products, operators, cashClosures, sales: normalizedSales };
   }
 
+  async networkOverview(ctx, from, to) {
+    const me = await this.me(ctx);
+    requireThat(me.user.role === 'MANAGER', 403, 'MANAGER_REQUIRED', 'Somente gerente acompanha a rede de lojas.');
+    const stores = [];
+    for (const store of me.stores) {
+      const report = await this.report(ctx, store.id, from, to);
+      const status = await this.one(`SELECT
+          COUNT(*) FILTER (WHERE status='OPEN') open_cash_count,
+          (SELECT MAX(created_at) FROM sales WHERE tenant_id=$1 AND store_id=$2) last_sale_at
+        FROM cash_sessions WHERE tenant_id=$1 AND store_id=$2`, ctx.tenantId, store.id);
+      stores.push({ ...store, ...report.summary, open_cash_count: cashInteger(status.open_cash_count),
+        last_sale_at: status.last_sale_at instanceof Date ? status.last_sale_at.toISOString() : status.last_sale_at,
+        payments: report.payments });
+    }
+    const payments = new Map();
+    for (const store of stores) for (const payment of store.payments) {
+      const current = payments.get(payment.method) ?? { method: payment.method, sale_count: 0, amount_cents: 0 };
+      current.sale_count += Number(payment.sale_count); current.amount_cents += Number(payment.amount_cents); payments.set(payment.method, current);
+    }
+    const totals = stores.reduce((sum, store) => ({
+      sale_count: sum.sale_count + store.sale_count, active_sale_count: sum.active_sale_count + store.active_sale_count,
+      canceled_sale_count: sum.canceled_sale_count + store.canceled_sale_count, gross_cents: sum.gross_cents + store.gross_cents,
+      discount_cents: sum.discount_cents + store.discount_cents, returned_cents: sum.returned_cents + store.returned_cents,
+      open_cash_count: sum.open_cash_count + store.open_cash_count
+    }), { sale_count: 0, active_sale_count: 0, canceled_sale_count: 0, gross_cents: 0, discount_cents: 0, returned_cents: 0, open_cash_count: 0 });
+    return { generated_at: now(), range: reportRange(from, to), totals: { ...totals,
+      ticket_average_cents: totals.active_sale_count ? Math.round(totals.gross_cents / totals.active_sale_count) : 0 },
+    payments: [...payments.values()], stores };
+  }
+
   customerRow(row) {
     return row ? {
       id: row.id, store_id: row.store_id, name: decryptField(row.name_enc),
@@ -326,6 +356,7 @@ export class PostgresPos {
   async receipt(ctx, saleId) { return this.#transaction(ctx, true, tx => tx.receipt(ctx, saleId)); }
   async state(ctx, storeId) { return this.#transaction(ctx, true, tx => tx.state(ctx, storeId)); }
   async report(ctx, storeId, from, to) { return this.#transaction(ctx, true, tx => tx.report(ctx, storeId, from, to)); }
+  async networkOverview(ctx, from, to) { return this.#transaction(ctx, true, tx => tx.networkOverview(ctx, from, to)); }
 
   async #mutate(ctx, kind, key, input, work) {
     operationKey(key);

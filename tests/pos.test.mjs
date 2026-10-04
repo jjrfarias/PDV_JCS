@@ -160,6 +160,17 @@ test('17f - relatorio consolida vendas, pagamentos, produtos e cancelamentos no 
   assert.equal(report.products[0].total_cents,2500);
   assert.equal(report.sales.some(s=>s.canceled_at),true);
 });
+test('17f.1 - painel da rede consolida somente lojas autorizadas do tenant',t=>{
+  const {pos}=fixture(t);const cashA=open(pos);const cashB=open(pos,DEMO.manager,DEMO.terminalB);
+  pos.sell(DEMO.manager,key(),saleInput(cashA,{items:[{productId:DEMO.product,quantity:1}],discountCents:0,discountReason:null,tenderedCents:2500}));
+  pos.sell(DEMO.manager,key(),saleInput(cashB,{storeId:DEMO.storeB,items:[{productId:DEMO.product,quantity:2}],discountCents:0,discountReason:null,paymentMethod:'PIX',tenderedCents:0}));
+  const today=new Date().toISOString().slice(0,10),overview=pos.networkOverview(DEMO.manager,today,today);
+  assert.equal(overview.stores.length,2);assert.equal(overview.totals.active_sale_count,2);
+  assert.equal(overview.totals.gross_cents,7500);assert.equal(overview.totals.open_cash_count,2);
+  assert.equal(overview.stores.some(store=>store.id===DEMO.otherStore),false);
+  assert.equal(overview.payments.find(payment=>payment.method==='PIX').amount_cents,5000);
+  fails(()=>pos.networkOverview(DEMO.cashier,today,today),'MANAGER_REQUIRED');
+});
 test('17g - gerente registra devolucao parcial com estoque, caixa e relatorio liquido',t=>{
   const {pos,db}=fixture(t);const cash=open(pos);
   const sale=pos.sell(DEMO.manager,key(),saleInput(cash,{discountCents:0,discountReason:null,tenderedCents:5000})).data;

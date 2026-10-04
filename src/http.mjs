@@ -117,6 +117,7 @@ export function createApp(db) {
       requireThat(ctx,401,'AUTH_REQUIRED','Faça login para continuar.');
       if(mutating) requireThat(req.headers['x-csrf-token']===ctx.csrfToken,403,'CSRF_FORBIDDEN','Sessão da tela inválida. Atualize a página.');
       if(req.method==='GET'&&url.pathname==='/api/me') return send(res,200,{...await pos.me(ctx),csrfToken:ctx.csrfToken});
+      if(req.method==='GET'&&url.pathname==='/api/network/overview') return send(res,200,await pos.networkOverview(ctx,url.searchParams.get('from')??'',url.searchParams.get('to')??''));
       if(req.method==='POST'&&url.pathname==='/api/logout') {
         await auth.logout(ctx); res.setHeader('Set-Cookie',`jcs_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${production?'; Secure':''}`);
         return send(res,200,{ok:true});
