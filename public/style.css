@@ -125,7 +125,7 @@ p{color:var(--muted);font-size:14px}
 .search-results:empty{display:none}
 .search-results button{font-size:12px;font-weight:700;padding:8px 11px;border-color:#cbd5e1}
 .table-wrap{overflow:auto}
-.items-panel .table-wrap{min-height:0;flex:1}
+.items-panel .table-wrap{min-height:0;flex:1;background:linear-gradient(180deg,#fff 0%,#fbfdff 100%)}
 table{border-collapse:collapse;width:100%;text-align:left;font-size:13px}
 .cart-table{table-layout:fixed}
 .cart-table .cart-product{width:auto}
@@ -146,9 +146,8 @@ td.number,th.number{text-align:right;font-variant-numeric:tabular-nums;white-spa
 .empty{text-align:center;margin:auto;padding:26px 20px;color:#64748b}
 .empty strong{display:block;font-size:22px;font-weight:900;margin-bottom:10px;color:#334155}
 .empty p{font-size:13px;margin-bottom:6px}
-.shortcuts{margin-top:auto;padding:9px 18px;background:#f8fafc;border-top:1px solid #edf1f5;font-size:11px;color:#64748b;font-weight:800}
-.shortcuts span{margin-left:20px}
-.payment-panel{padding:14px 18px;position:static;max-height:100%;overflow:hidden;display:flex;flex-direction:column}
+.shortcuts{margin-top:auto;display:flex;align-items:center;gap:7px;padding:8px 12px;background:#f8fafc;border-top:1px solid #e2e8f0;overflow-x:auto}.shortcuts button{display:flex;align-items:center;gap:7px;min-width:max-content;padding:6px 9px;border-color:transparent;background:transparent;color:#475569;font-size:10px}.shortcuts button:hover:not(:disabled){border-color:#cbd5e1;background:#fff}.shortcuts button:disabled{opacity:.4}.shortcuts kbd{display:inline-flex;align-items:center;justify-content:center;min-width:28px;padding:3px 5px;border:1px solid #cbd5e1;border-bottom-width:2px;border-radius:5px;background:#fff;color:#0f172a;font:800 9px/1 Inter,Segoe UI,sans-serif;box-shadow:0 1px 0 #e2e8f0}.shortcuts span{font-weight:850}.shortcuts small{color:#94a3b8;font-size:8px;font-weight:800}
+.payment-panel{padding:14px 18px;position:static;max-height:100%;overflow:hidden;display:flex;flex-direction:column;border-top:3px solid var(--brand)}
 .payment-panel form{display:flex;flex:1;min-height:0;flex-direction:column}
 .payment-panel h2{margin-bottom:9px}
 .pay-methods{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:8px 0 11px}
@@ -301,7 +300,7 @@ dialog::backdrop{background:#0f172a99}
   .items-panel td:nth-child(4)::before{content:'Total';font-size:11px;color:#64748b;font-weight:900;text-transform:uppercase}
   .items-panel td input{width:96px}
   .items-panel td button{width:100%;margin-top:4px}
-  .shortcuts{display:none}
+  .shortcuts{margin-top:0;padding:8px}.shortcuts small{display:none}
   .payment-panel{padding:16px}
   #cash-detail{padding:16px}
   #cash-detail-dialog{width:calc(100% - 18px);max-width:calc(100vw - 18px)}

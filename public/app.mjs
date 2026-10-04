@@ -60,6 +60,10 @@ function lock(){
   document.querySelectorAll('[data-customer-action]').forEach(el=>{el.disabled=locked;});
   $('confirm-sale').disabled=locked||!cash||cash.operator_id!==state.me?.user.id||state.cart.length===0;
   $('cancel-sale').disabled=locked||state.cart.length===0;
+  $('shortcut-search').disabled=locked;
+  $('shortcut-confirm').disabled=$('confirm-sale').disabled;
+  $('shortcut-cancel').disabled=$('cancel-sale').disabled;
+  $('shortcut-print').disabled=locked||!state.lastReceipt;
   document.querySelectorAll('[data-tendered]').forEach(el=>{el.disabled=locked||state.cart.length===0;});
   document.querySelectorAll('[data-payment-method]').forEach(el=>{el.disabled=locked;});
   syncTabActions();
@@ -506,6 +510,7 @@ function renderManagement(){
 }
 function showReceipt(sale){
   state.lastReceipt=sale;const root=$('receipt');root.replaceChildren();
+  $('shortcut-print').disabled=false;
   root.append(element('h2','JCS · COMPROVANTE DE TESTE'),element('div','TESTE — SEM VALOR FISCAL','receipt-warning'));
   root.append(element('p',`${sale.store_name} | ${sale.operator_name}`),element('p',`Venda ${sale.id}\n${date(sale.created_at)}`));
   if(sale.customer_id)root.append(element('p',`Cliente: ${customerName(sale.customer_id)}`));
@@ -655,6 +660,11 @@ $('sale-form').addEventListener('submit',event=>{event.preventDefault();run(asyn
   await command('/api/sales',{storeId:storeId(),cashSessionId:cash.id,items:state.cart.map(p=>({productId:p.id,quantity:p.units})),discountCents:cents($('discount').value||'0'),discountReason:$('discount-reason').value||null,paymentMethod:state.paymentMethod,tenderedCents:state.paymentMethod==='CASH'?cents($('tendered').value):0,customerId:selectedCustomerId()});
 });});
 $('cancel-sale').addEventListener('click',clearSale);
+$('shortcut-search').addEventListener('click',()=>$('search').focus());
+$('shortcut-confirm').addEventListener('click',()=>{if(!$('confirm-sale').disabled)$('sale-form').requestSubmit();});
+$('shortcut-cancel').addEventListener('click',clearSale);
+function printLastReceipt(){if(!state.lastReceipt)return;showReceipt(state.lastReceipt);window.print();}
+$('shortcut-print').addEventListener('click',printLastReceipt);
 document.querySelectorAll('[data-tendered]').forEach(button=>button.addEventListener('click',()=>fillTendered(button.dataset.tendered)));
 document.querySelectorAll('[data-payment-method]').forEach(button=>button.addEventListener('click',()=>{state.paymentMethod=button.dataset.paymentMethod;if(state.paymentMethod!=='CASH')$('tendered').value='';renderTotals();}));
 $('open-cash').addEventListener('click',()=>{$('open-description').textContent=`${$('store-select').selectedOptions[0].textContent} · ${$('terminal-select').selectedOptions[0].textContent}`;$('open-dialog').showModal();});
@@ -776,11 +786,15 @@ $('network-custom-period').addEventListener('submit',event=>{event.preventDefaul
 document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>run(async()=>{state.tab=b.dataset.tab;state.productFilter=null;$('management-search').value='';document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('selected',button===b));syncTabActions();if(state.tab==='reports')await loadReport();if(state.tab==='stores')await loadCompanyStores();renderManagement();})));
 $('management-search').addEventListener('input',renderManagement);
 document.addEventListener('keydown',event=>{
-  if(!state.me)return;
-  if(event.key==='F2'){event.preventDefault();$('search').focus();}
-  if(event.key==='F9'&&!document.querySelector('dialog[open]')){event.preventDefault();if(!$('confirm-sale').disabled)$('sale-form').requestSubmit();}
-  if(event.key==='F10'){event.preventDefault();if(state.lastReceipt){showReceipt(state.lastReceipt);window.print();}}
-  if(event.key==='Escape'&&!document.querySelector('dialog[open]')&&state.cart.length){event.preventDefault();clearSale();}
+  if(!state.me||state.view!=='sale')return;
+  const dialogOpen=Boolean(document.querySelector('dialog[open]'));
+  const searchShortcut=event.key==='F2'||(event.altKey&&event.code==='KeyB');
+  const confirmShortcut=event.key==='F9'||(event.ctrlKey&&event.key==='Enter');
+  const printShortcut=event.key==='F10'||(event.altKey&&event.code==='KeyI');
+  if(searchShortcut&&!dialogOpen){event.preventDefault();$('search').focus();}
+  if(confirmShortcut&&!dialogOpen){event.preventDefault();if(!$('confirm-sale').disabled)$('sale-form').requestSubmit();}
+  if(printShortcut&&!dialogOpen){event.preventDefault();printLastReceipt();}
+  if(event.key==='Escape'&&!dialogOpen&&state.cart.length){event.preventDefault();clearSale();}
 });
 boot().catch(error=>{if(error.status!==401)$('login-error').textContent=error.message;});
 setInterval(()=>{if(state.me&&state.view==='network'&&!state.networkFailed&&state.networkPeriod?.preset==='today'&&document.visibilityState==='visible')loadNetwork({silent:true});},30_000);
