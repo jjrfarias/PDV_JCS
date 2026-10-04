@@ -1,6 +1,6 @@
 ﻿import {cents,brl} from './money.mjs';
 const $=id=>document.getElementById(id);
-const state={me:null,data:null,network:null,networkLoading:false,networkFailed:false,networkPeriod:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:'',reportSection:'resumo'};
+const state={me:null,data:null,network:null,networkCache:new Map(),networkLoading:false,networkFailed:false,networkPeriod:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:'',reportSection:'resumo'};
 let messageTimer=null;
 function element(tag,content,className=''){const node=document.createElement(tag);if(content!==undefined)node.textContent=String(content);if(className)node.className=className;return node;}
 function serviceAlert(show,text='Estamos tentando restabelecer a conexão. Não repita uma venda sem recuperar a operação anterior.'){
@@ -122,8 +122,10 @@ const businessHour=value=>Number(new Intl.DateTimeFormat('en-US',{timeZone:BUSIN
 async function loadNetwork({silent=false}={}){
   if(!manager()||state.networkLoading)return;
   state.networkPeriod??=presetPeriod('today');
+  const cacheKey=`${state.networkPeriod.from}:${state.networkPeriod.to}`,cached=state.networkCache.get(cacheKey);
+  if(!silent&&cached){state.network=cached;renderNetwork();const live=cached.period.preset==='today';$('network-status').textContent=live?'Ao vivo':'Histórico';$('network-status').classList.toggle('history',!live);$('network-status').classList.remove('loading');silent=true;}
   state.networkLoading=true;if(!silent){$('network-status').textContent='Atualizando';$('network-status').classList.add('loading');}
-  try{const period=state.networkPeriod,reference=comparisonPeriod(period);const [current,previous]=await Promise.all([api(`/api/network/overview?from=${period.from}&to=${period.to}`),api(`/api/network/overview?from=${reference.from}&to=${reference.to}`)]);state.network={current,previous,period,reference};state.networkFailed=false;renderNetwork();}
+  try{const period=state.networkPeriod,reference=comparisonPeriod(period);const [current,previous]=await Promise.all([api(`/api/network/overview?from=${period.from}&to=${period.to}`),api(`/api/network/overview?from=${reference.from}&to=${reference.to}`)]);state.network={current,previous,period,reference};state.networkCache.set(cacheKey,state.network);state.networkFailed=false;renderNetwork();}
   catch(error){state.networkFailed=true;if(!silent)throw error;}
   finally{const live=state.networkPeriod?.preset==='today';state.networkLoading=false;if(!silent){$('network-status').textContent=live?'Ao vivo':'Histórico';$('network-status').classList.toggle('history',!live);$('network-status').classList.remove('loading');}}
 }
@@ -148,7 +150,7 @@ function renderNetwork(){
   const openStores=overview.stores.filter(store=>store.open_cash_count).length;
   const summary=[['Vendas líquidas',brl(totals.gross_cents),variation(totals.gross_cents,comparablePrevious),'primary'],['Vendas confirmadas',totals.active_sale_count,''],['Ticket médio',brl(totals.ticket_average_cents),''],live?['Caixas abertos',totals.open_cash_count,`em ${plural(openStores,'loja','lojas')} de ${overview.stores.length}`]:['Canceladas',totals.canceled_sale_count,totals.returned_cents?`${brl(totals.returned_cents)} em devoluções`:'Sem devoluções']];
   $('network-summary').replaceChildren(...summary.map(([label,value,note,kind])=>{const card=element('div',undefined,kind==='primary'?'primary-metric':'');card.append(element('span',label),element('strong',value));if(note)card.append(element('small',note,note.startsWith('▲')?'positive':note.startsWith('▼')?'negative':''));return card;}));
-  $('network-history-note').textContent=hasHistory?'':`A comparação aparece quando houver vendas no ${comparisonLabel}.`;
+  $('network-history-note').textContent=hasHistory?'':`A comparação aparece quando houver vendas ${live?'na semana passada':'no período anterior'}.`;
   // Alertas: só exceções que pedem ação. Caixa fechado à noite é normal e não entra aqui.
   const attention=new Map(overview.stores.map(store=>[store.id,live?storeAttention(store,now):null]));
   const idleAlerts=[...attention.values()].filter(Boolean).sort((a,b)=>b.idle-a.idle);
