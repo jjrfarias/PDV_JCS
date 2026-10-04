@@ -127,6 +127,10 @@ Uma diferença exige motivo com pelo menos três caracteres. O operador de abert
 
 Retorna a conferência do caixa calculada no backend: dados do caixa, operador, terminal, totais por forma de pagamento, movimentos de dinheiro e vendas vinculadas. A consulta respeita tenant e lojas autorizadas do usuário autenticado.
 
+## Acompanhar a rede
+
+`GET /api/network/overview?from=AAAA-MM-DD&to=AAAA-MM-DD` consolida vendas, ticket médio, cancelamentos, devoluções e pagamentos das lojas autorizadas no período, limitado a 366 dias. A última venda de cada loja respeita o intervalo solicitado. Contagem de caixas abertos representa o estado atual e deve ser apresentada como tal fora da visão de hoje.
+
 ## Cadastrar produto
 
 `POST /api/products`

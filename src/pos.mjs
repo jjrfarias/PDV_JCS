@@ -579,7 +579,7 @@ export class Pos {
       const report=this.report(ctx,store.id,from,to);
       sales.push(...report.sales);
       const open_cash_count=this.one("SELECT COUNT(*) count FROM cash_sessions WHERE tenant_id=? AND store_id=? AND status='OPEN'",ctx.tenantId,store.id).count;
-      const last_sale_at=this.one('SELECT MAX(created_at) value FROM sales WHERE tenant_id=? AND store_id=?',ctx.tenantId,store.id).value;
+      const last_sale_at=this.one('SELECT MAX(created_at) value FROM sales WHERE tenant_id=? AND store_id=? AND created_at>=? AND created_at<?',ctx.tenantId,store.id,report.range.start,report.range.end).value;
       return {...store,...report.summary,open_cash_count,last_sale_at,payments:report.payments,hourly:hourlySales(report.sales)};
     });
     const payments=new Map();

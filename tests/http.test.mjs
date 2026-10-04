@@ -139,7 +139,10 @@ test('HTTP 19.1 - painel da rede entrega consolidado das lojas autorizadas',asyn
   const today=businessDate(),overview=await w.call(`/api/network/overview?from=${today}&to=${today}`);
   assert.equal(overview.response.status,200);assert.equal(overview.data.stores.length,2);
   assert.equal(overview.data.totals.gross_cents,2500);assert.equal(overview.data.totals.open_cash_count,1);
+  assert.ok(overview.data.stores.find(store=>store.id===DEMO.storeA).last_sale_at);
   assert.equal(overview.data.stores.some(store=>store.id===DEMO.otherStore),false);
+  const historical=await w.call('/api/network/overview?from=2020-01-01&to=2020-01-01');
+  assert.equal(historical.data.stores.find(store=>store.id===DEMO.storeA).last_sale_at,null);
 });
 test('HTTP 20 - detalhe de caixa fechado retorna conferencia autorizada',async t=>{
   const w=await web(t);await w.login();

@@ -1,6 +1,6 @@
 ﻿import {cents,brl} from './money.mjs';
 const $=id=>document.getElementById(id);
-const state={me:null,data:null,network:null,networkLoading:false,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:'',reportSection:'resumo'};
+const state={me:null,data:null,network:null,networkLoading:false,networkPeriod:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:'',reportSection:'resumo'};
 let messageTimer=null;
 function element(tag,content,className=''){const node=document.createElement(tag);if(content!==undefined)node.textContent=String(content);if(className)node.className=className;return node;}
 function serviceAlert(show,text='Estamos tentando restabelecer a conexão. Não repita uma venda sem recuperar a operação anterior.'){
@@ -112,13 +112,19 @@ function setView(view){
 }
 const BUSINESS_TIME_ZONE='America/Sao_Paulo';
 const localDay=(value=new Date())=>new Intl.DateTimeFormat('en-CA',{timeZone:BUSINESS_TIME_ZONE,year:'numeric',month:'2-digit',day:'2-digit'}).format(value);
-const dayOffset=days=>{const [year,month,day]=localDay().split('-').map(Number);return localDay(new Date(Date.UTC(year,month-1,day+days,15)));};
+const shiftDay=(value,days)=>{const [year,month,day]=value.split('-').map(Number),next=new Date(Date.UTC(year,month-1,day+days));return `${next.getUTCFullYear()}-${String(next.getUTCMonth()+1).padStart(2,'0')}-${String(next.getUTCDate()).padStart(2,'0')}`;};
+const daysInPeriod=(from,to)=>Math.round((new Date(`${to}T12:00:00Z`)-new Date(`${from}T12:00:00Z`))/86_400_000)+1;
+const displayDay=value=>new Date(`${value}T12:00:00`).toLocaleDateString('pt-BR');
+function presetPeriod(preset){const today=localDay();if(preset==='yesterday'){const day=shiftDay(today,-1);return {preset,from:day,to:day};}if(preset==='7days')return {preset,from:shiftDay(today,-6),to:today};if(preset==='month')return {preset,from:`${today.slice(0,8)}01`,to:today};return {preset:'today',from:today,to:today};}
+function comparisonPeriod(period){const days=daysInPeriod(period.from,period.to);if(days===1){const day=shiftDay(period.from,-7);return {from:day,to:day};}return {from:shiftDay(period.from,-days),to:shiftDay(period.from,-1)};}
+function periodTitle(period){if(period.preset==='today')return `Hoje, ${displayDay(period.from)}`;if(period.preset==='yesterday')return `Ontem, ${displayDay(period.from)}`;if(period.from===period.to)return displayDay(period.from);return `${displayDay(period.from)} a ${displayDay(period.to)}`;}
 const businessHour=value=>Number(new Intl.DateTimeFormat('en-US',{timeZone:BUSINESS_TIME_ZONE,hour:'2-digit',hourCycle:'h23'}).format(new Date(value)));
 async function loadNetwork(){
   if(!manager()||state.networkLoading)return;
+  state.networkPeriod??=presetPeriod('today');
   state.networkLoading=true;$('network-status').textContent='Atualizando';$('network-status').classList.add('loading');
-  try{const today=localDay(),reference=dayOffset(-7);const [current,previous]=await Promise.all([api(`/api/network/overview?from=${today}&to=${today}`),api(`/api/network/overview?from=${reference}&to=${reference}`)]);state.network={current,previous};renderNetwork();}
-  finally{state.networkLoading=false;$('network-status').textContent='Ao vivo';$('network-status').classList.remove('loading');}
+  try{const period=state.networkPeriod,reference=comparisonPeriod(period);const [current,previous]=await Promise.all([api(`/api/network/overview?from=${period.from}&to=${period.to}`),api(`/api/network/overview?from=${reference.from}&to=${reference.to}`)]);state.network={current,previous,period,reference};renderNetwork();}
+  finally{const live=state.networkPeriod?.preset==='today';state.networkLoading=false;$('network-status').textContent=live?'Ao vivo':'Histórico';$('network-status').classList.toggle('history',!live);$('network-status').classList.remove('loading');}
 }
 // Caixa aberto sem venda por mais tempo que isto vira alerta: risco de caixa esquecido aberto.
 const IDLE_ALERT_MS=2*60*60_000;
@@ -131,23 +137,24 @@ function storeAttention(store,now){
   return idle>=IDLE_ALERT_MS?{idle,text:last===null?`${store.name}: caixa aberto e nenhuma venda registrada`:`${store.name}: caixa aberto sem venda há ${elapsed(idle)}`}:null;
 }
 function renderNetwork(){
-  const overview=state.network?.current,previous=state.network?.previous;if(!overview)return;
+  const overview=state.network?.current,previous=state.network?.previous,period=state.network?.period;if(!overview)return;
+  const live=period.preset==='today',comparisonLabel=live?'semana passada':'período anterior';
   const totals=overview.totals,now=new Date(overview.generated_at).getTime(),currentHour=businessHour(overview.generated_at);
   const hasHistory=previous.totals.gross_cents>0;
-  const variation=(value,reference)=>reference?`${value>=reference?'▲':'▼'} ${Math.abs((value-reference)/reference*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}% vs. semana passada`:'';
+  const variation=(value,reference)=>reference?`${value>=reference?'▲':'▼'} ${Math.abs((value-reference)/reference*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}% vs. ${comparisonLabel}`:'';
   const throughHour=(items,hour)=>items.filter(item=>businessHour(item.hour)<=hour).reduce((sum,item)=>sum+item.gross_cents,0);
-  const comparablePrevious=throughHour(previous.hourly??[],currentHour);
+  const comparablePrevious=live?throughHour(previous.hourly??[],currentHour):previous.totals.gross_cents;
   const openStores=overview.stores.filter(store=>store.open_cash_count).length;
-  const summary=[['Vendas líquidas',brl(totals.gross_cents),variation(totals.gross_cents,comparablePrevious),'primary'],['Vendas confirmadas',totals.active_sale_count,''],['Ticket médio',brl(totals.ticket_average_cents),''],['Caixas abertos',totals.open_cash_count,`em ${plural(openStores,'loja','lojas')} de ${overview.stores.length}`]];
+  const summary=[['Vendas líquidas',brl(totals.gross_cents),variation(totals.gross_cents,comparablePrevious),'primary'],['Vendas confirmadas',totals.active_sale_count,''],['Ticket médio',brl(totals.ticket_average_cents),''],live?['Caixas abertos',totals.open_cash_count,`em ${plural(openStores,'loja','lojas')} de ${overview.stores.length}`]:['Canceladas',totals.canceled_sale_count,totals.returned_cents?`${brl(totals.returned_cents)} em devoluções`:'Sem devoluções']];
   $('network-summary').replaceChildren(...summary.map(([label,value,note,kind])=>{const card=element('div',undefined,kind==='primary'?'primary-metric':'');card.append(element('span',label),element('strong',value));if(note)card.append(element('small',note,note.startsWith('▲')?'positive':note.startsWith('▼')?'negative':''));return card;}));
-  $('network-history-note').textContent=hasHistory?'':'A comparação com a semana passada aparece quando houver vendas no mesmo dia da semana anterior.';
+  $('network-history-note').textContent=hasHistory?'':`A comparação aparece quando houver vendas no ${comparisonLabel}.`;
   // Alertas: só exceções que pedem ação. Caixa fechado à noite é normal e não entra aqui.
-  const attention=new Map(overview.stores.map(store=>[store.id,storeAttention(store,now)]));
+  const attention=new Map(overview.stores.map(store=>[store.id,live?storeAttention(store,now):null]));
   const idleAlerts=[...attention.values()].filter(Boolean).sort((a,b)=>b.idle-a.idle);
   const alerts=[...(idleAlerts.length?[{text:`${plural(idleAlerts.length,'loja com caixa aberto','lojas com caixa aberto')} sem venda há mais de 2 horas`,level:'critical'}]:[]),
     ...(totals.canceled_sale_count?[{text:plural(totals.canceled_sale_count,'venda cancelada','vendas canceladas'),level:'warning'}]:[]),
     ...(totals.returned_cents?[{text:`${brl(totals.returned_cents)} em devoluções`,level:'warning'}]:[])];
-  $('network-alerts').classList.toggle('has-alerts',alerts.length>0);
+  $('network-alerts').hidden=!live;$('network-alerts').classList.toggle('has-alerts',alerts.length>0);
   $('network-alerts').replaceChildren(element('strong',alerts.length?'Atenção agora':'Operação sem exceções'),...(alerts.length?alerts.map(alert=>element('span',alert.text,`alert-${alert.level}`)):[element('span','Nenhum caixa parado, cancelamento ou devolução no período.')]));
   const methods=['CASH','PIX','CARD'];
   const paymentData=methods.map(method=>{const payment=overview.payments.find(item=>item.method===method);return {method,amount:payment?.amount_cents??0,count:payment?.sale_count??0};});
@@ -155,11 +162,12 @@ function renderNetwork(){
   const share=item=>`${paymentTotal?Math.round(item.amount/paymentTotal*100):0}%`;
   $('network-payment-bar').replaceChildren(...paymentData.map(item=>{const part=element('span',undefined,`payment-${item.method.toLowerCase()}`);part.style.width=`${paymentTotal?item.amount/paymentTotal*100:0}%`;part.title=`${paymentName(item.method)}: ${brl(item.amount)}`;return part;}));
   $('network-payment-legend').replaceChildren(...paymentData.map(item=>{const row=element('div');const value=element('strong',brl(item.amount));value.append(element('small',share(item)));row.append(element('i',undefined,`payment-${item.method.toLowerCase()}`),element('span',paymentName(item.method)),value);return row;}));
-  const previousStores=new Map(previous.stores.map(store=>[store.id,{...store,gross_cents:throughHour(store.hourly??[],currentHour)}]));
+  const previousStores=new Map(previous.stores.map(store=>[store.id,{...store,gross_cents:live?throughHour(store.hourly??[],currentHour):store.gross_cents}]));
   // Ordem: lojas com alerta primeiro (mais tempo parado no topo), depois por faturamento.
   const stores=[...overview.stores].sort((a,b)=>(attention.get(b.id)?.idle??-1)-(attention.get(a.id)?.idle??-1)||b.gross_cents-a.gross_cents);
   const openStore=store=>run(async()=>{$('store-select').value=store.id;state.cart=[];await refresh();setView('management');});
   const cashLabel=store=>store.open_cash_count?plural(store.open_cash_count,'aberto','abertos'):'Fechados';
+  $('network-cash-heading').textContent=live?'Caixas':'Caixas agora';$('network-order-note').textContent=live?'Ordenado por atenção e faturamento':'Ordenado por faturamento do período';
   document.querySelectorAll('.compare-col').forEach(cell=>{cell.hidden=!hasHistory;});
   const maxStoreGross=Math.max(...stores.map(store=>store.gross_cents),1);
   $('network-store-rows').replaceChildren(...stores.map(store=>{const reference=previousStores.get(store.id),ticket=store.active_sale_count?Math.round(store.gross_cents/store.active_sale_count):0,tr=element('tr');tr.tabIndex=0;if(attention.get(store.id))tr.className='needs-attention';
@@ -168,31 +176,34 @@ function renderNetwork(){
     const cash=element('td',undefined,attention.get(store.id)?'alert-cell':store.open_cash_count?'positive':'muted-cell');cash.append(element('span',cashLabel(store)));if(attention.get(store.id))cash.append(element('small',attention.get(store.id).text.replace(`${store.name}: caixa aberto `,'')));
     tr.append(element('td',store.name),sales,compare,element('td',store.active_sale_count,'number'),element('td',brl(ticket),'number'),cash,element('td',store.last_sale_at?date(store.last_sale_at):'Sem venda'),element('td','Abrir','row-link'));
     tr.addEventListener('click',()=>openStore(store));tr.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openStore(store);}});return tr;}));
-  $('network-store-cards').replaceChildren(...stores.map(store=>{const card=element('button',undefined,`network-store-card${attention.get(store.id)?' needs-attention':''}`);card.type='button';const reference=previousStores.get(store.id),ticket=store.active_sale_count?Math.round(store.gross_cents/store.active_sale_count):0,note=variation(store.gross_cents,reference?.gross_cents??0);card.append(element('strong',store.name),element('b',brl(store.gross_cents)));if(note)card.append(element('span',note,store.gross_cents>=reference.gross_cents?'positive':'negative'));card.append(element('small',`${plural(store.active_sale_count,'venda','vendas')} · ticket ${brl(ticket)} · ${store.open_cash_count?plural(store.open_cash_count,'caixa aberto','caixas abertos'):'caixas fechados'}`));card.addEventListener('click',()=>openStore(store));return card;}));
-  renderCumulative(overview.hourly??[],hasHistory?previous.hourly??[]:[],overview.generated_at);
+  $('network-store-cards').replaceChildren(...stores.map(store=>{const card=element('button',undefined,`network-store-card${attention.get(store.id)?' needs-attention':''}`);card.type='button';const reference=previousStores.get(store.id),ticket=store.active_sale_count?Math.round(store.gross_cents/store.active_sale_count):0,note=variation(store.gross_cents,reference?.gross_cents??0),cashStatus=store.open_cash_count?plural(store.open_cash_count,'caixa aberto','caixas abertos'):'caixas fechados';card.append(element('strong',store.name),element('b',brl(store.gross_cents)));if(note)card.append(element('span',note,store.gross_cents>=reference.gross_cents?'positive':'negative'));card.append(element('small',`${plural(store.active_sale_count,'venda','vendas')} · ticket ${brl(ticket)} · ${cashStatus}${live?'':' agora'}`));card.addEventListener('click',()=>openStore(store));return card;}));
+  renderSalesTrend(overview.hourly??[],hasHistory?previous.hourly??[]:[],overview.generated_at,period,live);
   renderStoreShare(stores);
-  $('network-period').textContent=`Hoje, ${new Date(`${localDay()}T12:00:00`).toLocaleDateString('pt-BR')}`;
-  $('network-updated').textContent=`Atualizado às ${new Date(overview.generated_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
+  $('network-period').textContent=periodTitle(period);$('network-share-note').textContent=`Concentração do faturamento ${live?'de hoje':'no período'}`;
+  $('network-updated').textContent=`Consultado às ${new Date(overview.generated_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
+  document.querySelectorAll('[data-network-period]').forEach(button=>button.classList.toggle('selected',button.dataset.networkPeriod===period.preset));$('network-custom-open').classList.toggle('selected',period.preset==='custom');
 }
 function renderStoreShare(stores){
   const colors=['#0f766e','#0ea5e9','#6366f1','#f59e0b','#ec4899','#94a3b8'];
   const ranked=stores.filter(store=>store.gross_cents>0).sort((a,b)=>b.gross_cents-a.gross_cents),total=ranked.reduce((sum,store)=>sum+store.gross_cents,0),top=ranked.slice(0,5).map(store=>({name:store.name.replace(/^FREDBULL\s*·\s*/,''),amount:store.gross_cents}));
   const others=ranked.slice(5).reduce((sum,store)=>sum+store.gross_cents,0);if(others)top.push({name:'Outras',amount:others});
   const target=$('network-store-share');
-  if(!total){target.replaceChildren(element('p','Nenhuma venda registrada hoje.','muted-cell'));return;}
+  if(!total){target.replaceChildren(element('p','Nenhuma venda registrada no período.','muted-cell'));return;}
   let position=0;const segments=top.map((item,index)=>{const start=position;position+=item.amount/total*100;return `${colors[index]} ${start}% ${position}%`;});
   const donut=element('div',undefined,'store-share-donut');donut.style.background=`conic-gradient(${segments.join(',')})`;const center=element('div');center.append(element('strong','100%'),element('span','da rede'));donut.append(center);
   const legend=element('div',undefined,'store-share-legend');legend.append(...top.map((item,index)=>{const row=element('div');const label=element('span');label.append(element('i',undefined,`share-color-${index}`),document.createTextNode(item.name));row.append(label,element('strong',`${Math.round(item.amount/total*100)}%`));return row;}));
   target.replaceChildren(donut,legend);
 }
 // Curva acumulada no fuso da operação. A referência é comparada somente até a mesma hora.
-function renderCumulative(today,reference,generatedAt){
+function renderSalesTrend(today,reference,generatedAt,period,live){
+  if(daysInPeriod(period.from,period.to)>1)return renderDailyTrend(today,reference,period);
   const byHour=list=>{const map=new Map();for(const item of list){const hour=businessHour(item.hour);map.set(hour,(map.get(hour)??0)+item.gross_cents);}return map;};
   const current=byHour(today),past=byHour(reference),currentHour=businessHour(generatedAt),first=7,last=23;
   const chart=$('network-hourly');
-  if(!today.length&&!reference.length){chart.replaceChildren(element('p','Nenhuma venda registrada hoje.','muted-cell'));$('network-hourly-note').textContent='Vendas líquidas acumuladas';return;}
+  $('network-chart-title').textContent='Vendas acumuladas';$('network-current-legend').textContent=period.preset==='today'?'Hoje':displayDay(period.from);$('network-reference-legend').textContent='Semana anterior';
+  if(!today.length&&!reference.length){chart.replaceChildren(element('p','Nenhuma venda registrada no período.','muted-cell'));$('network-hourly-note').textContent='Vendas líquidas acumuladas';return;}
   const cumulative=(map,limit=last)=>{let total=0;const result=[];for(let hour=first;hour<=last;hour++){total+=map.get(hour)??0;if(hour<=limit)result.push({hour,total});}return result;};
-  const todayPoints=cumulative(current,Math.min(currentHour,last)),pastPoints=reference.length?cumulative(past):[],max=Math.max(...todayPoints.map(item=>item.total),...pastPoints.map(item=>item.total),1);
+  const todayPoints=cumulative(current,live?Math.min(currentHour,last):last),pastPoints=reference.length?cumulative(past):[],max=Math.max(...todayPoints.map(item=>item.total),...pastPoints.map(item=>item.total),1);
   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 320 150');svg.setAttribute('preserveAspectRatio','none');svg.setAttribute('role','img');svg.setAttribute('aria-label','Vendas acumuladas de hoje e do mesmo dia da semana passada');
   const node=(name,attributes={})=>{const value=document.createElementNS('http://www.w3.org/2000/svg',name);for(const [key,item] of Object.entries(attributes))value.setAttribute(key,item);return value;};
   const x=hour=>12+(hour-first)/(last-first)*296,y=value=>128-value/max*105;
@@ -201,8 +212,22 @@ function renderCumulative(today,reference,generatedAt){
   line(pastPoints,'cumulative-reference');line(todayPoints,'cumulative-today');
   for(const hour of [7,11,15,19,23]){const label=node('text',{x:x(hour),y:146,class:'chart-label','text-anchor':'middle'});label.textContent=`${String(hour).padStart(2,'0')}h`;svg.append(label);}
   chart.replaceChildren(svg);
-  const currentTotal=todayPoints.at(-1)?.total??0,referenceNow=pastPoints.find(item=>item.hour===Math.min(currentHour,last))?.total??0,difference=currentTotal-referenceNow;
-  $('network-hourly-note').textContent=reference.length?`${difference>=0?'À frente':'Atrás'} em ${brl(Math.abs(difference))} neste horário.`:'Referência disponível após o primeiro ciclo semanal.';
+  const comparisonHour=live?Math.min(currentHour,last):last,currentTotal=todayPoints.at(-1)?.total??0,referenceNow=pastPoints.find(item=>item.hour===comparisonHour)?.total??pastPoints.at(-1)?.total??0,difference=currentTotal-referenceNow;
+  $('network-hourly-note').textContent=reference.length?`${difference>=0?'À frente':'Atrás'} em ${brl(Math.abs(difference))}${live?' neste horário.':'.'}`:'Referência disponível quando houver vendas na semana anterior.';
+}
+function renderDailyTrend(currentItems,referenceItems,period){
+  const dates=[],days=daysInPeriod(period.from,period.to);for(let index=0;index<days;index++)dates.push(shiftDay(period.from,index));
+  const totals=list=>{const map=new Map();for(const item of list){const day=localDay(new Date(item.hour));map.set(day,(map.get(day)??0)+item.gross_cents);}return map;};
+  const current=totals(currentItems),reference=totals(referenceItems),currentPoints=dates.map((day,index)=>({index,total:current.get(day)??0}));
+  const referenceStart=comparisonPeriod(period).from,referencePoints=dates.map((_,index)=>({index,total:reference.get(shiftDay(referenceStart,index))??0})),max=Math.max(...currentPoints.map(item=>item.total),...referencePoints.map(item=>item.total),1),chart=$('network-hourly');
+  $('network-chart-title').textContent='Vendas por dia';$('network-current-legend').textContent='Período selecionado';$('network-reference-legend').textContent='Período anterior';
+  if(!currentItems.length&&!referenceItems.length){chart.replaceChildren(element('p','Nenhuma venda registrada nos períodos.','muted-cell'));$('network-hourly-note').textContent='Totais líquidos por dia';return;}
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 320 150');svg.setAttribute('preserveAspectRatio','none');svg.setAttribute('role','img');svg.setAttribute('aria-label','Vendas líquidas por dia contra o período anterior');
+  const node=(name,attributes={})=>{const value=document.createElementNS('http://www.w3.org/2000/svg',name);for(const [key,item] of Object.entries(attributes))value.setAttribute(key,item);return value;},x=index=>days===1?160:12+index/(days-1)*296,y=value=>128-value/max*105;
+  for(const fraction of [0,.5,1])svg.append(node('line',{x1:12,y1:y(max*fraction),x2:308,y2:y(max*fraction),class:'chart-grid'}));
+  const line=(items,className)=>svg.append(node('polyline',{points:items.map(item=>`${x(item.index)},${y(item.total)}`).join(' '),class:className}));line(referencePoints,'cumulative-reference');line(currentPoints,'cumulative-today');
+  const indexes=[0,Math.floor((days-1)/2),days-1].filter((value,index,list)=>list.indexOf(value)===index);for(const index of indexes){const label=node('text',{x:x(index),y:146,class:'chart-label','text-anchor':'middle'});label.textContent=displayDay(dates[index]).slice(0,5);svg.append(label);}chart.replaceChildren(svg);
+  const currentTotal=currentPoints.reduce((sum,item)=>sum+item.total,0),referenceTotal=referencePoints.reduce((sum,item)=>sum+item.total,0),difference=currentTotal-referenceTotal;$('network-hourly-note').textContent=referenceItems.length?`${difference>=0?'À frente':'Atrás'} em ${brl(Math.abs(difference))} no período.`:'Referência disponível quando houver vendas no período anterior.';
 }
 function renderSearch(){
   const query=$('search').value.trim().toLowerCase();$('search-results').replaceChildren();
@@ -677,6 +702,11 @@ $('print').addEventListener('click',()=>window.print());
 $('cash-gate-action').addEventListener('click',()=>setView('cash'));
 document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
 document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
+document.querySelectorAll('[data-network-period]').forEach(button=>button.addEventListener('click',()=>{
+  if(state.networkLoading)return;state.networkPeriod=presetPeriod(button.dataset.networkPeriod);$('network-custom-period').hidden=true;run(loadNetwork);
+}));
+$('network-custom-open').addEventListener('click',()=>{const form=$('network-custom-period'),today=localDay();form.hidden=!form.hidden;$('network-from').max=today;$('network-to').max=today;const period=state.networkPeriod??presetPeriod('today');$('network-from').value=period.from;$('network-to').value=period.to;});
+$('network-custom-period').addEventListener('submit',event=>{event.preventDefault();if(state.networkLoading)return;const from=$('network-from').value,to=$('network-to').value,today=localDay();if(!from||!to||from>to)return message('Informe um período válido.');if(to>today)return message('O período não pode terminar no futuro.');if(daysInPeriod(from,to)>366)return message('O período máximo é de 366 dias.');state.networkPeriod={preset:'custom',from,to};event.currentTarget.hidden=true;run(loadNetwork);});
 document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>run(async()=>{state.tab=b.dataset.tab;$('management-search').value='';document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('selected',button===b));if(state.tab==='reports')await loadReport();renderManagement();})));
 $('management-search').addEventListener('input',renderManagement);
 document.addEventListener('keydown',event=>{
@@ -687,6 +717,6 @@ document.addEventListener('keydown',event=>{
   if(event.key==='Escape'&&!document.querySelector('dialog[open]')&&state.cart.length){event.preventDefault();clearSale();}
 });
 boot().catch(error=>{if(error.status!==401)$('login-error').textContent=error.message;});
-setInterval(()=>{if(state.me&&state.view==='network'&&document.visibilityState==='visible')run(loadNetwork);},5000);
+setInterval(()=>{if(state.me&&state.view==='network'&&state.networkPeriod?.preset==='today'&&document.visibilityState==='visible')run(loadNetwork);},5000);
 
 $('mfa-dialog').addEventListener('close',()=>{$('mfa-qr').removeAttribute('src');$('mfa-secret').value='';if(state.mfaRequired)api('/api/logout',{method:'POST',body:'{}'}).finally(()=>location.reload());});
