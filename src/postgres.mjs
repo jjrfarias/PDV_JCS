@@ -1,4 +1,6 @@
 import pg from 'pg';
+import { createHash } from 'node:crypto';
+import { readdir, readFile } from 'node:fs/promises';
 
 const { Pool } = pg;
 
@@ -11,6 +13,24 @@ export function createPostgresPool(connectionString = process.env.DATABASE_URL) 
     connectionTimeoutMillis: 10_000,
     ssl: process.env.PGSSL === 'require' ? { rejectUnauthorized: false } : undefined
   });
+}
+
+// Recusa subir quando o código espera migrations que o banco não tem, ou quando uma migration aplicada foi editada.
+// Com a verificação de saúde da Railway, a versão antiga continua no ar até as migrations serem aplicadas.
+export async function assertMigrationsApplied(pool, dir = new URL('../migrations/', import.meta.url)) {
+  const files = (await readdir(dir)).filter(name => /^\d+_.+\.sql$/.test(name)).sort();
+  const applied = new Map((await pool.query('SELECT version, checksum FROM schema_migrations')).rows.map(row => [row.version, row.checksum]));
+  const pending = [], changed = [];
+  for (const file of files) {
+    const version = file.slice(0, -4);
+    if (!applied.has(version)) { pending.push(version); continue; }
+    const expected = applied.get(version);
+    const actual = createHash('sha256').update((await readFile(new URL(file, dir), 'utf8')).replace(/\r\n/g, '\n')).digest('hex');
+    if (expected && expected !== actual) changed.push(version);
+  }
+  if (pending.length) throw new Error(`Migrations pendentes no banco: ${pending.join(', ')}. Aplique com npm run migrate:postgres antes do deploy.`);
+  if (changed.length) throw new Error(`Migrations aplicadas foram editadas no código: ${changed.join(', ')}. Restaure o conteúdo aplicado e crie uma migration nova.`);
+  return files.length;
 }
 
 export async function validatePostgresRuntime(pool) {

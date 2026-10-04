@@ -1,6 +1,6 @@
 ﻿import { resolve } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { createPostgresPool, validatePostgresRuntime } from './postgres.mjs';
+import { assertMigrationsApplied, createPostgresPool, validatePostgresRuntime } from './postgres.mjs';
 import { createApp } from './http.mjs';
 
 const [major,minor]=process.versions.node.split('.').map(Number);
@@ -16,6 +16,7 @@ let accessFile;
 if(usePostgres) {
   db=createPostgresPool();
   await validatePostgresRuntime(db);
+  await assertMigrationsApplied(db);
   closeDb=()=>db.end();
 } else {
   const [{ connect }, { seedDemo }] = await Promise.all([
