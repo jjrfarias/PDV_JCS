@@ -307,7 +307,8 @@ export class Auth {
   }
   async beginMfa(ctx) {
     const postgres=typeof this.db.query==='function';
-    const user=postgres?await one(this.db,'SELECT email,role FROM users WHERE tenant_id=$1 AND id=$2',[ctx.tenantId,ctx.userId])
+    // Com RLS, a consulta precisa do tenant da sessão; sem ele o banco não devolve linha nenhuma.
+    const user=postgres?await withPostgresTransaction(this.db,client=>one(client,'SELECT email,role FROM users WHERE tenant_id=$1 AND id=$2',[ctx.tenantId,ctx.userId]),{tenantId:ctx.tenantId,userId:ctx.userId,readOnly:true})
       :this.db.prepare('SELECT email,role FROM users WHERE tenant_id=? AND id=?').get(ctx.tenantId,ctx.userId);
     requireThat(user?.role==='MANAGER',403,'MANAGER_REQUIRED','Apenas gerentes podem ativar MFA.');
     const secret=totpSecret(),encrypted=encryptField(secret);
