@@ -44,6 +44,8 @@ Guarde `JCS_FIELD_ENCRYPTION_KEY` em cofre/backup seguro. Perder essa chave torn
 
 ## Migrations
 
+Consulte `docs/BACKUP-E-RESTAURACAO.md` para a proteção ativa, a evidência do teste real de restauração e as pendências de recuperação.
+
 As migrations ficam em `migrations/` e sao aplicadas por:
 
 ```powershell
