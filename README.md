@@ -76,7 +76,9 @@ O operador `operador@jcs.local` tem acesso apenas à Loja A e não pode conceder
 
 Não há emissão de NFC-e/NF-e, PIX automático, cartão integrado, TEF, integração de maquininha, certificado digital, impressora fiscal, contas a pagar/receber, troca por outro produto no mesmo fluxo, inventário completo, transferência entre lojas, sincronização com nuvem, gestão consolidada de várias máquinas, contingência fiscal, empacotamento Electron, instalador comercial, restauração/backup homologado nem atualização automática.
 
-A autenticação não tem redefinição de senha por e-mail, troca obrigatória no primeiro login, MFA ou vínculo a múltiplas lojas pela tela. O usuário autenticado consegue alterar a própria senha, e gerentes conseguem administrar usuários da loja selecionada. Os usuários iniciais são criados por seed ou provisionamento operacional. A autorização do gerente significa **o próprio gerente autenticado concede o desconto**; não há fluxo de aprovação por senha do supervisor em uma venda de outro operador.
+A autenticação possui redefinição de senha por e-mail quando o provedor está configurado, mas ainda não tem troca obrigatória no primeiro login nem MFA. O usuário autenticado consegue alterar a própria senha, gerentes administram usuários da loja selecionada e o convite do primeiro gerente é enviado por e-mail. A autorização do gerente significa **o próprio gerente autenticado concede o desconto**; não há fluxo de aprovação por senha do supervisor em uma venda de outro operador.
+
+O Aviso de Privacidade está disponível em `/privacidade`. Os procedimentos internos de segurança, retenção e resposta a incidentes ficam em `docs/SEGURANCA-E-PRIVACIDADE.md` e `docs/RESPOSTA-A-INCIDENTES.md`. Os dados jurídicos e o canal formal de privacidade precisam ser preenchidos no contrato e no aviso antes da expansão comercial.
 
 ## Decisão técnica desta entrega
 

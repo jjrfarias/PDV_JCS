@@ -10,6 +10,7 @@ const ASSETS=new Map([
   ['/app.mjs',['app.mjs','text/javascript; charset=utf-8']],
   ['/money.mjs',['money.mjs','text/javascript; charset=utf-8']],
   ['/style.css',['style.css','text/css; charset=utf-8']],
+  ['/privacidade',['privacy.html','text/html; charset=utf-8']],
   ['/admin',['admin.html','text/html; charset=utf-8']],
   ['/admin.mjs',['admin.mjs','text/javascript; charset=utf-8']]
 ].map(([route,[file,type]])=>[route,{type,body:readFileSync(new URL(`../public/${file}`,import.meta.url))}]));
@@ -81,10 +82,14 @@ export function createApp(db,{mailer}={}) {
     res.setHeader('X-Frame-Options','DENY');
     res.setHeader('Referrer-Policy','no-referrer');
     res.setHeader('Cache-Control','no-store');
+    res.setHeader('Permissions-Policy','camera=(), geolocation=(), microphone=(), payment=(), usb=()');
+    res.setHeader('Cross-Origin-Opener-Policy','same-origin');
+    res.setHeader('Cross-Origin-Resource-Policy','same-origin');
     res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'");
     try {
       const port=server.address()?.port;
       const production=process.env.NODE_ENV==='production';
+      if(production) res.setHeader('Strict-Transport-Security','max-age=31536000; includeSubDomains');
       const configuredHosts=[
         ...(process.env.ALLOWED_HOSTS??'').split(',').map(host=>host.trim()).filter(Boolean),
         process.env.PUBLIC_ORIGIN ? new URL(process.env.PUBLIC_ORIGIN).host : '',

@@ -183,6 +183,8 @@ fieldset{border:0;margin:0;padding:0;min-width:0}
 .report-controls label{margin:0;min-width:160px}
 .report-block h2{margin:18px 22px 8px}
 footer{margin:16px clamp(14px,1.6vw,28px);font-size:11px;color:#64748b;display:flex;justify-content:space-between;font-weight:700}
+footer a,.privacy-link a{color:var(--brand-strong);text-underline-offset:2px}.privacy-link{margin:4px 0 0;font-size:12px;color:var(--muted)}
+.privacy-page{max-width:900px;margin:0 auto;padding:40px 24px 72px;color:var(--ink)}.privacy-page header{position:static;height:auto;border:0;padding:0;margin-bottom:32px;display:block}.privacy-page h1{font-size:clamp(32px,5vw,48px);margin:14px 0 8px}.privacy-page h2{font-size:21px;margin:32px 0 10px}.privacy-page p,.privacy-page li{line-height:1.65;color:#334155}.privacy-page ul{padding-left:22px}.privacy-page .privacy-meta{padding:14px 16px;background:#f1f5f9;border-radius:10px}.privacy-page .back-link{display:inline-block;margin-top:26px;color:var(--brand-strong);font-weight:800}
 dialog{border:1px solid var(--line);border-radius:16px;padding:28px;max-width:520px;width:calc(100% - 30px);max-height:90vh;overflow:auto;box-shadow:0 24px 90px #0f172a38}
 dialog::backdrop{background:#0f172a99}
 .dialog-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:22px}

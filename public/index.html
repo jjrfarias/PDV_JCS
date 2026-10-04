@@ -12,6 +12,7 @@
       <button id="forgot-open" class="ghost forgot-link" type="button">Esqueci minha senha</button>
       <p id="login-notice" class="login-notice" role="status"></p>
       <p id="login-error" role="alert"></p>
+      <p class="privacy-link">Ao acessar, consulte nosso <a href="/privacidade" target="_blank" rel="noopener">Aviso de Privacidade</a>.</p>
     </form>
   </main>
   <div id="workspace" hidden>
@@ -57,7 +58,7 @@
       <div id="management-summary" class="management-summary"></div>
       <div id="management-content" class="table-wrap"></div>
     </section>
-    <footer>Jordão Consultoria e Soluções · PDV JCS <span>Produção · PostgreSQL · Fiscal desativado</span></footer>
+    <footer><span>Jordão Consultoria e Soluções · PDV JCS · <a href="/privacidade" target="_blank" rel="noopener">Privacidade</a></span><span>Produção · PostgreSQL · Fiscal desativado</span></footer>
   </div>
   <dialog id="open-dialog"><form id="open-form"><h2>Abrir caixa</h2><p id="open-description"></p><label>Fundo inicial em centavos<input name="opening" class="money-input" value="10000" inputmode="numeric" pattern="[0-9]*" placeholder="Ex.: 10000 = R$ 100,00" required><span class="money-preview">R$ 100,00</span></label><div class="dialog-actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Confirmar abertura</button></div></form></dialog>
   <dialog id="cash-move-dialog"><form id="cash-move-form"><h2 id="cash-move-title">Movimentar caixa</h2><p id="cash-move-description"></p><input name="kind" type="hidden"><label>Valor em centavos<input name="amount" class="money-input" inputmode="numeric" pattern="[0-9]*" placeholder="Ex.: 5000 = R$ 50,00" required><span class="money-preview">R$ 0,00</span></label><label>Motivo<input name="reason" maxlength="200" minlength="3" required placeholder="Ex.: sangria para cofre"></label><div class="dialog-actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Confirmar movimento</button></div></form></dialog>

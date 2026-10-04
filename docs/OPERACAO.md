@@ -140,7 +140,7 @@ A conta nasce sem senha utilizável. O administrador abre `/admin`, usa "Esqueci
 
 - Fiscal ainda desativado: sem NFC-e/NF-e.
 - Sem PIX automático, TEF, cartão integrado ou impressora fiscal. PIX/cartão são apenas registro manual após confirmação externa.
-- Sem tela administrativa completa de usuarios, redefinicao de senha por e-mail ou MFA. O usuario autenticado consegue trocar a propria senha, e gerente consegue cadastrar usuario para a loja selecionada.
+- A redefinicao de senha e os convites por e-mail dependem da configuracao do provedor. Ainda nao ha MFA nem troca obrigatoria no primeiro login.
 - Sem backup/restauracao homologados registrados neste repositorio.
 - A senha inicial salva em `.codex-validation/` e local e nao deve ser commitada.
 

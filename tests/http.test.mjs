@@ -31,6 +31,17 @@ test('HTTP 01 · login emite cookie HttpOnly/SameSite e sessão não vai ao JSON
   const me=await w.call('/api/me');assert.equal(me.data.user.role,'MANAGER');assert.equal(me.data.stores.length,2);
 });
 
+test('HTTP 01.1 · aviso de privacidade e cabeçalhos defensivos são públicos',async t=>{
+  const w=await web(t),result=await w.call('/privacidade',{method:'GET'});
+  assert.equal(result.response.status,200);
+  assert.match(result.data,/Aviso de Privacidade/);
+  assert.equal(result.response.headers.get('x-frame-options'),'DENY');
+  assert.equal(result.response.headers.get('cross-origin-opener-policy'),'same-origin');
+  assert.equal(result.response.headers.get('cross-origin-resource-policy'),'same-origin');
+  assert.match(result.response.headers.get('permissions-policy'),/camera=\(\)/);
+  assert.equal(result.response.headers.get('strict-transport-security'),null);
+});
+
 test('HTTP 17 - gerente cancela venda confirmada por rota idempotente',async t=>{
   const w=await web(t);await w.login();
   const cash=await w.call('/api/cash/open',{method:'POST',headers:{'Idempotency-Key':key()},body:{storeId:DEMO.storeA,terminalId:DEMO.terminalA,openingCents:10000}});
