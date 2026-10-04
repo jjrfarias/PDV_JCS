@@ -9,7 +9,7 @@ export function connect(filename) {
   const db = new DatabaseSync(filename);
   db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 16) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
+  if (version > 17) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
   if (version === 0) {
     transaction(db, () => {
       if (db.prepare('PRAGMA user_version').get().user_version !== 0) return;
@@ -262,6 +262,16 @@ export function connect(filename) {
       const columns = new Set(db.prepare('PRAGMA table_info(stores)').all().map(column => column.name));
       if (!columns.has('active')) db.exec('ALTER TABLE stores ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))');
       db.exec('PRAGMA user_version=16;');
+    });
+  }
+  if (version <= 16) {
+    transaction(db, () => {
+      if (db.prepare('PRAGMA user_version').get().user_version !== 16) return;
+      const columns = new Set(db.prepare('PRAGMA table_info(memberships)').all().map(column => column.name));
+      if (!columns.has('role')) db.exec("ALTER TABLE memberships ADD COLUMN role TEXT NOT NULL DEFAULT 'CASHIER' CHECK(role IN ('MANAGER','CASHIER'))");
+      if (!columns.has('active')) db.exec('ALTER TABLE memberships ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))');
+      db.exec('UPDATE memberships SET role=(SELECT u.role FROM users u WHERE u.tenant_id=memberships.tenant_id AND u.id=memberships.user_id)');
+      db.exec('PRAGMA user_version=17;');
     });
   }
   return db;

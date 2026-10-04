@@ -68,15 +68,17 @@ export class Pos {
   }
   authorize(ctx, storeId) {
     const user = this.user(ctx);
-    requireThat(this.one('SELECT 1 FROM memberships WHERE tenant_id=? AND user_id=? AND store_id=?',ctx.tenantId,ctx.userId,storeId),403,'STORE_FORBIDDEN','Você não tem acesso a esta loja.');
+    const membership=this.one('SELECT role FROM memberships WHERE tenant_id=? AND user_id=? AND store_id=? AND active=1',ctx.tenantId,ctx.userId,storeId);
+    requireThat(membership,403,'STORE_FORBIDDEN','Você não tem acesso a esta loja.');
     // Loja desativada não opera: venda, caixa, estoque e cadastros ficam bloqueados.
     requireThat(this.one('SELECT 1 FROM stores WHERE tenant_id=? AND id=? AND active=1',ctx.tenantId,storeId),403,'STORE_INACTIVE','Esta loja está desativada.');
-    return user;
+    // O perfil vale só para esta loja; account_role é o resumo da conta.
+    return {...user,account_role:user.role,role:membership.role};
   }
   me(ctx) {
     return { user:this.user(ctx), tenantId:ctx.tenantId,
-      stores:this.all(`SELECT s.id,s.name FROM stores s JOIN memberships m ON m.tenant_id=s.tenant_id AND m.store_id=s.id
-        WHERE m.tenant_id=? AND m.user_id=? AND s.active=1 ORDER BY s.name`,ctx.tenantId,ctx.userId) };
+      stores:this.all(`SELECT s.id,s.name,m.role FROM stores s JOIN memberships m ON m.tenant_id=s.tenant_id AND m.store_id=s.id
+        WHERE m.tenant_id=? AND m.user_id=? AND m.active=1 AND s.active=1 ORDER BY s.name`,ctx.tenantId,ctx.userId) };
   }
   audit(ctx, storeId, action, entityId, details) {
     this.run('INSERT INTO audit_events VALUES(?,?,?,?,?,?,?,?)',ctx.tenantId,randomUUID(),ctx.userId,storeId,action,entityId,JSON.stringify(details),now());
@@ -165,7 +167,7 @@ export class Pos {
       this.run('INSERT INTO stores(tenant_id,id,company_id,name) VALUES(?,?,?,?)',ctx.tenantId,ids.storeId,company.id,input.name);
       this.run('INSERT INTO terminals(tenant_id,store_id,id,name) VALUES(?,?,?,?)',ctx.tenantId,ids.storeId,ids.terminalId,'Caixa 01');
       this.run("INSERT INTO users(tenant_id,id,email,name,password_hash,role,company_admin) VALUES(?,?,?,?,?,'MANAGER',0)",ctx.tenantId,ids.managerId,input.managerEmail,input.managerName,hashPassword(inviteToken));
-      this.run('INSERT INTO memberships VALUES(?,?,?)',ctx.tenantId,ctx.userId,ids.storeId);this.run('INSERT INTO memberships VALUES(?,?,?)',ctx.tenantId,ids.managerId,ids.storeId);
+      this.run("INSERT INTO memberships(tenant_id,user_id,store_id,role) VALUES(?,?,?,'MANAGER')",ctx.tenantId,ctx.userId,ids.storeId);this.run("INSERT INTO memberships(tenant_id,user_id,store_id,role) VALUES(?,?,?,'MANAGER')",ctx.tenantId,ids.managerId,ids.storeId);
       this.run('INSERT INTO stock(tenant_id,store_id,product_id,quantity) SELECT tenant_id,?,id,0 FROM products WHERE tenant_id=?',ids.storeId,ctx.tenantId);
       this.run('INSERT INTO password_resets(tenant_id,id,user_id,token_hash,expires_at,created_at) VALUES(?,?,?,?,?,?)',ctx.tenantId,ids.resetId,ids.managerId,sha256(inviteToken),createdAt+INVITE_TTL_MS,createdAt);
       this.audit(ctx,ids.storeId,'STORE_CREATED',ids.storeId,{terminalId:ids.terminalId,managerId:ids.managerId});
@@ -209,6 +211,13 @@ export class Pos {
       return {id:input.productId,sku:input.sku,barcode:input.barcode,name:input.name,price_cents:input.priceCents,active:input.active};
     });
   }
+  // Resumo da conta: gerente se for gerente em alguma loja ativa; conta inativa se não restar loja.
+  syncAccount(tenantId,userId) {
+    this.run(`UPDATE users SET
+      role=CASE WHEN EXISTS(SELECT 1 FROM memberships m WHERE m.tenant_id=users.tenant_id AND m.user_id=users.id AND m.active=1 AND m.role='MANAGER') THEN 'MANAGER' ELSE 'CASHIER' END,
+      active=CASE WHEN EXISTS(SELECT 1 FROM memberships m WHERE m.tenant_id=users.tenant_id AND m.user_id=users.id AND m.active=1) THEN 1 ELSE 0 END
+      WHERE tenant_id=? AND id=?`,tenantId,userId);
+  }
   createUser(ctx,key,raw) {
     object(raw,['storeId','email','name','role','temporaryPassword']);
     const input={storeId:id(raw.storeId),email:text(raw.email,'E-mail',120).toLowerCase(),name:text(raw.name,'Nome',120),
@@ -219,13 +228,22 @@ export class Pos {
       400,'WEAK_PASSWORD','A senha temporária deve ter 12 caracteres, com letras maiúsculas, minúsculas e número.');
     return this.mutate(ctx,'USER_CREATE',key,input,user => {
       requireThat(user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente cadastra usuários.');
-      requireThat(!this.one('SELECT 1 FROM users WHERE tenant_id=? AND email=?',ctx.tenantId,input.email),409,'DUPLICATE_USER','E-mail já cadastrado.');
+      const existing=this.one('SELECT id,name,email,active,company_admin FROM users WHERE tenant_id=? AND email=?',ctx.tenantId,input.email);
+      if(existing){
+        // Pessoa já existe na empresa: ganha acesso a esta loja com o perfil escolhido. Senha e nome não mudam.
+        requireThat(!this.one('SELECT 1 FROM memberships WHERE tenant_id=? AND user_id=? AND store_id=?',ctx.tenantId,existing.id,input.storeId),409,'DUPLICATE_USER','Esta pessoa já está vinculada a esta loja. Use Editar.');
+        requireThat(existing.active===1,409,'USER_INACTIVE','Esta conta está desativada. Fale com o administrador da empresa.');
+        this.run('INSERT INTO memberships(tenant_id,user_id,store_id,role) VALUES(?,?,?,?)',ctx.tenantId,existing.id,input.storeId,input.role);
+        this.syncAccount(ctx.tenantId,existing.id);
+        this.audit(ctx,input.storeId,'USER_LINKED',existing.id,{role:input.role});
+        return {id:existing.id,email:existing.email,name:existing.name,role:input.role,active:1,storeId:input.storeId,linked:true};
+      }
       const userId=randomUUID();
       this.run('INSERT INTO users(tenant_id,id,email,name,password_hash,role,active) VALUES(?,?,?,?,?,?,1)',
         ctx.tenantId,userId,input.email,input.name,hashPassword(input.temporaryPassword),input.role);
-      this.run('INSERT INTO memberships VALUES(?,?,?)',ctx.tenantId,userId,input.storeId);
+      this.run('INSERT INTO memberships(tenant_id,user_id,store_id,role) VALUES(?,?,?,?)',ctx.tenantId,userId,input.storeId,input.role);
       this.audit(ctx,input.storeId,'USER_CREATED',userId,{email:input.email,role:input.role});
-      return {id:userId,email:input.email,name:input.name,role:input.role,active:1,storeId:input.storeId};
+      return {id:userId,email:input.email,name:input.name,role:input.role,active:1,storeId:input.storeId,linked:false};
     });
   }
   updateUser(ctx,key,raw) {
@@ -239,23 +257,32 @@ export class Pos {
       400,'WEAK_PASSWORD','A senha temporária deve ter 12 caracteres, com letras maiúsculas, minúsculas e número.');
     return this.mutate(ctx,'USER_UPDATE',key,input,user => {
       requireThat(user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente altera usuários.');
-      const current=this.one(`SELECT u.id,u.role,u.company_admin FROM users u JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
+      const current=this.one(`SELECT u.id,u.name,u.email,u.company_admin,m.role,m.active FROM users u JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
         WHERE u.tenant_id=? AND u.id=? AND m.store_id=?`,ctx.tenantId,input.userId,input.storeId);
       requireThat(current,404,'USER_NOT_FOUND','Usuário não encontrado nesta loja.');
       requireThat(current.company_admin!==1,403,'COMPANY_ADMIN_PROTECTED','O administrador da empresa não pode ser alterado pela gestão da loja.');
-      requireThat(!(input.userId===ctx.userId&&input.active===0),400,'SELF_DEACTIVATE_FORBIDDEN','Não é permitido inativar seu próprio usuário.');
+      requireThat(!(input.userId===ctx.userId&&input.active===0),400,'SELF_DEACTIVATE_FORBIDDEN','Não é permitido remover seu próprio acesso.');
       requireThat(!(input.userId===ctx.userId&&input.role!=='MANAGER'),400,'SELF_ROLE_CHANGE_FORBIDDEN','Não é permitido remover seu próprio perfil de gerente.');
+      const identityChanged=input.email!==current.email||input.name!==current.name||Boolean(input.temporaryPassword);
+      if(identityChanged&&user.company_admin!==1){
+        // Nome, e-mail e senha são da pessoa: só muda quem gerencia todas as lojas dela.
+        const elsewhere=this.one(`SELECT 1 FROM memberships o WHERE o.tenant_id=? AND o.user_id=? AND o.store_id<>? AND o.active=1
+          AND NOT EXISTS(SELECT 1 FROM memberships e WHERE e.tenant_id=o.tenant_id AND e.user_id=? AND e.store_id=o.store_id AND e.active=1 AND e.role='MANAGER')`,
+          ctx.tenantId,input.userId,input.storeId,ctx.userId);
+        requireThat(!elsewhere,403,'USER_SHARED','Esta pessoa também trabalha em outra loja. Nome, e-mail e senha só podem ser alterados pelo administrador da empresa.');
+      }
       requireThat(!this.one('SELECT 1 FROM users WHERE tenant_id=? AND email=? AND id<>?',ctx.tenantId,input.email,input.userId),409,'DUPLICATE_USER','E-mail já cadastrado.');
       const passwordHash=input.temporaryPassword?hashPassword(input.temporaryPassword):null;
-      if(passwordHash) this.run('UPDATE users SET email=?,name=?,role=?,active=?,password_hash=? WHERE tenant_id=? AND id=?',
-        input.email,input.name,input.role,input.active,passwordHash,ctx.tenantId,input.userId);
-      else this.run('UPDATE users SET email=?,name=?,role=?,active=? WHERE tenant_id=? AND id=?',
-        input.email,input.name,input.role,input.active,ctx.tenantId,input.userId);
-      if(passwordHash||input.active===0||current.role!==input.role) this.run('DELETE FROM sessions WHERE tenant_id=? AND user_id=?',ctx.tenantId,input.userId);
-      this.audit(ctx,input.storeId,'USER_UPDATED',input.userId,{role:input.role,active:input.active,passwordReset:Boolean(passwordHash)});
+      if(identityChanged) this.run('UPDATE users SET email=?,name=? WHERE tenant_id=? AND id=?',input.email,input.name,ctx.tenantId,input.userId);
+      if(passwordHash) this.run('UPDATE users SET password_hash=? WHERE tenant_id=? AND id=?',passwordHash,ctx.tenantId,input.userId);
+      this.run('UPDATE memberships SET role=?,active=? WHERE tenant_id=? AND user_id=? AND store_id=?',input.role,input.active,ctx.tenantId,input.userId,input.storeId);
+      this.syncAccount(ctx.tenantId,input.userId);
+      if(passwordHash||input.active!==current.active||current.role!==input.role) this.run('DELETE FROM sessions WHERE tenant_id=? AND user_id=?',ctx.tenantId,input.userId);
+      this.audit(ctx,input.storeId,'USER_UPDATED',input.userId,{role:input.role,access:input.active,identityChanged,passwordReset:Boolean(passwordHash)});
       return {id:input.userId,email:input.email,name:input.name,role:input.role,active:input.active,storeId:input.storeId,passwordReset:Boolean(passwordHash)};
     });
   }
+
   customerRow(row) {
     return row ? {id:row.id,store_id:row.store_id,name:decryptField(row.name_enc),
       document:decryptField(row.document_enc),phone:decryptField(row.phone_enc),email:decryptField(row.email_enc),
@@ -609,7 +636,9 @@ export class Pos {
   }
   networkOverview(ctx,from,to) {
     const me=this.me(ctx);
-    requireThat(me.user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente acompanha a rede de lojas.');
+    // A rede mostra só as lojas em que a pessoa é gerente.
+    me.stores=me.stores.filter(store=>store.role==='MANAGER');
+    requireThat(me.stores.length>0,403,'MANAGER_REQUIRED','Somente gerente acompanha a rede de lojas.');
     const sales=[];
     const stores=me.stores.map(store=>{
       const report=this.report(ctx,store.id,from,to);
@@ -633,15 +662,18 @@ export class Pos {
   }
   state(ctx,storeId) {
     id(storeId);
-    this.authorize(ctx,storeId);
+    const storeUser=this.authorize(ctx,storeId);
     const open=this.all("SELECT id FROM cash_sessions WHERE tenant_id=? AND store_id=? AND status='OPEN' ORDER BY terminal_id",ctx.tenantId,storeId);
     return {
       products:this.all(`SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,s.quantity FROM products p JOIN stock s ON s.tenant_id=p.tenant_id AND s.product_id=p.id
         WHERE s.tenant_id=? AND s.store_id=? AND p.active=1 ORDER BY p.name`,ctx.tenantId,storeId),
       terminals:this.all('SELECT id,name FROM terminals WHERE tenant_id=? AND store_id=? ORDER BY id',ctx.tenantId,storeId),
-      users:this.user(ctx).role==='MANAGER'?this.all(`SELECT u.id,u.email,u.name,u.role,u.company_admin,u.active
+      users:storeUser.role==='MANAGER'?this.all(`SELECT u.id,u.email,u.name,m.role,u.company_admin,m.active,
+          (SELECT COUNT(*) FROM memberships o WHERE o.tenant_id=u.tenant_id AND o.user_id=u.id AND o.store_id<>m.store_id AND o.active=1) other_stores,
+          (SELECT COUNT(*) FROM memberships o WHERE o.tenant_id=u.tenant_id AND o.user_id=u.id AND o.store_id<>m.store_id AND o.active=1
+            AND NOT EXISTS(SELECT 1 FROM memberships e WHERE e.tenant_id=o.tenant_id AND e.user_id=? AND e.store_id=o.store_id AND e.active=1 AND e.role='MANAGER')) locked_stores
         FROM users u JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
-        WHERE u.tenant_id=? AND m.store_id=? ORDER BY u.name`,ctx.tenantId,storeId):[],
+        WHERE u.tenant_id=? AND m.store_id=? ORDER BY m.active DESC,u.name`,ctx.userId,ctx.tenantId,storeId):[],
       customers:this.all('SELECT * FROM customers WHERE tenant_id=? AND store_id=? ORDER BY updated_at DESC LIMIT 100',ctx.tenantId,storeId).map(row=>customerSummary(this.customerRow(row))),
       cash:open.map(c=>this.cash(ctx,c.id)),
       cashMovements:this.all(`SELECT m.id,m.cash_session_id,m.kind,m.amount_cents,m.reason,m.created_at,u.name actor_name

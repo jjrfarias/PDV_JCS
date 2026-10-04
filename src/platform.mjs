@@ -227,7 +227,7 @@ export class Platform {
         await q.run('INSERT INTO terminals(tenant_id,store_id,id,name) VALUES($1,$2,$3,$4)', [tenantId, storeId, terminalId, 'Caixa 01']);
         await q.run(`INSERT INTO users(tenant_id,id,email,name,password_hash,role,company_admin) VALUES($1,$2,$3,$4,$5,'MANAGER',1)`,
           [tenantId, userId, input.managerEmail, input.managerName, unusable]);
-        await q.run('INSERT INTO memberships(tenant_id,user_id,store_id) VALUES($1,$2,$3)', [tenantId, userId, storeId]);
+        await q.run("INSERT INTO memberships(tenant_id,user_id,store_id,role) VALUES($1,$2,$3,'MANAGER')", [tenantId, userId, storeId]);
         await q.run('INSERT INTO password_resets(tenant_id,id,user_id,token_hash,expires_at,created_at) VALUES($1,$2,$3,$4,$5,$6)',
           [tenantId, resetId, userId, sha256(inviteToken), now + INVITE_TTL_MS, now]);
         await this.audit(q, ctx.adminId, 'TENANT_CREATED', tenantId, { slug: input.slug, storeId });

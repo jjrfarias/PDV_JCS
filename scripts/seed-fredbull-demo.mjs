@@ -60,7 +60,7 @@ try {
   for (const [storeId, name] of stores) {
     await client.query(`INSERT INTO stores(tenant_id,id,company_id,name) VALUES($1,$2,$3,$4)
       ON CONFLICT(tenant_id,id) DO UPDATE SET company_id=excluded.company_id,name=excluded.name`, [tenantId, storeId, companyId, name]);
-    await client.query('INSERT INTO memberships(tenant_id,user_id,store_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', [tenantId, adminId, storeId]);
+    await client.query("INSERT INTO memberships(tenant_id,user_id,store_id,role) VALUES($1,$2,$3,'MANAGER') ON CONFLICT DO NOTHING", [tenantId, adminId, storeId]);
   }
   for (const [productId, sku, name, price] of products) {
     await client.query(`INSERT INTO products(tenant_id,id,sku,barcode,name,price_cents,active) VALUES($1,$2,$3,NULL,$4,$5,1)

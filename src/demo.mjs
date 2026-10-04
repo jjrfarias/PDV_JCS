@@ -32,7 +32,7 @@ export function seedDemo(db, testPassword) {
     for (const u of credentials) run('INSERT INTO users(tenant_id,id,email,name,password_hash,role) VALUES(?,?,?,?,?,?)',u.tenantId,u.id,u.email,u.name,hashPassword(u.password),u.role);
     for (const [tenant,user,store] of [
       ['tenant-demo','user-manager','store-a'],['tenant-demo','user-manager','store-b'],
-      ['tenant-demo','user-cashier','store-a'],['tenant-other','user-other','store-other']]) run('INSERT INTO memberships VALUES(?,?,?)',tenant,user,store);
+      ['tenant-demo','user-cashier','store-a'],['tenant-other','user-other','store-other']]) run('INSERT INTO memberships(tenant_id,user_id,store_id,role) VALUES(?,?,?,?)',tenant,user,store,user==='user-cashier'?'CASHIER':'MANAGER');
     for (const [tenant,store,terminal,name] of [
       ['tenant-demo','store-a','terminal-a','Caixa 01'],['tenant-demo','store-a','terminal-a2','Caixa 02'],
       ['tenant-demo','store-b','terminal-b','Caixa 01'],['tenant-other','store-other','terminal-other','Caixa 01']]) run('INSERT INTO terminals VALUES(?,?,?,?)',tenant,store,terminal,name);

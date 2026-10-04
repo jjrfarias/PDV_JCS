@@ -434,3 +434,4 @@ button.summary-card:hover{border-color:#94a3b8;background:#fff}
   .management-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
   .management-actions{width:100%;display:flex;gap:8px}.management-actions button{flex:1}
 }
+input[readonly]{background:#f1f5f9;color:#64748b;cursor:not-allowed}

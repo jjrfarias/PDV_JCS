@@ -26,7 +26,9 @@ const storeId=()=> $('store-select').value;
 const terminalId=()=> $('terminal-select').value;
 const currentCash=()=>state.data?.cash.find(c=>c.terminal_id===terminalId());
 const scope=()=>`jcs.pending.v1:${state.me.tenantId}:${state.me.user.id}`;
-const manager=()=>state.me?.user.role==='MANAGER';
+// Perfil por loja: manager() vale para a loja selecionada; accountManager() é gerente em alguma loja (rede e MFA).
+const manager=()=>state.me?.stores?.find(store=>store.id===$('store-select').value)?.role==='MANAGER';
+const accountManager=()=>state.me?.user.role==='MANAGER'||state.me?.user.company_admin===1;
 const companyAdmin=()=>state.me?.user.company_admin===1;
 const customerLabel=customer=>[customer.name,customer.document,customer.phone].filter(Boolean).join(' · ');
 function clearSaleCustomer(){
@@ -73,6 +75,7 @@ function lock(){
 async function refresh(){
   if(!state.me)return;
   state.data=await api(`/api/stores/${storeId()}/state`);
+  $('role-label').textContent=companyAdmin()?'ADMINISTRADOR DA EMPRESA':manager()?'GERENTE NESTA LOJA':'OPERADOR NESTA LOJA';
   const prior=terminalId();$('terminal-select').replaceChildren();
   for(const terminal of state.data.terminals){const option=element('option',terminal.name);option.value=terminal.id;$('terminal-select').append(option);}
   if(state.data.terminals.some(t=>t.id===prior))$('terminal-select').value=prior;
@@ -81,7 +84,7 @@ async function refresh(){
   const selected=(state.data.customers??[]).find(c=>c.id===customer&&c.active===1);
   if(selected){$('sale-customer').value=selected.id;$('sale-customer-search').value=customerLabel(selected);}else if(customer)clearSaleCustomer();
   if(state.tab==='reports')await loadReport();
-  if(state.view==='network'&&manager())await loadNetwork();
+  if(state.view==='network'&&accountManager())await loadNetwork();
   renderCash();renderSearch();renderManagement();renderCart();
 }
 function renderCash(){
@@ -101,7 +104,7 @@ function renderCash(){
   lock();
 }
 function setView(view,{userInitiated=false}={}){
-  if(view==='network'&&!manager())return;
+  if(view==='network'&&!accountManager())return;
   if(userInitiated)state.viewRevision++;
   state.view=view;
   document.querySelectorAll('[data-panel]').forEach(panel=>{panel.hidden=panel.dataset.panel!==view;});
@@ -130,7 +133,7 @@ function setNetworkLoading(loading,period,{visible=true}={}){
   if(loading&&visible){$('network-loading-detail').textContent=`Período de ${displayDay(period.from)} a ${displayDay(period.to)}. Os dados atuais permanecem visíveis.`;$('network-status').textContent='Consultando';$('network-status').classList.add('loading');}
 }
 async function loadNetwork({silent=false}={}){
-  if(!manager()||state.networkLoading)return;
+  if(!accountManager()||state.networkLoading)return;
   state.networkPeriod??=presetPeriod('today');
   const cacheKey=`${state.networkPeriod.from}:${state.networkPeriod.to}`,cached=state.networkCache.get(cacheKey);
   if(!silent&&cached){state.network=cached;renderNetwork();const live=cached.period.preset==='today';$('network-status').textContent=live?'Ao vivo':'Histórico';$('network-status').classList.toggle('history',!live);$('network-status').classList.remove('loading');silent=true;}
@@ -470,11 +473,16 @@ function renderManagement(){
       onClick:()=>openStoreEdit(s),label:`Editar ${s.name}`
     })),'Nenhuma loja cadastrada.');
   }
-  if(state.tab==='users'){const roleName=u=>u.company_admin===1?'Administrador da empresa':u.role==='MANAGER'?'Gerente':'Operador';const rows=(d.users??[]).filter(u=>includes([u.name,u.email,u.role,roleName(u),u.active===1?'Ativo':'Inativo'],query));renderSummary([['Usuários',rows.length],['Ativos',rows.filter(u=>u.active===1).length],['Gerentes',rows.filter(u=>u.role==='MANAGER'&&u.company_admin!==1).length]]);content=table(['Nome','E-mail','Perfil','Status','Ações'],rows.map(u=>{
-    const actions=element('div',undefined,'row-actions');
-    if(manager()&&u.company_admin!==1){const edit=element('button','Editar');edit.type='button';edit.dataset.userAction='edit';edit.addEventListener('click',()=>openUserEdit(u));actions.append(edit);}
-    return [u.name,u.email,roleName(u),u.active===1?'Ativo':'Inativo',actions];
-  }));}
+  if(state.tab==='users'){
+    const roleName=u=>u.company_admin===1?'Administrador da empresa':u.role==='MANAGER'?'Gerente':'Operador';
+    const rows=(d.users??[]).filter(u=>includes([u.name,u.email,roleName(u),u.active===1?'Com acesso':'Sem acesso'],query));
+    const withAccess=rows.filter(u=>u.active===1);
+    renderSummary([['Com acesso a esta loja',withAccess.length],['Gerentes nesta loja',withAccess.filter(u=>u.role==='MANAGER').length],['Operadores nesta loja',withAccess.filter(u=>u.role!=='MANAGER').length]]);
+    content=dataTable([{label:'Nome'},{label:'E-mail'},{label:'Perfil nesta loja'},{label:'Acesso a esta loja'},{label:'Outras lojas',className:'number'}],rows.map(u=>({
+      cells:[u.name,u.email,roleName(u),element('span',u.active===1?'Com acesso':'Sem acesso',`status-pill ${u.active===1?'on':'off'}`),u.other_stores??0],
+      onClick:manager()&&u.company_admin!==1?()=>openUserEdit(u):null,label:`Editar ${u.name}`
+    })),'Nenhuma pessoa com acesso a esta loja.');
+  }
   if(state.tab==='customers'){const rows=(d.customers??[]).filter(c=>includes([c.name,c.document,c.phone,c.email,c.active===1?'Ativo':'Inativo'],query));renderSummary([['Clientes',rows.length],['Ativos',rows.filter(c=>c.active===1).length],['Com documento',rows.filter(c=>c.document).length]]);content=table(['Nome','Documento','Telefone','E-mail','Status','Ações'],rows.map(c=>{
     const actions=element('div',undefined,'row-actions'),edit=element('button','Editar');edit.type='button';edit.dataset.customerAction='edit';edit.addEventListener('click',()=>run(()=>openCustomerEdit(c)));actions.append(edit);
     return [c.name,c.document??'—',c.phone??'—',c.email??'—',c.active===1?'Ativo':'Inativo',actions];
@@ -593,6 +601,7 @@ async function submitPending(){
     }
     updateMoneyPreviews();
     message(result.replayed?'Operação recuperada. Nenhum registro foi duplicado.':'Operação confirmada.');
+    if(pending.path==='/api/users'&&result.data?.linked&&!result.replayed)message(`${result.data.name} já trabalhava em outra loja. Agora também tem acesso a esta, com o perfil escolhido, e continua com a mesma senha.`);
     await refresh();
   }catch(error){
     // 4xx é recusa explícita; falhas de rede/5xx preservam a pendência para repetir a mesma chave.
@@ -615,17 +624,16 @@ async function requireMfaSetup(){
 async function boot(){
   state.me=await api('/api/me');state.csrf=state.me.csrfToken;
   $('login-panel').hidden=true;$('workspace').hidden=false;$('user-label').textContent=state.me.user.name;
-  $('role-label').textContent=companyAdmin()?'ADMINISTRADOR DA EMPRESA':manager()?'GERENTE':'OPERADOR';
-  const mfaOn=state.me.user.mfa_enabled===1;$('mfa-open').hidden=!manager()||mfaOn;$('mfa-open').textContent='Ativar MFA';$('mfa-badge').hidden=!mfaOn;
-  $('network-nav').hidden=!manager();
-  if(manager()&&state.me.user.mfa_enabled!==1)return requireMfaSetup();
+  const mfaOn=state.me.user.mfa_enabled===1;$('mfa-open').hidden=!accountManager()||mfaOn;$('mfa-open').textContent='Ativar MFA';$('mfa-badge').hidden=!mfaOn;
+  $('network-nav').hidden=!accountManager();
+  if(accountManager()&&state.me.user.mfa_enabled!==1)return requireMfaSetup();
   $('store-select').replaceChildren();
   for(const store of state.me.stores){const option=element('option',store.name);option.value=store.id;$('store-select').append(option);}
   const raw=localStorage.getItem(scope());state.pending=raw?JSON.parse(raw):null;
   if(state.pending&&state.me.stores.some(s=>s.id===state.pending.body.storeId))$('store-select').value=state.pending.body.storeId;
   const viewRevision=state.viewRevision;
   await refresh();
-  if(manager()&&state.viewRevision===viewRevision)setView('network');
+  if(accountManager()&&state.viewRevision===viewRevision)setView('network');
 }
 $('login-form').addEventListener('submit',async event=>{
   event.preventDefault();const button=event.submitter;button.disabled=true;
@@ -769,6 +777,11 @@ $('user-form').addEventListener('submit',event=>{event.preventDefault();run(()=>
 function openUserEdit(user){
   const form=$('user-edit-form');
   form.userId.value=user.id;form.name.value=user.name;form.email.value=user.email;form.role.value=user.role;form.active.value=String(user.active);form.temporaryPassword.value='';
+  // Pessoa que também trabalha em outra loja: só o administrador da empresa muda nome, e-mail e senha.
+  const shared=(user.locked_stores??0)>0&&!companyAdmin();
+  form.name.readOnly=shared;form.email.readOnly=shared;form.temporaryPassword.closest('label').hidden=shared;
+  $('user-shared-note').hidden=!shared;
+  $('user-shared-note').textContent=shared?`${user.name} também trabalha em ${user.locked_stores} loja(s) que você não gerencia. Aqui você muda só o perfil e o acesso nesta loja. Nome, e-mail e senha ficam com o administrador da empresa.`:'';
   $('user-edit-dialog').showModal();
 }
 $('user-edit-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/users/update',{storeId:storeId(),userId:f.userId,email:f.email,name:f.name,role:f.role,active:Number(f.active),temporaryPassword:f.temporaryPassword||null});});});

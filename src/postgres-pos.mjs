@@ -73,21 +73,22 @@ class TransactionPos {
 
   async authorize(ctx, storeId) {
     const user = await this.user(ctx);
-    const membership = await this.one(`SELECT 1 FROM memberships
-      WHERE tenant_id=$1 AND user_id=$2 AND store_id=$3${this.readOnly ? '' : ' FOR SHARE'}`,
+    const membership = await this.one(`SELECT role FROM memberships
+      WHERE tenant_id=$1 AND user_id=$2 AND store_id=$3 AND active=1${this.readOnly ? '' : ' FOR SHARE'}`,
     ctx.tenantId, ctx.userId, storeId);
     requireThat(membership, 403, 'STORE_FORBIDDEN', 'Você não tem acesso a esta loja.');
     // Loja desativada não opera: venda, caixa, estoque e cadastros ficam bloqueados.
     requireThat(await this.one('SELECT 1 FROM stores WHERE tenant_id=$1 AND id=$2 AND active=1', ctx.tenantId, storeId), 403, 'STORE_INACTIVE', 'Esta loja está desativada.');
-    return user;
+    // O perfil vale só para esta loja; account_role é o resumo da conta.
+    return { ...user, account_role: user.role, role: membership.role };
   }
 
   async me(ctx) {
     return {
       user: await this.user(ctx), tenantId: ctx.tenantId,
-      stores: await this.all(`SELECT s.id,s.name FROM stores s
+      stores: await this.all(`SELECT s.id,s.name,m.role FROM stores s
         JOIN memberships m ON m.tenant_id=s.tenant_id AND m.store_id=s.id
-        WHERE m.tenant_id=$1 AND m.user_id=$2 AND s.active=1 ORDER BY s.name`, ctx.tenantId, ctx.userId)
+        WHERE m.tenant_id=$1 AND m.user_id=$2 AND m.active=1 AND s.active=1 ORDER BY s.name`, ctx.tenantId, ctx.userId)
     };
   }
 
@@ -184,10 +185,13 @@ class TransactionPos {
     return {
       products: await this.products.listForStore(ctx.tenantId, storeId),
       terminals: await this.all('SELECT id,name FROM terminals WHERE tenant_id=$1 AND store_id=$2 ORDER BY id', ctx.tenantId, storeId),
-      users: (await this.user(ctx)).role === 'MANAGER'
-        ? await this.all(`SELECT u.id,u.email,u.name,u.role,u.company_admin,u.active
+      users: (await this.authorize(ctx, storeId)).role === 'MANAGER'
+        ? (await this.all(`SELECT u.id,u.email,u.name,m.role,u.company_admin,m.active,
+            (SELECT COUNT(*) FROM memberships o WHERE o.tenant_id=u.tenant_id AND o.user_id=u.id AND o.store_id<>m.store_id AND o.active=1) other_stores,
+            (SELECT COUNT(*) FROM memberships o WHERE o.tenant_id=u.tenant_id AND o.user_id=u.id AND o.store_id<>m.store_id AND o.active=1
+            AND NOT EXISTS(SELECT 1 FROM memberships e WHERE e.tenant_id=o.tenant_id AND e.user_id=$3 AND e.store_id=o.store_id AND e.active=1 AND e.role='MANAGER')) locked_stores
           FROM users u JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
-          WHERE u.tenant_id=$1 AND m.store_id=$2 ORDER BY u.name`, ctx.tenantId, storeId)
+          WHERE u.tenant_id=$1 AND m.store_id=$2 ORDER BY m.active DESC,u.name`, ctx.tenantId, storeId, ctx.userId)).map(row => ({ ...row, other_stores: Number(row.other_stores), locked_stores: Number(row.locked_stores) }))
         : [],
       customers: (await this.all(`SELECT * FROM customers
         WHERE tenant_id=$1 AND store_id=$2 ORDER BY updated_at DESC LIMIT 100`, ctx.tenantId, storeId))
@@ -283,7 +287,9 @@ class TransactionPos {
 
   async networkOverview(ctx, from, to) {
     const me = await this.me(ctx);
-    requireThat(me.user.role === 'MANAGER', 403, 'MANAGER_REQUIRED', 'Somente gerente acompanha a rede de lojas.');
+    // A rede mostra só as lojas em que a pessoa é gerente.
+    me.stores = me.stores.filter(store => store.role === 'MANAGER');
+    requireThat(me.stores.length > 0, 403, 'MANAGER_REQUIRED', 'Somente gerente acompanha a rede de lojas.');
     const range = reportRange(from, to);
     // Uma consulta para toda a rede evita dezenas de idas sequenciais ao PostgreSQL (uma série por loja).
     const sales = (await this.all(`SELECT s.store_id,s.id,s.created_at,s.total_cents,s.discount_cents,p.method,
@@ -456,7 +462,7 @@ export class PostgresPos {
       await tx.run('INSERT INTO stores(tenant_id,id,company_id,name) VALUES($1,$2,$3,$4)',ctx.tenantId,ids.storeId,company.id,input.name);
       await tx.run('INSERT INTO terminals(tenant_id,store_id,id,name) VALUES($1,$2,$3,$4)',ctx.tenantId,ids.storeId,ids.terminalId,'Caixa 01');
       await tx.run("INSERT INTO users(tenant_id,id,email,name,password_hash,role,company_admin) VALUES($1,$2,$3,$4,$5,'MANAGER',0)",ctx.tenantId,ids.managerId,input.managerEmail,input.managerName,hashPassword(inviteToken));
-      await tx.run('INSERT INTO memberships(tenant_id,user_id,store_id) VALUES($1,$2,$3)',ctx.tenantId,ctx.userId,ids.storeId);await tx.run('INSERT INTO memberships(tenant_id,user_id,store_id) VALUES($1,$2,$3)',ctx.tenantId,ids.managerId,ids.storeId);
+      await tx.run("INSERT INTO memberships(tenant_id,user_id,store_id,role) VALUES($1,$2,$3,'MANAGER')",ctx.tenantId,ctx.userId,ids.storeId);await tx.run("INSERT INTO memberships(tenant_id,user_id,store_id,role) VALUES($1,$2,$3,'MANAGER')",ctx.tenantId,ids.managerId,ids.storeId);
       await tx.run('INSERT INTO stock(tenant_id,store_id,product_id,quantity) SELECT tenant_id,$1,id,0 FROM products WHERE tenant_id=$2',ids.storeId,ctx.tenantId);
       await tx.run('INSERT INTO password_resets(tenant_id,id,user_id,token_hash,expires_at,created_at) VALUES($1,$2,$3,$4,$5,$6)',ctx.tenantId,ids.resetId,ids.managerId,sha256(inviteToken),createdAt+INVITE_TTL_MS,createdAt);
       await tx.audit(ctx,ids.storeId,'STORE_CREATED',ids.storeId,{terminalId:ids.terminalId,managerId:ids.managerId});
@@ -548,6 +554,14 @@ export class PostgresPos {
     });
   }
 
+  // Resumo da conta: gerente se for gerente em alguma loja ativa; conta inativa se não restar loja.
+  static async syncAccount(tx, tenantId, userId) {
+    await tx.run(`UPDATE users SET
+      role=CASE WHEN EXISTS(SELECT 1 FROM memberships m WHERE m.tenant_id=users.tenant_id AND m.user_id=users.id AND m.active=1 AND m.role='MANAGER') THEN 'MANAGER' ELSE 'CASHIER' END,
+      active=CASE WHEN EXISTS(SELECT 1 FROM memberships m WHERE m.tenant_id=users.tenant_id AND m.user_id=users.id AND m.active=1) THEN 1 ELSE 0 END
+      WHERE tenant_id=$1 AND id=$2`, tenantId, userId);
+  }
+
   async createUser(ctx, key, raw) {
     object(raw, ['storeId', 'email', 'name', 'role', 'temporaryPassword']);
     const input = {
@@ -563,15 +577,22 @@ export class PostgresPos {
       400, 'WEAK_PASSWORD', 'A senha temporária deve ter 12 caracteres, com letras maiúsculas, minúsculas e número.');
     return this.#mutate(ctx, 'USER_CREATE', key, input, async (tx, user) => {
       requireThat(user.role === 'MANAGER', 403, 'MANAGER_REQUIRED', 'Somente gerente cadastra usuários.');
+      const existing = await tx.one('SELECT id,name,email,active FROM users WHERE tenant_id=$1 AND email=$2 FOR UPDATE', ctx.tenantId, input.email);
+      if (existing) {
+        // Pessoa já existe na empresa: ganha acesso a esta loja com o perfil escolhido. Senha e nome não mudam.
+        requireThat(!(await tx.one('SELECT 1 FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND store_id=$3', ctx.tenantId, existing.id, input.storeId)), 409, 'DUPLICATE_USER', 'Esta pessoa já está vinculada a esta loja. Use Editar.');
+        requireThat(Number(existing.active) === 1, 409, 'USER_INACTIVE', 'Esta conta está desativada. Fale com o administrador da empresa.');
+        await tx.run('INSERT INTO memberships(tenant_id,user_id,store_id,role) VALUES($1,$2,$3,$4)', ctx.tenantId, existing.id, input.storeId, input.role);
+        await PostgresPos.syncAccount(tx, ctx.tenantId, existing.id);
+        await tx.audit(ctx, input.storeId, 'USER_LINKED', existing.id, { role: input.role });
+        return { id: existing.id, email: existing.email, name: existing.name, role: input.role, active: 1, storeId: input.storeId, linked: true };
+      }
       const userId = randomUUID();
-      const inserted = await tx.run(`INSERT INTO users(tenant_id,id,email,name,password_hash,role,active)
-        VALUES($1,$2,$3,$4,$5,$6,1) ON CONFLICT DO NOTHING`,
-      ctx.tenantId, userId, input.email, input.name, hashPassword(input.temporaryPassword), input.role);
-      requireThat(inserted.changes === 1, 409, 'DUPLICATE_USER', 'E-mail já cadastrado.');
-      await tx.run('INSERT INTO memberships(tenant_id,user_id,store_id) VALUES($1,$2,$3)',
-        ctx.tenantId, userId, input.storeId);
+      await tx.run(`INSERT INTO users(tenant_id,id,email,name,password_hash,role,active)
+        VALUES($1,$2,$3,$4,$5,$6,1)`, ctx.tenantId, userId, input.email, input.name, hashPassword(input.temporaryPassword), input.role);
+      await tx.run('INSERT INTO memberships(tenant_id,user_id,store_id,role) VALUES($1,$2,$3,$4)', ctx.tenantId, userId, input.storeId, input.role);
       await tx.audit(ctx, input.storeId, 'USER_CREATED', userId, { email: input.email, role: input.role });
-      return { id: userId, email: input.email, name: input.name, role: input.role, active: 1, storeId: input.storeId };
+      return { id: userId, email: input.email, name: input.name, role: input.role, active: 1, storeId: input.storeId, linked: false };
     });
   }
 
@@ -593,35 +614,37 @@ export class PostgresPos {
     }
     return this.#mutate(ctx, 'USER_UPDATE', key, input, async (tx, user) => {
       requireThat(user.role === 'MANAGER', 403, 'MANAGER_REQUIRED', 'Somente gerente altera usuários.');
-      const current = await tx.one(`SELECT u.id,u.role,u.company_admin FROM users u
+      const current = await tx.one(`SELECT u.id,u.name,u.email,u.company_admin,m.role,m.active FROM users u
         JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
-        WHERE u.tenant_id=$1 AND u.id=$2 AND m.store_id=$3 FOR UPDATE OF u`,
-      ctx.tenantId, input.userId, input.storeId);
+        WHERE u.tenant_id=$1 AND u.id=$2 AND m.store_id=$3 FOR UPDATE OF u, m`, ctx.tenantId, input.userId, input.storeId);
       requireThat(current, 404, 'USER_NOT_FOUND', 'Usuário não encontrado nesta loja.');
-      requireThat(Number(current.company_admin)!==1,403,'COMPANY_ADMIN_PROTECTED','O administrador da empresa não pode ser alterado pela gestão da loja.');
-      requireThat(!(input.userId === ctx.userId && input.active === 0), 400, 'SELF_DEACTIVATE_FORBIDDEN', 'Não é permitido inativar seu próprio usuário.');
+      requireThat(Number(current.company_admin) !== 1, 403, 'COMPANY_ADMIN_PROTECTED', 'O administrador da empresa não pode ser alterado pela gestão da loja.');
+      requireThat(!(input.userId === ctx.userId && input.active === 0), 400, 'SELF_DEACTIVATE_FORBIDDEN', 'Não é permitido remover seu próprio acesso.');
       requireThat(!(input.userId === ctx.userId && input.role !== 'MANAGER'), 400, 'SELF_ROLE_CHANGE_FORBIDDEN', 'Não é permitido remover seu próprio perfil de gerente.');
-      const duplicate = await tx.one('SELECT 1 FROM users WHERE tenant_id=$1 AND email=$2 AND id<>$3',
-        ctx.tenantId, input.email, input.userId);
-      requireThat(!duplicate, 409, 'DUPLICATE_USER', 'E-mail já cadastrado.');
-      const passwordHash = input.temporaryPassword ? hashPassword(input.temporaryPassword) : null;
-      if (passwordHash) {
-        await tx.run(`UPDATE users SET email=$1,name=$2,role=$3,active=$4,password_hash=$5
-          WHERE tenant_id=$6 AND id=$7`,
-        input.email, input.name, input.role, input.active, passwordHash, ctx.tenantId, input.userId);
-      } else {
-        await tx.run('UPDATE users SET email=$1,name=$2,role=$3,active=$4 WHERE tenant_id=$5 AND id=$6',
-          input.email, input.name, input.role, input.active, ctx.tenantId, input.userId);
+      const identityChanged = input.email !== current.email || input.name !== current.name || Boolean(input.temporaryPassword);
+      if (identityChanged && Number(user.company_admin) !== 1) {
+        // Nome, e-mail e senha são da pessoa: só muda quem gerencia todas as lojas dela.
+        const elsewhere = await tx.one(`SELECT 1 FROM memberships o WHERE o.tenant_id=$1 AND o.user_id=$2 AND o.store_id<>$3 AND o.active=1
+          AND NOT EXISTS(SELECT 1 FROM memberships e WHERE e.tenant_id=o.tenant_id AND e.user_id=$4 AND e.store_id=o.store_id AND e.active=1 AND e.role='MANAGER')`,
+        ctx.tenantId, input.userId, input.storeId, ctx.userId);
+        requireThat(!elsewhere, 403, 'USER_SHARED', 'Esta pessoa também trabalha em outra loja. Nome, e-mail e senha só podem ser alterados pelo administrador da empresa.');
       }
-      if (passwordHash || input.active === 0 || current.role !== input.role) {
+      requireThat(!(await tx.one('SELECT 1 FROM users WHERE tenant_id=$1 AND email=$2 AND id<>$3', ctx.tenantId, input.email, input.userId)), 409, 'DUPLICATE_USER', 'E-mail já cadastrado.');
+      const passwordHash = input.temporaryPassword ? hashPassword(input.temporaryPassword) : null;
+      if (identityChanged) await tx.run('UPDATE users SET email=$1,name=$2 WHERE tenant_id=$3 AND id=$4', input.email, input.name, ctx.tenantId, input.userId);
+      if (passwordHash) await tx.run('UPDATE users SET password_hash=$1 WHERE tenant_id=$2 AND id=$3', passwordHash, ctx.tenantId, input.userId);
+      await tx.run('UPDATE memberships SET role=$1,active=$2 WHERE tenant_id=$3 AND user_id=$4 AND store_id=$5', input.role, input.active, ctx.tenantId, input.userId, input.storeId);
+      await PostgresPos.syncAccount(tx, ctx.tenantId, input.userId);
+      if (passwordHash || input.active !== Number(current.active) || current.role !== input.role) {
         await tx.run('DELETE FROM sessions WHERE tenant_id=$1 AND user_id=$2', ctx.tenantId, input.userId);
       }
       await tx.audit(ctx, input.storeId, 'USER_UPDATED', input.userId,
-        { role: input.role, active: input.active, passwordReset: Boolean(passwordHash) });
+        { role: input.role, access: input.active, identityChanged, passwordReset: Boolean(passwordHash) });
       return { id: input.userId, email: input.email, name: input.name, role: input.role,
         active: input.active, storeId: input.storeId, passwordReset: Boolean(passwordHash) };
     });
   }
+
 
   async createCustomer(ctx, key, raw) {
     const input = customerInput(raw);
