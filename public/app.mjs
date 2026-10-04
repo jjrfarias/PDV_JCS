@@ -626,6 +626,9 @@ async function openCashDetail(cashId){
 async function run(work){try{await work();}catch(error){message(error.message);}}
 // A pendência é gravada ANTES do envio e só é removida após resposta conclusiva.
 async function command(path,body){
+  // Uma gravação ainda em andamento (incluindo a atualização da tela depois dela) não é pendência:
+  // espera terminar e só então decide. Antes, a segunda operação ficava parada até 'Recuperar operação'.
+  while(state.inflight)await state.inflight;
   if(state.pending)throw new Error('Recupere a operação pendente primeiro.');
   const pending={path,body,key:crypto.randomUUID()};
   try{localStorage.setItem(scope(),JSON.stringify(pending));}catch{throw new Error('Armazenamento local indisponível. Venda bloqueada para evitar perda da chave de recuperação.');}
@@ -634,6 +637,7 @@ async function command(path,body){
 async function submitPending(){
   if(!state.pending||state.busy)return;
   state.busy=true;lock();
+  let finished;state.inflight=new Promise(resolve=>{finished=resolve;});
   const pending=state.pending;
   try{
     const result=await api(pending.path,{method:'POST',body:JSON.stringify(pending.body),headers:{'Idempotency-Key':pending.key}});
@@ -669,7 +673,7 @@ async function submitPending(){
     }
     if(state.pending)document.querySelectorAll('dialog[open]:not(#receipt-dialog)').forEach(d=>d.close());
     message(error.message+(state.pending?' Use Recuperar operação.':''),{sticky:Boolean(state.pending)});
-  }finally{state.busy=false;lock();}
+  }finally{state.busy=false;state.inflight=null;finished();lock();}
 }
 // Gerente sem MFA: a sessão só serve para ativar. Fechar o diálogo encerra a sessão.
 async function requireMfaSetup(){
