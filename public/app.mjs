@@ -1,6 +1,6 @@
 ﻿import {cents,brl} from './money.mjs';
 const $=id=>document.getElementById(id);
-const state={me:null,data:null,network:null,networkCache:new Map(),networkLoading:false,networkLoadQueued:false,networkFailed:false,networkPeriod:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',viewRevision:0,lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:'',reportSection:'resumo'};
+const state={me:null,data:null,network:null,networkCache:new Map(),networkLoading:false,networkLoadQueued:false,networkFailed:false,networkPeriod:null,networkSection:'overview',networkOperations:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',viewRevision:0,lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:'',reportSection:'resumo'};
 let messageTimer=null;
 function element(tag,content,className=''){const node=document.createElement(tag);if(content!==undefined)node.textContent=String(content);if(className)node.className=className;return node;}
 function serviceAlert(show,text='Estamos tentando restabelecer a conexão. Não repita uma venda sem recuperar a operação anterior.'){
@@ -142,9 +142,13 @@ async function loadNetwork({silent=false}={}){
   const period=state.networkPeriod;setNetworkLoading(true,period,{visible:!silent});
   try{const reference=comparisonPeriod(period);const [current,previous]=await Promise.all([api(`/api/network/overview?from=${period.from}&to=${period.to}`),api(`/api/network/overview?from=${reference.from}&to=${reference.to}`)]);state.network={current,previous,period,reference};state.networkCache.set(cacheKey,state.network);state.networkFailed=false;renderNetwork();}
   catch(error){state.networkFailed=true;if(!silent)throw error;}
-  finally{const live=state.networkPeriod?.preset==='today';setNetworkLoading(false,period);if(!silent){$('network-status').textContent=live?'Ao vivo':'Histórico';$('network-status').classList.toggle('history',!live);$('network-status').classList.remove('loading');}if(state.networkLoadQueued){state.networkLoadQueued=false;queueMicrotask(()=>run(loadNetwork));}}
+  finally{const live=state.networkPeriod?.preset==='today';setNetworkLoading(false,period);if(!silent){$('network-status').textContent=live?'Ao vivo':'Histórico';$('network-status').classList.toggle('history',!live);$('network-status').classList.remove('loading');}if(state.networkLoadQueued){state.networkLoadQueued=false;queueMicrotask(requestNetworkLoad);}}
 }
-function requestNetworkLoad(){if(state.networkLoading){state.networkLoadQueued=true;return;}run(loadNetwork);}
+function requestNetworkLoad(){
+  state.networkOperations=null;
+  if(state.networkLoading){state.networkLoadQueued=true;return;}
+  run(async()=>{await loadNetwork();if(state.networkSection!=='overview')await loadNetworkOperations();});
+}
 // Caixa aberto sem venda por mais tempo que isto vira alerta: risco de caixa esquecido aberto.
 const IDLE_ALERT_MS=2*60*60_000;
 const plural=(count,one,many)=>`${count} ${count===1?one:many}`;
@@ -201,6 +205,58 @@ function renderNetwork(){
   $('network-period').textContent=periodTitle(period);$('network-share-note').textContent=`Concentração do faturamento ${live?'de hoje':'no período'}`;
   $('network-updated').textContent=`Consultado às ${new Date(overview.generated_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
   document.querySelectorAll('[data-network-period]').forEach(button=>button.classList.toggle('selected',button.dataset.networkPeriod===period.preset));$('network-custom-open').classList.toggle('selected',period.preset==='custom');
+  if(state.networkSection!=='overview'&&state.networkOperations?.range?.from===period.from&&state.networkOperations?.range?.to===period.to)renderNetworkDetail();
+}
+
+async function loadNetworkOperations(){
+  const period=state.networkPeriod??presetPeriod('today');
+  $('network-detail-content').replaceChildren(element('div','Consultando a operação das lojas…','network-detail-loading'));
+  state.networkOperations=await api(`/api/network/operations?from=${period.from}&to=${period.to}`);
+  renderNetworkDetail();
+}
+function networkStockRows(){
+  const grouped=new Map();
+  for(const row of state.networkOperations?.stock??[]){const item=grouped.get(row.id)??{...row,total:0,stores:[]};item.total+=row.quantity;item.stores.push({name:row.store_name,quantity:row.quantity});grouped.set(row.id,item);}
+  return [...grouped.values()];
+}
+function renderNetworkDetail(){
+  if(state.networkSection==='overview')return;
+  const data=state.networkOperations;if(!data)return;
+  const query=$('network-detail-search').value.trim().toLowerCase(),summary=$('network-detail-summary'),content=$('network-detail-content');
+  const titles={stock:['Estoque da rede','Saldo atual de cada produto em todas as lojas gerenciadas.'],movements:['Movimentações de estoque','Entradas, saídas por venda, devoluções e ajustes no período.'],sales:['Vendas recentes','Vendas de todas as lojas gerenciadas no período selecionado.'],closures:['Fechamentos','Conferências de caixa realizadas no período.'],reports:['Relatório consolidado','Indicadores comparativos das lojas no período selecionado.']};
+  const [title,note]=titles[state.networkSection];$('network-detail-title').textContent=title;$('network-detail-note').textContent=note;
+  if(state.networkSection==='stock'){
+    const rows=networkStockRows().filter(p=>includes([p.name,p.sku,p.barcode,...p.stores.map(s=>s.name)],query));
+    const zero=rows.reduce((n,p)=>n+p.stores.filter(s=>s.quantity===0).length,0),low=rows.reduce((n,p)=>n+p.stores.filter(s=>s.quantity>0&&s.quantity<=LOW_STOCK).length,0);
+    summary.replaceChildren(...[['Produtos',rows.length],['Unidades na rede',rows.reduce((n,p)=>n+p.total,0)],['Sem estoque por loja',zero],['Estoque baixo por loja',low]].map(([l,v])=>{const c=element('div',undefined,'summary-card');c.append(element('span',l),element('strong',v));return c;}));
+    content.replaceChildren(dataTable([{label:'Código'},{label:'Produto'},{label:'Preço',className:'number'},{label:'Total',className:'number'},{label:'Disponibilidade por loja'}],rows.map(p=>({cells:[p.sku,p.name,brl(p.price_cents),p.total,p.stores.map(s=>`${s.name}: ${s.quantity}`).join(' · ')]})),'Nenhum produto encontrado.'));
+  }
+  if(state.networkSection==='movements'){
+    const names={SALE:'Venda',INITIAL:'Entrada inicial',ADJUSTMENT:'Ajuste'},rows=data.movements.filter(m=>includes([m.name,m.sku,m.store_name,m.actor_name,m.reason,names[m.kind]],query));
+    summary.replaceChildren(...[['Movimentos',rows.length],['Entradas',rows.filter(m=>m.quantity>0).reduce((n,m)=>n+m.quantity,0)],['Saídas',Math.abs(rows.filter(m=>m.quantity<0).reduce((n,m)=>n+m.quantity,0))],['Lojas',new Set(rows.map(m=>m.store_id)).size]].map(([l,v])=>{const c=element('div',undefined,'summary-card');c.append(element('span',l),element('strong',v));return c;}));
+    content.replaceChildren(dataTable([{label:'Data'},{label:'Loja'},{label:'Produto'},{label:'Movimento'},{label:'Qtd.',className:'number'},{label:'Responsável'},{label:'Motivo'}],rows.map(m=>({cells:[date(m.created_at),m.store_name,m.name,names[m.kind]??m.kind,m.quantity,m.actor_name,m.reason]})),'Nenhuma movimentação no período.'));
+  }
+  if(state.networkSection==='sales'){
+    const rows=data.sales.filter(s=>includes([s.id,s.store_name,s.operator_name,paymentName(s.method),s.canceled_at?'Cancelada':'Confirmada'],query)),active=rows.filter(s=>!s.canceled_at);
+    summary.replaceChildren(...[['Vendas',rows.length],['Líquido',brl(active.reduce((n,s)=>n+s.total_cents-s.returned_cents,0))],['Ticket médio',brl(active.length?Math.round(active.reduce((n,s)=>n+s.total_cents-s.returned_cents,0)/active.length):0)],['Canceladas',rows.filter(s=>s.canceled_at).length]].map(([l,v])=>{const c=element('div',undefined,'summary-card');c.append(element('span',l),element('strong',v));return c;}));
+    content.replaceChildren(dataTable([{label:'Data'},{label:'Loja'},{label:'Venda'},{label:'Operador'},{label:'Forma'},{label:'Status'},{label:'Devolvido',className:'number'},{label:'Total',className:'number'}],rows.map(s=>({cells:[date(s.created_at),s.store_name,s.id.slice(0,8),s.operator_name,paymentName(s.method),s.canceled_at?'Cancelada':s.returned_cents?'Com devolução':'Confirmada',brl(s.returned_cents),brl(s.total_cents)]})),'Nenhuma venda no período.'));
+  }
+  if(state.networkSection==='closures'){
+    const rows=data.closures.filter(c=>includes([c.store_name,c.terminal_name,c.operator_name,c.close_reason,date(c.closed_at)],query));
+    summary.replaceChildren(...[['Fechamentos',rows.length],['Esperado',brl(rows.reduce((n,c)=>n+c.expected_cents,0))],['Contado',brl(rows.reduce((n,c)=>n+c.counted_cents,0))],['Diferença',brl(rows.reduce((n,c)=>n+c.difference_cents,0))]].map(([l,v])=>{const c=element('div',undefined,'summary-card');c.append(element('span',l),element('strong',v));return c;}));
+    content.replaceChildren(dataTable([{label:'Data'},{label:'Loja'},{label:'Terminal'},{label:'Operador'},{label:'Esperado',className:'number'},{label:'Contado',className:'number'},{label:'Diferença',className:'number'},{label:'Motivo'}],rows.map(c=>({cells:[date(c.closed_at),c.store_name,c.terminal_name,c.operator_name,brl(c.expected_cents),brl(c.counted_cents),brl(c.difference_cents),c.close_reason??'—']})),'Nenhum fechamento no período.'));
+  }
+  if(state.networkSection==='reports'){
+    const stores=(state.network?.current?.stores??[]).filter(s=>includes([s.name,s.gross_cents,s.active_sale_count],query)),totals=state.network?.current?.totals??{};
+    summary.replaceChildren(...[['Vendas líquidas',brl(totals.gross_cents??0)],['Vendas confirmadas',totals.active_sale_count??0],['Ticket médio',brl(totals.ticket_average_cents??0)],['Devoluções',brl(totals.returned_cents??0)]].map(([l,v])=>{const c=element('div',undefined,'summary-card');c.append(element('span',l),element('strong',v));return c;}));
+    content.replaceChildren(dataTable([{label:'Loja'},{label:'Vendas',className:'number'},{label:'Líquido',className:'number'},{label:'Ticket médio',className:'number'},{label:'Canceladas',className:'number'},{label:'Devoluções',className:'number'}],stores.sort((a,b)=>b.gross_cents-a.gross_cents).map(s=>({cells:[s.name,s.active_sale_count,brl(s.gross_cents),brl(s.active_sale_count?Math.round(s.gross_cents/s.active_sale_count):0),s.canceled_sale_count,brl(s.returned_cents)]})),'Nenhum dado no período.'));
+  }
+}
+async function setNetworkSection(section){
+  state.networkSection=section;
+  document.querySelectorAll('[data-network-section]').forEach(button=>button.classList.toggle('selected',button.dataset.networkSection===section));
+  const overview=section==='overview';$('network-summary').hidden=!overview;$('network-alerts').hidden=!overview;$('network-main').hidden=!overview;$('network-detail').hidden=overview;
+  if(!overview){$('network-detail-search').value='';await loadNetworkOperations();}
 }
 function renderStoreShare(stores){
   const colors=['#0f766e','#0ea5e9','#6366f1','#f59e0b','#ec4899','#94a3b8'];
@@ -664,6 +720,29 @@ $('sale-customer-search').addEventListener('input',()=>{
 });
 $('search-form').addEventListener('submit',event=>{event.preventDefault();const q=$('search').value.trim().toLowerCase();const exact=state.data.products.find(p=>p.sku.toLowerCase()===q||p.barcode===q);
   const matches=state.data.products.filter(p=>p.name.toLowerCase().includes(q));if(exact)add(exact);else if(q&&matches.length===1)add(matches[0]);else message('Selecione um produto da busca ou informe um código cadastrado.');});
+async function searchAvailability(query){
+  const target=$('availability-results');
+  target.replaceChildren(element('div','Consultando as lojas…','availability-loading'));
+  const result=await api(`/api/stock/lookup?q=${encodeURIComponent(query)}`);
+  if(!result.products.length){target.replaceChildren(element('p','Nenhum produto encontrado. Confira o nome ou o código.','empty-result'));return;}
+  target.replaceChildren(...result.products.map(product=>{
+    const card=element('article',undefined,'availability-product'),head=element('div',undefined,'availability-product-head');
+    const identity=element('div');identity.append(element('strong',product.name),element('span',`${product.sku}${product.barcode?` · ${product.barcode}`:''}`));
+    const total=product.stores.reduce((sum,store)=>sum+store.quantity,0);head.append(identity,element('b',`${total} un. na rede`));
+    const stores=element('div',undefined,'availability-stores');
+    stores.append(...product.stores.sort((a,b)=>b.quantity-a.quantity||a.name.localeCompare(b.name,'pt-BR')).map(store=>{
+      const row=element('div',undefined,store.quantity>0?'available':'unavailable'),name=element('span',store.name);
+      if(store.id===storeId())name.append(element('small','Loja atual'));
+      row.append(name,element('strong',store.quantity>0?`${store.quantity} disponível(is)`:'Sem estoque'));return row;
+    }));
+    card.append(head,stores);return card;
+  }));
+}
+$('availability-open').addEventListener('click',()=>{
+  const query=$('search').value.trim();$('availability-search').value=query;$('availability-results').replaceChildren(element('p','Digite o produto que o cliente procura.'));
+  $('availability-dialog').showModal();setTimeout(()=>{if(query)run(()=>searchAvailability(query));else $('availability-search').focus();});
+});
+$('availability-form').addEventListener('submit',event=>{event.preventDefault();run(()=>searchAvailability($('availability-search').value.trim()));});
 document.querySelectorAll('.money-input').forEach(input=>input.addEventListener('input',()=>{updateMoneyPreviews();if(input.id==='discount'||input.id==='tendered')renderTotals();}));
 $('sale-form').addEventListener('submit',event=>{event.preventDefault();run(async()=>{
   const cash=currentCash();if(!cash)throw new Error('Abra o caixa primeiro.');
@@ -795,6 +874,8 @@ document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',(
 document.querySelectorAll('[data-network-period]').forEach(button=>button.addEventListener('click',()=>{
   state.networkPeriod=presetPeriod(button.dataset.networkPeriod);$('network-custom-period').hidden=true;requestNetworkLoad();
 }));
+$('network-detail-search').addEventListener('input',renderNetworkDetail);
+document.querySelectorAll('[data-network-section]').forEach(button=>button.addEventListener('click',()=>run(()=>setNetworkSection(button.dataset.networkSection))));
 $('network-custom-open').addEventListener('click',()=>{const form=$('network-custom-period'),today=localDay();form.hidden=!form.hidden;$('network-from').max=today;$('network-to').max=today;const period=state.networkPeriod??presetPeriod('today');$('network-from').value=period.from;$('network-to').value=period.to;});
 $('network-custom-cancel').addEventListener('click',()=>{$('network-custom-period').hidden=true;$('network-custom-open').focus();});
 $('network-custom-period').addEventListener('submit',event=>{event.preventDefault();const from=$('network-from').value,to=$('network-to').value,today=localDay();if(!from||!to||from>to)return message('Informe um período válido.');if(to>today)return message('O período não pode terminar no futuro.');if(daysInPeriod(from,to)>366)return message('O período máximo é de 366 dias.');state.networkPeriod={preset:'custom',from,to};event.currentTarget.hidden=true;requestNetworkLoad();});

@@ -344,6 +344,78 @@ class TransactionPos {
     payments: [...payments.values()], hourly: hourlySales(sales), stores };
   }
 
+  async stockLookup(ctx, query = '') {
+    await this.user(ctx);
+    const term = String(query ?? '').trim().slice(0, 120);
+    const pattern = `%${term.replaceAll('%', '\\%').replaceAll('_', '\\_')}%`;
+    const rows = await this.all(`SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,
+        s.id store_id,s.name store_name,st.quantity
+      FROM products p
+      JOIN stock st ON st.tenant_id=p.tenant_id AND st.product_id=p.id
+      JOIN stores s ON s.tenant_id=st.tenant_id AND s.id=st.store_id
+      WHERE p.tenant_id=$1 AND p.active=1 AND s.active=1
+        AND ($2='' OR p.name ILIKE $3 ESCAPE '\\' OR p.sku ILIKE $3 ESCAPE '\\' OR COALESCE(p.barcode,'') ILIKE $3 ESCAPE '\\')
+      ORDER BY p.name,s.name LIMIT 250`, ctx.tenantId, term, pattern);
+    const products = new Map();
+    for (const row of rows) {
+      const product = products.get(row.id) ?? { id: row.id, sku: row.sku, barcode: row.barcode,
+        name: row.name, price_cents: cashInteger(row.price_cents), total_quantity: 0, stores: [] };
+      const quantity = cashInteger(row.quantity);
+      product.total_quantity += quantity;
+      product.stores.push({ id: row.store_id, name: row.store_name, quantity });
+      products.set(row.id, product);
+    }
+    return { query: term, products: [...products.values()] };
+  }
+
+  async networkOperations(ctx, from, to) {
+    const me = await this.me(ctx), stores = me.stores.filter(store => store.role === 'MANAGER');
+    requireThat(stores.length > 0, 403, 'MANAGER_REQUIRED', 'Somente gerente acompanha a operação da rede.');
+    const range = reportRange(from, to);
+    const membership = `JOIN memberships access ON access.tenant_id=$1 AND access.user_id=$2 AND access.store_id=s.id AND access.active=1 AND access.role='MANAGER'`;
+    const stock = (await this.all(`SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,s.id store_id,s.name store_name,st.quantity
+      FROM stores s ${membership}
+      JOIN stock st ON st.tenant_id=s.tenant_id AND st.store_id=s.id
+      JOIN products p ON p.tenant_id=st.tenant_id AND p.id=st.product_id
+      WHERE s.tenant_id=$1 AND s.active=1 AND p.active=1 ORDER BY p.name,s.name`, ctx.tenantId, ctx.userId))
+      .map(row => ({ ...row, price_cents: cashInteger(row.price_cents), quantity: cashInteger(row.quantity) }));
+    const movements = (await this.all(`SELECT m.id,m.created_at,m.kind,m.quantity,m.reason,p.sku,p.name,
+        s.id store_id,s.name store_name,u.name actor_name
+      FROM stores s ${membership}
+      JOIN stock_movements m ON m.tenant_id=s.tenant_id AND m.store_id=s.id
+      JOIN products p ON p.tenant_id=m.tenant_id AND p.id=m.product_id
+      JOIN users u ON u.tenant_id=m.tenant_id AND u.id=m.actor_id
+      WHERE s.tenant_id=$1 AND m.created_at>=$3 AND m.created_at<$4
+      ORDER BY m.created_at DESC LIMIT 300`, ctx.tenantId, ctx.userId, range.start, range.end))
+      .map(row => ({ ...row, quantity: cashInteger(row.quantity), created_at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at }));
+    const sales = (await this.all(`SELECT sale.id,sale.created_at,sale.total_cents,sale.discount_cents,
+        s.id store_id,s.name store_name,u.name operator_name,pay.method,x.created_at canceled_at,
+        COALESCE(SUM(ret.total_cents),0) returned_cents
+      FROM stores s ${membership}
+      JOIN sales sale ON sale.tenant_id=s.tenant_id AND sale.store_id=s.id
+      JOIN users u ON u.tenant_id=sale.tenant_id AND u.id=sale.operator_id
+      JOIN payments pay ON pay.tenant_id=sale.tenant_id AND pay.sale_id=sale.id
+      LEFT JOIN sale_cancellations x ON x.tenant_id=sale.tenant_id AND x.sale_id=sale.id
+      LEFT JOIN sale_returns ret ON ret.tenant_id=sale.tenant_id AND ret.sale_id=sale.id
+      WHERE s.tenant_id=$1 AND sale.created_at>=$3 AND sale.created_at<$4
+      GROUP BY sale.id,sale.created_at,sale.total_cents,sale.discount_cents,s.id,s.name,u.name,pay.method,x.created_at
+      ORDER BY sale.created_at DESC LIMIT 300`, ctx.tenantId, ctx.userId, range.start, range.end))
+      .map(row => ({ ...row, total_cents: cashInteger(row.total_cents), discount_cents: cashInteger(row.discount_cents),
+        returned_cents: cashInteger(row.returned_cents), created_at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+        canceled_at: row.canceled_at instanceof Date ? row.canceled_at.toISOString() : row.canceled_at }));
+    const closures = (await this.all(`SELECT c.id,c.closed_at,c.expected_cents,c.counted_cents,c.difference_cents,c.close_reason,
+        s.id store_id,s.name store_name,t.name terminal_name,u.name operator_name
+      FROM stores s ${membership}
+      JOIN cash_sessions c ON c.tenant_id=s.tenant_id AND c.store_id=s.id
+      JOIN terminals t ON t.tenant_id=c.tenant_id AND t.id=c.terminal_id
+      JOIN users u ON u.tenant_id=c.tenant_id AND u.id=c.operator_id
+      WHERE s.tenant_id=$1 AND c.status='CLOSED' AND c.closed_at>=$3 AND c.closed_at<$4
+      ORDER BY c.closed_at DESC LIMIT 300`, ctx.tenantId, ctx.userId, range.start, range.end))
+      .map(row => ({ ...row, expected_cents: cashInteger(row.expected_cents), counted_cents: cashInteger(row.counted_cents),
+        difference_cents: cashInteger(row.difference_cents), closed_at: row.closed_at instanceof Date ? row.closed_at.toISOString() : row.closed_at }));
+    return { range, stores, stock, movements, sales, closures };
+  }
+
   async customerDetail(ctx, storeId, customerId) {
     id(storeId); id(customerId);
     await this.authorize(ctx, storeId);
@@ -395,6 +467,8 @@ export class PostgresPos {
   async customerDetail(ctx, storeId, customerId) { return this.#transaction(ctx, false, tx => tx.customerDetail(ctx, storeId, customerId)); }
   async report(ctx, storeId, from, to) { return this.#transaction(ctx, true, tx => tx.report(ctx, storeId, from, to)); }
   async networkOverview(ctx, from, to) { return this.#transaction(ctx, true, tx => tx.networkOverview(ctx, from, to)); }
+  async stockLookup(ctx, query) { return this.#transaction(ctx, true, tx => tx.stockLookup(ctx, query)); }
+  async networkOperations(ctx, from, to) { return this.#transaction(ctx, true, tx => tx.networkOperations(ctx, from, to)); }
   async auditReportExport(ctx, storeId, range, section) {
     id(storeId);
     return this.#transaction(ctx, false, async tx => {

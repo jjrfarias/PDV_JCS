@@ -660,6 +660,43 @@ export class Pos {
     }),{sale_count:0,active_sale_count:0,canceled_sale_count:0,gross_cents:0,discount_cents:0,returned_cents:0,open_cash_count:0});
     return {generated_at:now(),range:reportRange(from,to),totals:{...totals,ticket_average_cents:totals.active_sale_count?Math.round(totals.gross_cents/totals.active_sale_count):0},payments:[...payments.values()],hourly:hourlySales(sales),stores};
   }
+  stockLookup(ctx,query='') {
+    this.user(ctx);
+    const term=String(query??'').trim().slice(0,120),pattern=`%${term.replaceAll('%','\\%').replaceAll('_','\\_')}%`;
+    const rows=this.all(`SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,s.id store_id,s.name store_name,st.quantity
+      FROM products p JOIN stock st ON st.tenant_id=p.tenant_id AND st.product_id=p.id
+      JOIN stores s ON s.tenant_id=st.tenant_id AND s.id=st.store_id
+      WHERE p.tenant_id=? AND p.active=1 AND s.active=1
+        AND (?='' OR p.name LIKE ? ESCAPE '\\' OR p.sku LIKE ? ESCAPE '\\' OR COALESCE(p.barcode,'') LIKE ? ESCAPE '\\')
+      ORDER BY p.name,s.name LIMIT 250`,ctx.tenantId,term,pattern,pattern,pattern);
+    const products=new Map();
+    for(const row of rows){const product=products.get(row.id)??{id:row.id,sku:row.sku,barcode:row.barcode,name:row.name,price_cents:row.price_cents,total_quantity:0,stores:[]};product.total_quantity+=row.quantity;product.stores.push({id:row.store_id,name:row.store_name,quantity:row.quantity});products.set(row.id,product);}
+    return {query:term,products:[...products.values()]};
+  }
+  networkOperations(ctx,from,to) {
+    const me=this.me(ctx),stores=me.stores.filter(store=>store.role==='MANAGER');
+    requireThat(stores.length>0,403,'MANAGER_REQUIRED','Somente gerente acompanha a operação da rede.');
+    const range=reportRange(from,to),access=`JOIN memberships access ON access.tenant_id=? AND access.user_id=? AND access.store_id=s.id AND access.active=1 AND access.role='MANAGER'`;
+    const stock=this.all(`SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,s.id store_id,s.name store_name,st.quantity
+      FROM stores s ${access} JOIN stock st ON st.tenant_id=s.tenant_id AND st.store_id=s.id
+      JOIN products p ON p.tenant_id=st.tenant_id AND p.id=st.product_id
+      WHERE s.tenant_id=? AND s.active=1 AND p.active=1 ORDER BY p.name,s.name`,ctx.tenantId,ctx.userId,ctx.tenantId);
+    const movements=this.all(`SELECT m.id,m.created_at,m.kind,m.quantity,m.reason,p.sku,p.name,s.id store_id,s.name store_name,u.name actor_name
+      FROM stores s ${access} JOIN stock_movements m ON m.tenant_id=s.tenant_id AND m.store_id=s.id
+      JOIN products p ON p.tenant_id=m.tenant_id AND p.id=m.product_id JOIN users u ON u.tenant_id=m.tenant_id AND u.id=m.actor_id
+      WHERE s.tenant_id=? AND m.created_at>=? AND m.created_at<? ORDER BY m.created_at DESC LIMIT 300`,ctx.tenantId,ctx.userId,ctx.tenantId,range.start,range.end);
+    const sales=this.all(`SELECT sale.id,sale.created_at,sale.total_cents,sale.discount_cents,s.id store_id,s.name store_name,u.name operator_name,pay.method,x.created_at canceled_at,COALESCE(SUM(ret.total_cents),0) returned_cents
+      FROM stores s ${access} JOIN sales sale ON sale.tenant_id=s.tenant_id AND sale.store_id=s.id
+      JOIN users u ON u.tenant_id=sale.tenant_id AND u.id=sale.operator_id JOIN payments pay ON pay.tenant_id=sale.tenant_id AND pay.sale_id=sale.id
+      LEFT JOIN sale_cancellations x ON x.tenant_id=sale.tenant_id AND x.sale_id=sale.id LEFT JOIN sale_returns ret ON ret.tenant_id=sale.tenant_id AND ret.sale_id=sale.id
+      WHERE s.tenant_id=? AND sale.created_at>=? AND sale.created_at<?
+      GROUP BY sale.id,sale.created_at,sale.total_cents,sale.discount_cents,s.id,s.name,u.name,pay.method,x.created_at ORDER BY sale.created_at DESC LIMIT 300`,ctx.tenantId,ctx.userId,ctx.tenantId,range.start,range.end);
+    const closures=this.all(`SELECT c.id,c.closed_at,c.expected_cents,c.counted_cents,c.difference_cents,c.close_reason,s.id store_id,s.name store_name,t.name terminal_name,u.name operator_name
+      FROM stores s ${access} JOIN cash_sessions c ON c.tenant_id=s.tenant_id AND c.store_id=s.id
+      JOIN terminals t ON t.tenant_id=c.tenant_id AND t.id=c.terminal_id JOIN users u ON u.tenant_id=c.tenant_id AND u.id=c.operator_id
+      WHERE s.tenant_id=? AND c.status='CLOSED' AND c.closed_at>=? AND c.closed_at<? ORDER BY c.closed_at DESC LIMIT 300`,ctx.tenantId,ctx.userId,ctx.tenantId,range.start,range.end);
+    return {range,stores,stock,movements,sales,closures};
+  }
   state(ctx,storeId) {
     id(storeId);
     const storeUser=this.authorize(ctx,storeId);

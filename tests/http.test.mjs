@@ -75,6 +75,27 @@ test('HTTP 01.1 · aviso de privacidade e cabeçalhos defensivos são públicos'
   assert.equal(result.response.headers.get('strict-transport-security'),null);
 });
 
+test('HTTP 01.3 · operador consulta disponibilidade somente nas lojas da própria empresa',async t=>{
+  const w=await web(t);await w.login('operador@jcs.local');
+  const result=await w.call('/api/stock/lookup?q=DEMO-001');
+  assert.equal(result.response.status,200);assert.equal(result.data.products.length,1);
+  assert.equal(result.data.products[0].total_quantity,40);
+  assert.deepEqual(result.data.products[0].stores.map(store=>store.id).sort(),[DEMO.storeA,DEMO.storeB]);
+  assert.equal(JSON.stringify(result.data).includes('Produto de outra empresa'),false);
+});
+
+test('HTTP 01.4 · operação consolidada exige gerente e respeita as lojas gerenciadas',async t=>{
+  const w=await web(t);await w.login();
+  const today=businessDate();
+  const manager=await w.call(`/api/network/operations?from=${today}&to=${today}`);
+  assert.equal(manager.response.status,200);
+  assert.deepEqual(manager.data.stores.map(store=>store.id).sort(),[DEMO.storeA,DEMO.storeB]);
+  assert.equal(manager.data.stock.reduce((sum,row)=>sum+row.quantity,0),40);
+  await w.login('operador@jcs.local');
+  const cashier=await w.call(`/api/network/operations?from=${today}&to=${today}`);
+  assert.equal(cashier.response.status,403);assert.equal(cashier.data.error.code,'MANAGER_REQUIRED');
+});
+
 test('HTTP 17 - gerente cancela venda confirmada por rota idempotente',async t=>{
   const w=await web(t);await w.login();
   const cash=await w.call('/api/cash/open',{method:'POST',headers:{'Idempotency-Key':key()},body:{storeId:DEMO.storeA,terminalId:DEMO.terminalA,openingCents:10000}});
