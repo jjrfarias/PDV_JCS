@@ -119,13 +119,13 @@ function presetPeriod(preset){const today=localDay();if(preset==='yesterday'){co
 function comparisonPeriod(period){const days=daysInPeriod(period.from,period.to);if(days===1){const day=shiftDay(period.from,-7);return {from:day,to:day};}return {from:shiftDay(period.from,-days),to:shiftDay(period.from,-1)};}
 function periodTitle(period){if(period.preset==='today')return `Hoje, ${displayDay(period.from)}`;if(period.preset==='yesterday')return `Ontem, ${displayDay(period.from)}`;if(period.from===period.to)return displayDay(period.from);return `${displayDay(period.from)} a ${displayDay(period.to)}`;}
 const businessHour=value=>Number(new Intl.DateTimeFormat('en-US',{timeZone:BUSINESS_TIME_ZONE,hour:'2-digit',hourCycle:'h23'}).format(new Date(value)));
-async function loadNetwork(){
+async function loadNetwork({silent=false}={}){
   if(!manager()||state.networkLoading)return;
   state.networkPeriod??=presetPeriod('today');
-  state.networkLoading=true;$('network-status').textContent='Atualizando';$('network-status').classList.add('loading');
+  state.networkLoading=true;if(!silent){$('network-status').textContent='Atualizando';$('network-status').classList.add('loading');}
   try{const period=state.networkPeriod,reference=comparisonPeriod(period);const [current,previous]=await Promise.all([api(`/api/network/overview?from=${period.from}&to=${period.to}`),api(`/api/network/overview?from=${reference.from}&to=${reference.to}`)]);state.network={current,previous,period,reference};state.networkFailed=false;renderNetwork();}
-  catch(error){state.networkFailed=true;throw error;}
-  finally{const live=state.networkPeriod?.preset==='today';state.networkLoading=false;$('network-status').textContent=live?'Ao vivo':'Histórico';$('network-status').classList.toggle('history',!live);$('network-status').classList.remove('loading');}
+  catch(error){state.networkFailed=true;if(!silent)throw error;}
+  finally{const live=state.networkPeriod?.preset==='today';state.networkLoading=false;if(!silent){$('network-status').textContent=live?'Ao vivo':'Histórico';$('network-status').classList.toggle('history',!live);$('network-status').classList.remove('loading');}}
 }
 // Caixa aberto sem venda por mais tempo que isto vira alerta: risco de caixa esquecido aberto.
 const IDLE_ALERT_MS=2*60*60_000;
@@ -718,6 +718,6 @@ document.addEventListener('keydown',event=>{
   if(event.key==='Escape'&&!document.querySelector('dialog[open]')&&state.cart.length){event.preventDefault();clearSale();}
 });
 boot().catch(error=>{if(error.status!==401)$('login-error').textContent=error.message;});
-setInterval(()=>{if(state.me&&state.view==='network'&&!state.networkFailed&&state.networkPeriod?.preset==='today'&&document.visibilityState==='visible')run(loadNetwork);},5000);
+setInterval(()=>{if(state.me&&state.view==='network'&&!state.networkFailed&&state.networkPeriod?.preset==='today'&&document.visibilityState==='visible')loadNetwork({silent:true});},30_000);
 
 $('mfa-dialog').addEventListener('close',()=>{$('mfa-qr').removeAttribute('src');$('mfa-secret').value='';if(state.mfaRequired)api('/api/logout',{method:'POST',body:'{}'}).finally(()=>location.reload());});
