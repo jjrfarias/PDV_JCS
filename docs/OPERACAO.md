@@ -54,6 +54,8 @@ Guarde `JCS_FIELD_ENCRYPTION_KEY` em cofre/backup seguro. Perder essa chave torn
 
 Qualquer erro desfaz a transação inteira. Nunca registre as chaves em arquivo, Git, chamado ou mensagem.
 
+**Evidência de 04/10/2026:** antes da primeira rotação foi criado um backup manual de volume de 970 MB, com PITR ativo. A migration de auditoria foi aplicada e a aplicação foi interrompida. A rotação recriptografou 1 cliente e o segredo MFA de 1 administrador da plataforma, recalculou os hashes de busca e gravou `FIELD_KEY_ROTATED`. A validação com a chave nova conferiu todos os campos criptografados e hashes; depois o serviço voltou com PostgreSQL saudável, `/health`, página inicial e aviso de privacidade respondendo HTTP 200. Nenhum valor de chave foi incluído nos logs da operação ou neste documento.
+
 ## Migrations
 
 Consulte `docs/BACKUP-E-RESTAURACAO.md` para a proteção ativa, a evidência do teste real de restauração e as pendências de recuperação.
