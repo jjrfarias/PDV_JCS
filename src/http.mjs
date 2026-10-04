@@ -110,6 +110,7 @@ async function mfaSetupWithQr(setup) {
   });
   return { ...setup, qrCodeDataUrl };
 }
+const RAILWAY_HEALTHCHECK_HOST='healthcheck.railway.app';
 export function createApp(db,{mailer}={}) {
   const auth=new Auth(db,mailer?{mailer}:{}); const pos=new Pos(db,mailer?{mailer}:{}); const platform=new Platform(db,mailer?{mailer}:{});
   const server=createServer(async(req,res)=>{
@@ -131,7 +132,9 @@ export function createApp(db,{mailer}={}) {
         process.env.RAILWAY_PUBLIC_DOMAIN ?? ''
       ].filter(Boolean);
       const hosts=production ? configuredHosts : [`127.0.0.1:${port}`,`localhost:${port}`];
-      requireThat(hosts.length>0&&hosts.includes(req.headers.host),403,'HOST_FORBIDDEN',
+      // A verificação de saúde da Railway chega com este Host. Ele só abre GET /health, nunca o PDV nem a API.
+      const railwayHealthcheck=production&&req.headers.host===RAILWAY_HEALTHCHECK_HOST&&req.method==='GET'&&(req.url??'').split('?')[0]==='/health';
+      requireThat(railwayHealthcheck||(hosts.length>0&&hosts.includes(req.headers.host)),403,'HOST_FORBIDDEN',
         production?'Host público não configurado para este deploy.':'Acesso permitido somente pelo endereço local indicado.');
       const origin=(process.env.PUBLIC_ORIGIN?.replace(/\/$/,'') ?? `${production?'https':'http'}://${req.headers.host}`);
       const url=new URL(req.url,origin);
