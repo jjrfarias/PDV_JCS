@@ -164,8 +164,20 @@ function renderNetwork(){
     tr.addEventListener('click',()=>openStore(store));tr.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openStore(store);}});return tr;}));
   $('network-store-cards').replaceChildren(...stores.map(store=>{const card=element('button',undefined,`network-store-card${attention.get(store.id)?' needs-attention':''}`);card.type='button';const reference=previousStores.get(store.id),ticket=store.active_sale_count?Math.round(store.gross_cents/store.active_sale_count):0,note=variation(store.gross_cents,reference?.gross_cents??0);card.append(element('strong',store.name),element('b',brl(store.gross_cents)));if(note)card.append(element('span',note,store.gross_cents>=reference.gross_cents?'positive':'negative'));card.append(element('small',`${plural(store.active_sale_count,'venda','vendas')} · ticket ${brl(ticket)} · ${store.open_cash_count?plural(store.open_cash_count,'caixa aberto','caixas abertos'):'caixas fechados'}`));card.addEventListener('click',()=>openStore(store));return card;}));
   renderCumulative(overview.hourly??[],hasHistory?previous.hourly??[]:[],overview.generated_at);
+  renderStoreShare(stores);
   $('network-period').textContent=`Hoje, ${new Date(`${localDay()}T12:00:00`).toLocaleDateString('pt-BR')}`;
   $('network-updated').textContent=`Atualizado às ${new Date(overview.generated_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
+}
+function renderStoreShare(stores){
+  const colors=['#0f766e','#0ea5e9','#6366f1','#f59e0b','#ec4899','#94a3b8'];
+  const ranked=stores.filter(store=>store.gross_cents>0).sort((a,b)=>b.gross_cents-a.gross_cents),total=ranked.reduce((sum,store)=>sum+store.gross_cents,0),top=ranked.slice(0,5).map(store=>({name:store.name.replace(/^FREDBULL\s*·\s*/,''),amount:store.gross_cents}));
+  const others=ranked.slice(5).reduce((sum,store)=>sum+store.gross_cents,0);if(others)top.push({name:'Outras',amount:others});
+  const target=$('network-store-share');
+  if(!total){target.replaceChildren(element('p','Nenhuma venda registrada hoje.','muted-cell'));return;}
+  let position=0;const segments=top.map((item,index)=>{const start=position;position+=item.amount/total*100;return `${colors[index]} ${start}% ${position}%`;});
+  const donut=element('div',undefined,'store-share-donut');donut.style.background=`conic-gradient(${segments.join(',')})`;const center=element('div');center.append(element('strong','100%'),element('span','da rede'));donut.append(center);
+  const legend=element('div',undefined,'store-share-legend');legend.append(...top.map((item,index)=>{const row=element('div');const label=element('span');label.append(element('i',undefined,`share-color-${index}`),document.createTextNode(item.name));row.append(label,element('strong',`${Math.round(item.amount/total*100)}%`));return row;}));
+  target.replaceChildren(donut,legend);
 }
 // Curva acumulada no fuso da operação. A referência é comparada somente até a mesma hora.
 function renderCumulative(today,reference,generatedAt){
