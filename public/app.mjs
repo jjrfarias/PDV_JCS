@@ -1,6 +1,6 @@
 ﻿import {cents,brl} from './money.mjs';
 const $=id=>document.getElementById(id);
-const state={me:null,data:null,network:null,networkCache:new Map(),networkLoading:false,networkFailed:false,networkPeriod:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:'',reportSection:'resumo'};
+const state={me:null,data:null,network:null,networkCache:new Map(),networkLoading:false,networkLoadQueued:false,networkFailed:false,networkPeriod:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:'',reportSection:'resumo'};
 let messageTimer=null;
 function element(tag,content,className=''){const node=document.createElement(tag);if(content!==undefined)node.textContent=String(content);if(className)node.className=className;return node;}
 function serviceAlert(show,text='Estamos tentando restabelecer a conexão. Não repita uma venda sem recuperar a operação anterior.'){
@@ -122,7 +122,7 @@ const businessHour=value=>Number(new Intl.DateTimeFormat('en-US',{timeZone:BUSIN
 function setNetworkLoading(loading,period,{visible=true}={}){
   state.networkLoading=loading;
   document.querySelector('.network-dashboard')?.setAttribute('aria-busy',String(loading));
-  document.querySelectorAll('[data-network-period],#network-custom-open,#network-custom-period input,#network-custom-period button').forEach(control=>{control.disabled=loading;});
+  if(visible||!loading)document.querySelectorAll('[data-network-period],#network-custom-open,#network-custom-period input,#network-custom-period button').forEach(control=>{control.disabled=loading;});
   $('network-loading').hidden=!(loading&&visible);
   if(loading&&visible){$('network-loading-detail').textContent=`Período de ${displayDay(period.from)} a ${displayDay(period.to)}. Os dados atuais permanecem visíveis.`;$('network-status').textContent='Consultando';$('network-status').classList.add('loading');}
 }
@@ -134,8 +134,9 @@ async function loadNetwork({silent=false}={}){
   const period=state.networkPeriod;setNetworkLoading(true,period,{visible:!silent});
   try{const reference=comparisonPeriod(period);const [current,previous]=await Promise.all([api(`/api/network/overview?from=${period.from}&to=${period.to}`),api(`/api/network/overview?from=${reference.from}&to=${reference.to}`)]);state.network={current,previous,period,reference};state.networkCache.set(cacheKey,state.network);state.networkFailed=false;renderNetwork();}
   catch(error){state.networkFailed=true;if(!silent)throw error;}
-  finally{const live=state.networkPeriod?.preset==='today';setNetworkLoading(false,period);if(!silent){$('network-status').textContent=live?'Ao vivo':'Histórico';$('network-status').classList.toggle('history',!live);$('network-status').classList.remove('loading');}}
+  finally{const live=state.networkPeriod?.preset==='today';setNetworkLoading(false,period);if(!silent){$('network-status').textContent=live?'Ao vivo':'Histórico';$('network-status').classList.toggle('history',!live);$('network-status').classList.remove('loading');}if(state.networkLoadQueued){state.networkLoadQueued=false;queueMicrotask(()=>run(loadNetwork));}}
 }
+function requestNetworkLoad(){if(state.networkLoading){state.networkLoadQueued=true;return;}run(loadNetwork);}
 // Caixa aberto sem venda por mais tempo que isto vira alerta: risco de caixa esquecido aberto.
 const IDLE_ALERT_MS=2*60*60_000;
 const plural=(count,one,many)=>`${count} ${count===1?one:many}`;
@@ -713,11 +714,11 @@ $('cash-gate-action').addEventListener('click',()=>setView('cash'));
 document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
 document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
 document.querySelectorAll('[data-network-period]').forEach(button=>button.addEventListener('click',()=>{
-  if(state.networkLoading)return;state.networkPeriod=presetPeriod(button.dataset.networkPeriod);$('network-custom-period').hidden=true;run(loadNetwork);
+  state.networkPeriod=presetPeriod(button.dataset.networkPeriod);$('network-custom-period').hidden=true;requestNetworkLoad();
 }));
 $('network-custom-open').addEventListener('click',()=>{const form=$('network-custom-period'),today=localDay();form.hidden=!form.hidden;$('network-from').max=today;$('network-to').max=today;const period=state.networkPeriod??presetPeriod('today');$('network-from').value=period.from;$('network-to').value=period.to;});
 $('network-custom-cancel').addEventListener('click',()=>{$('network-custom-period').hidden=true;$('network-custom-open').focus();});
-$('network-custom-period').addEventListener('submit',event=>{event.preventDefault();if(state.networkLoading)return;const from=$('network-from').value,to=$('network-to').value,today=localDay();if(!from||!to||from>to)return message('Informe um período válido.');if(to>today)return message('O período não pode terminar no futuro.');if(daysInPeriod(from,to)>366)return message('O período máximo é de 366 dias.');state.networkPeriod={preset:'custom',from,to};event.currentTarget.hidden=true;run(loadNetwork);});
+$('network-custom-period').addEventListener('submit',event=>{event.preventDefault();const from=$('network-from').value,to=$('network-to').value,today=localDay();if(!from||!to||from>to)return message('Informe um período válido.');if(to>today)return message('O período não pode terminar no futuro.');if(daysInPeriod(from,to)>366)return message('O período máximo é de 366 dias.');state.networkPeriod={preset:'custom',from,to};event.currentTarget.hidden=true;requestNetworkLoad();});
 document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>run(async()=>{state.tab=b.dataset.tab;$('management-search').value='';document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('selected',button===b));if(state.tab==='reports')await loadReport();renderManagement();})));
 $('management-search').addEventListener('input',renderManagement);
 document.addEventListener('keydown',event=>{
