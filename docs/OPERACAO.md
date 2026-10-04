@@ -17,8 +17,10 @@ GET /health
 Resposta esperada:
 
 ```json
-{"status":"ok","mode":"production","database":"postgres","fiscal":false}
+{"status":"ok","mode":"production","database":"postgres","databaseStatus":"ok","latencyMs":12,"fiscal":false}
 ```
+
+O endpoint executa uma consulta mínima no banco. Falha de conexão ou tempo excedido responde `503`, com `status: "degraded"` e `databaseStatus: "unavailable"`, sem detalhes internos. Um `200` confirma o processo HTTP e essa consulta mínima; login e venda continuam sendo validações separadas.
 
 ## Variaveis obrigatorias na Railway
 

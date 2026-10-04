@@ -20,6 +20,17 @@ function send(res,status,data) {
   res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});
   res.end(JSON.stringify(data));
 }
+async function databaseHealth(db) {
+  const started=Date.now();
+  if(typeof db.query==='function') await db.query({text:'SELECT 1',query_timeout:2_000});
+  else db.prepare('SELECT 1').get();
+  return Date.now()-started;
+}
+function databaseUnavailable(error) {
+  return ['08000','08001','08003','08004','08006','08007','08P01','53300','57P01','57P02','57P03'].includes(error?.code)
+    || ['ECONNREFUSED','ECONNRESET','ETIMEDOUT','EPIPE'].includes(error?.code)
+    || /connection|timeout|terminating connection|database is locked/i.test(error?.message??'');
+}
 function csvCell(value) {
   let text=String(value??'').replace(/\r?\n/g,' ');
   const candidate=text.trimStart();
@@ -117,12 +128,14 @@ export function createApp(db,{mailer}={}) {
         const asset=ASSETS.get(url.pathname);
         res.writeHead(200,{'Content-Type':asset.type}); return res.end(asset.body);
       }
-      if(req.method==='GET'&&url.pathname==='/health') return send(res,200,{
-        status:'ok',
-        mode:production?'production':'local-test',
-        database:typeof db.query==='function'?'postgres':'sqlite',
-        fiscal:false
-      });
+      if(req.method==='GET'&&url.pathname==='/health') {
+        try {
+          const latencyMs=await databaseHealth(db);
+          return send(res,200,{status:'ok',mode:production?'production':'local-test',database:typeof db.query==='function'?'postgres':'sqlite',databaseStatus:'ok',latencyMs,fiscal:false});
+        } catch {
+          return send(res,503,{status:'degraded',mode:production?'production':'local-test',database:typeof db.query==='function'?'postgres':'sqlite',databaseStatus:'unavailable',fiscal:false});
+        }
+      }
       requireThat(url.pathname.startsWith('/api/'),404,'NOT_FOUND','Rota não encontrada.');
       const mutating=!['GET','HEAD'].includes(req.method);
       if(mutating) {
@@ -215,6 +228,8 @@ export function createApp(db,{mailer}={}) {
       if(error instanceof AppError) return send(res,error.status,{error:{code:error.code,message:error.message}});
       if(error?.errcode===5||error?.errcode===6||error?.message?.includes('database is locked'))
         return send(res,503,{error:{code:'DATABASE_BUSY',message:'Banco ocupado. Recupere a operação com a mesma chave.'}});
+      if(databaseUnavailable(error))
+        return send(res,503,{error:{code:'DATABASE_UNAVAILABLE',message:'O serviço está temporariamente lento ou indisponível. Aguarde e recupere a operação antes de tentar novamente.'}});
       // Não registrar conteúdo de requisições, senhas ou valores de cookies.
       console.error('Falha interna:',error?.code??error?.name??'UnknownError');
       send(res,500,{error:{code:'INTERNAL_ERROR',message:'Resultado incerto. Use Recuperar operação antes de tentar outra venda.'}});

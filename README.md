@@ -69,6 +69,7 @@ O operador `operador@jcs.local` tem acesso apenas à Loja A e não pode conceder
 - Devolução gerencial parcial ou total, com motivo, saldo devolvível por item, recomposição de estoque, estorno de dinheiro quando aplicável e registro auditável sem apagar a venda original.
 - Relatório por período com vendas, pagamentos, produtos, operadores e fechamentos. A exportação compatível com Excel neutraliza fórmulas em campos textuais e registra usuário, loja, período e seção na auditoria.
 - Bloqueio de saldo negativo e proteção para requisições com a mesma chave.
+- Health check com consulta real ao banco e aviso persistente no PDV quando rede ou PostgreSQL estiverem indisponíveis, preservando a operação pendente para recuperação idempotente.
 - Histórico de vendas, movimentos de estoque, fechamentos e reabertura do comprovante existente.
 - Comando de impressão do navegador. Não existe driver ESC/POS, impressão silenciosa ou homologação de impressora.
 - Recuperação de operação incerta: a tela mantém a mesma chave no armazenamento local antes de enviar e reutiliza essa chave na recuperação.

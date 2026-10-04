@@ -69,6 +69,7 @@ p{color:var(--muted);font-size:14px}
 .message{margin:0 clamp(14px,1.6vw,28px) 8px;padding:9px 14px;border:1px solid #bfdbfe;background:#eff6ff;color:#1e3a8a;border-radius:12px;font-size:13px;font-weight:700}
 .pending{margin:0 clamp(14px,1.6vw,28px) 12px;padding:18px;border:1px solid #f59e0b;background:#fffbeb;border-radius:14px;display:flex;justify-content:space-between;align-items:center;gap:20px}
 .pending p{margin:5px 0 0}.pending strong{font-size:14px}
+.service-alert{margin:0 clamp(14px,1.6vw,28px) 12px;padding:13px 18px;border:1px solid #fdba74;border-radius:12px;background:#fff7ed;color:#9a3412;display:flex;align-items:center;justify-content:space-between;gap:18px}.service-alert strong{font-size:14px}.service-alert p{margin:3px 0 0;font-size:12px;font-weight:700}.service-alert button{background:#fff;border-color:#fdba74;color:#9a3412;white-space:nowrap}
 .cash-gate{margin-bottom:8px;padding:9px 14px;border:1px solid #fed7aa;background:#fff7ed;border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:18px}
 .cash-gate strong{display:block;color:#9a3412;font-size:14px}
 .cash-gate p{margin:1px 0 0;color:#9a3412;font-size:13px}
@@ -263,7 +264,7 @@ dialog::backdrop{background:#0f172a99}
   .page-heading{display:block}.page-heading h1{font-size:28px}.register-actions{margin-top:12px}
   .cash-strip{grid-template-columns:1fr}.cash-strip .strip-note{display:none}
   .sale-layout,.cash-gate:not([hidden]) + .sale-layout{display:flex;flex-direction:column;height:auto;min-height:0}.payment-panel{margin-top:14px;position:static;max-height:none;overflow:visible;order:2}.items-panel{min-height:420px;order:1}
-  .tabs{gap:14px;flex-wrap:wrap}.pending,.cash-gate{display:block}.pending button,.cash-gate button{margin-top:15px}
+  .tabs{gap:14px;flex-wrap:wrap}.pending,.service-alert,.cash-gate{display:block}.pending button,.service-alert button,.cash-gate button{margin-top:15px}
   .management-summary{grid-template-columns:1fr}
   .network-store-table{min-width:940px}
   .cash-detail-cards,.cash-detail-payments{grid-template-columns:1fr 1fr}
@@ -277,7 +278,7 @@ dialog::backdrop{background:#0f172a99}
   h2{font-size:16px}
   .wordmark{font-size:21px}
   .head-controls{grid-template-columns:1fr}.head-controls select{min-width:0}.operator-card{padding:4px 0}
-  .view-panel,.page-heading,.message,.pending{margin-left:10px;margin-right:10px}
+  .view-panel,.page-heading,.message,.pending,.service-alert{margin-left:10px;margin-right:10px}
   .cash-gate{padding:13px}
   .section-title{padding:13px 14px}
   .search-form{grid-template-columns:1fr;padding:13px 14px}.search-form input{font-size:16px}.search-form button{width:100%}

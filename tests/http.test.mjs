@@ -32,6 +32,18 @@ test('HTTP 01 · login emite cookie HttpOnly/SameSite e sessão não vai ao JSON
   const me=await w.call('/api/me');assert.equal(me.data.user.role,'MANAGER');assert.equal(me.data.stores.length,2);
 });
 
+test('HTTP 01.0 · health consulta o banco e sinaliza degradação',async t=>{
+  const healthy=await web(t),ok=await healthy.call('/health');
+  assert.equal(ok.response.status,200);assert.equal(ok.data.databaseStatus,'ok');assert.equal(typeof ok.data.latencyMs,'number');
+
+  const unavailable={query:async()=>{const error=new Error('connection timeout');error.code='ETIMEDOUT';throw error;},connect:async()=>{throw new Error('unused');}};
+  const server=createApp(unavailable);server.listen(0,'127.0.0.1');await once(server,'listening');
+  t.after(async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));});
+  const origin=`http://127.0.0.1:${server.address().port}`;
+  const response=await fetch(`${origin}/health`),body=await response.json();
+  assert.equal(response.status,503);assert.equal(body.status,'degraded');assert.equal(body.databaseStatus,'unavailable');
+});
+
 test('HTTP 01.2 · gerente ativa MFA e novos logins exigem TOTP',async t=>{
   const w=await web(t,{mfa:false});await w.login();
   const started=await w.call('/api/me/mfa/start',{method:'POST',body:{}});

@@ -3,6 +3,9 @@ const $=id=>document.getElementById(id);
 const state={me:null,data:null,network:null,networkLoading:false,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:'',reportSection:'resumo'};
 let messageTimer=null;
 function element(tag,content,className=''){const node=document.createElement(tag);if(content!==undefined)node.textContent=String(content);if(className)node.className=className;return node;}
+function serviceAlert(show,text='Estamos tentando restabelecer a conexão. Não repita uma venda sem recuperar a operação anterior.'){
+  $('service-alert').hidden=!show;$('service-alert-text').textContent=text;
+}
 function message(value,{sticky=false}={}){
   clearTimeout(messageTimer);messageTimer=null;
   $('message').textContent=value;$('message').hidden=!value;
@@ -13,9 +16,10 @@ function message(value,{sticky=false}={}){
 async function api(path,options={}){
   let response;
   try{response=await fetch(path,{...options,credentials:'same-origin',signal:AbortSignal.timeout(12_000),headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf,...options.headers}});}
-  catch{throw Object.assign(new Error('Servidor indisponível ou resposta não recebida.'),{uncertain:true});}
+  catch{serviceAlert(true);throw Object.assign(new Error('Servidor indisponível ou resposta não recebida.'),{uncertain:true,code:'NETWORK_UNAVAILABLE'});}
   let data;try{data=await response.json();}catch{throw Object.assign(new Error('Resposta inválida. Confirme o resultado antes de repetir.'),{uncertain:true});}
-  if(!response.ok)throw Object.assign(new Error(data.error?.message??'Falha na operação.'),{status:response.status,uncertain:response.status>=500});
+  if(!response.ok){const code=data.error?.code;if(code==='DATABASE_BUSY'||code==='DATABASE_UNAVAILABLE')serviceAlert(true,data.error.message);throw Object.assign(new Error(data.error?.message??'Falha na operação.'),{status:response.status,code,uncertain:response.status>=500});}
+  serviceAlert(false);
   return data;
 }
 const storeId=()=> $('store-select').value;
@@ -548,6 +552,7 @@ $('password-form').addEventListener('submit',event=>{event.preventDefault();run(
 $('store-select').addEventListener('change',()=>run(async()=>{state.cart=[];await refresh();}));
 $('terminal-select').addEventListener('change',()=>{state.cart=[];renderCash();renderCart();});
 $('refresh').addEventListener('click',()=>run(refresh));
+$('service-retry').addEventListener('click',()=>run(refresh));
 $('search').addEventListener('input',renderSearch);
 $('sale-customer-search').addEventListener('input',()=>{
   const text=$('sale-customer-search').value.trim();
