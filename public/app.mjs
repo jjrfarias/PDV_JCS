@@ -101,7 +101,7 @@ function setView(view){
   state.view=view;
   document.querySelectorAll('[data-panel]').forEach(panel=>{panel.hidden=panel.dataset.panel!==view;});
   document.querySelectorAll('[data-view]').forEach(button=>button.classList.toggle('selected',button.dataset.view===view));
-  const headings={network:['REDE DE LOJAS','Acompanhamento em tempo real'],sale:['FRENTE DE CAIXA','Nova venda'],cash:['CAIXA','Operação do caixa'],management:['GESTÃO','Produtos, equipe e movimentações']};
+  const headings={network:['REDE DE LOJAS','Visão geral da rede'],sale:['FRENTE DE CAIXA','Nova venda'],cash:['CAIXA','Operação do caixa'],management:['GESTÃO','Produtos, equipe e movimentações']};
   $('page-eyebrow').textContent=headings[view][0];$('page-title').textContent=headings[view][1];
   $('workspace').classList.toggle('network-context',view==='network');
   $('workspace').classList.toggle('management-context',view==='management');
