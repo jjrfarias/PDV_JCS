@@ -21,8 +21,8 @@ export function seedDemo(db, testPassword) {
   return transaction(db, () => {
     if (db.prepare('SELECT 1 FROM tenants LIMIT 1').get()) return null;
     const run = (sql, ...args) => db.prepare(sql).run(...args);
-    run('INSERT INTO tenants VALUES(?,?,?)','tenant-demo','demo','Comércio de demonstração');
-    run('INSERT INTO tenants VALUES(?,?,?)','tenant-other','outra','Outro contratante fictício');
+    run('INSERT INTO tenants(id,slug,name) VALUES(?,?,?)','tenant-demo','demo','Comércio de demonstração');
+    run('INSERT INTO tenants(id,slug,name) VALUES(?,?,?)','tenant-other','outra','Outro contratante fictício');
     run('INSERT INTO companies VALUES(?,?,?)','tenant-demo','company-demo','Empresa de teste');
     run('INSERT INTO companies VALUES(?,?,?)','tenant-other','company-other','Empresa separada de teste');
     for (const [tenantId, store, company, name] of [

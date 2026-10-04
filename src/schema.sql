@@ -1,6 +1,28 @@
 -- Esquema LOCAL de laboratório, não é a migração PostgreSQL da futura nuvem.
 CREATE TABLE tenants (
-  id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL
+  id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))
+) STRICT;
+CREATE TABLE platform_admins (
+  id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, password_hash TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)), created_at INTEGER NOT NULL
+) STRICT;
+CREATE TABLE platform_sessions (
+  token_hash TEXT PRIMARY KEY, admin_id TEXT NOT NULL REFERENCES platform_admins(id),
+  csrf_token TEXT NOT NULL, expires_at INTEGER NOT NULL
+) STRICT;
+CREATE TABLE platform_password_resets (
+  id TEXT PRIMARY KEY, admin_id TEXT NOT NULL REFERENCES platform_admins(id), token_hash TEXT NOT NULL UNIQUE,
+  expires_at INTEGER NOT NULL, used_at INTEGER, created_at INTEGER NOT NULL
+) STRICT;
+CREATE INDEX platform_password_reset_open ON platform_password_resets(admin_id) WHERE used_at IS NULL;
+CREATE TABLE platform_operations (
+  key TEXT PRIMARY KEY, admin_id TEXT NOT NULL REFERENCES platform_admins(id), kind TEXT NOT NULL,
+  payload_hash TEXT NOT NULL, response_json TEXT NOT NULL, created_at INTEGER NOT NULL
+) STRICT;
+CREATE TABLE platform_audit_events (
+  id TEXT PRIMARY KEY, admin_id TEXT REFERENCES platform_admins(id), action TEXT NOT NULL,
+  entity_id TEXT NOT NULL, details_json TEXT NOT NULL, created_at INTEGER NOT NULL
 ) STRICT;
 CREATE TABLE companies (
   tenant_id TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL,

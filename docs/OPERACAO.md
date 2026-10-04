@@ -122,6 +122,20 @@ Remove-Item Env:\PG_MIGRATION_DATABASE_URL
 
 O script exige senha forte, atualiza somente o hash, invalida sessoes abertas do usuario e registra auditoria `PASSWORD_RESET_ADMIN`. Ele nao imprime a nova senha.
 
+## Administrador do sistema
+
+A migration `012_platform_admins` precisa estar aplicada. Para criar um administrador, com o túnel aberto e a URL admin do banco:
+
+```powershell
+$env:PG_MIGRATION_DATABASE_URL = "<url admin pelo túnel>"
+$env:PDV_ADMIN_EMAIL = "nome@jordaoconsultoria.com"
+$env:PDV_ADMIN_NAME = "Nome Sobrenome"
+$env:PDV_ADMIN_CONFIRM = "CREATE_PLATFORM_ADMIN"
+npm.cmd run create:platform-admin
+```
+
+A conta nasce sem senha utilizável. O administrador abre `/admin`, usa "Esqueci minha senha" e define a senha pelo link do e-mail. Rodar o script de novo com o mesmo e-mail não altera nada.
+
 ## Limites conhecidos
 
 - Fiscal ainda desativado: sem NFC-e/NF-e.

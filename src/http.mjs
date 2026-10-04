@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { Auth } from './security.mjs';
+import { Platform } from './platform.mjs';
 import { Pos } from './pos.mjs';
 import { AppError, requireThat } from './errors.mjs';
 
@@ -8,7 +9,9 @@ const ASSETS=new Map([
   ['/', ['index.html','text/html; charset=utf-8']],
   ['/app.mjs',['app.mjs','text/javascript; charset=utf-8']],
   ['/money.mjs',['money.mjs','text/javascript; charset=utf-8']],
-  ['/style.css',['style.css','text/css; charset=utf-8']]
+  ['/style.css',['style.css','text/css; charset=utf-8']],
+  ['/admin',['admin.html','text/html; charset=utf-8']],
+  ['/admin.mjs',['admin.mjs','text/javascript; charset=utf-8']]
 ].map(([route,[file,type]])=>[route,{type,body:readFileSync(new URL(`../public/${file}`,import.meta.url))}]));
 
 function send(res,status,data) {
@@ -72,7 +75,7 @@ async function json(req) {
   catch { throw new AppError(400,'INVALID_JSON','JSON inválido.'); }
 }
 export function createApp(db,{mailer}={}) {
-  const auth=new Auth(db,mailer?{mailer}:{}); const pos=new Pos(db);
+  const auth=new Auth(db,mailer?{mailer}:{}); const pos=new Pos(db); const platform=new Platform(db,mailer?{mailer}:{});
   const server=createServer(async(req,res)=>{
     res.setHeader('X-Content-Type-Options','nosniff');
     res.setHeader('X-Frame-Options','DENY');
@@ -116,6 +119,32 @@ export function createApp(db,{mailer}={}) {
       // Recuperação de senha acontece sem sessão. A Origin já foi validada acima e o link usa a origem configurada.
       if(req.method==='POST'&&url.pathname==='/api/password/forgot') return send(res,200,await auth.requestPasswordReset(await json(req),req.socket.remoteAddress,origin));
       if(req.method==='POST'&&url.pathname==='/api/password/reset') return send(res,200,await auth.resetPassword(await json(req),req.socket.remoteAddress));
+      // Administração do sistema: sessão, cookie e CSRF próprios, separados dos tenants.
+      if(url.pathname.startsWith('/api/platform/')) {
+        const adminCookie=value=>`jcs_admin=${value}; HttpOnly; SameSite=Strict; Path=/api/platform; Max-Age=${value?28800:0}${production?'; Secure':''}`;
+        if(req.method==='POST'&&url.pathname==='/api/platform/login') {
+          const result=await platform.login(await json(req),req.socket.remoteAddress);
+          res.setHeader('Set-Cookie',adminCookie(result.token));
+          return send(res,200,{csrfToken:result.csrfToken});
+        }
+        if(req.method==='POST'&&url.pathname==='/api/platform/password/forgot') return send(res,200,await platform.requestPasswordReset(await json(req),req.socket.remoteAddress,origin));
+        if(req.method==='POST'&&url.pathname==='/api/platform/password/reset') return send(res,200,await platform.resetPassword(await json(req),req.socket.remoteAddress));
+        const admin=await platform.resolve(req.headers.cookie);
+        requireThat(admin,401,'AUTH_REQUIRED','Faça login para continuar.');
+        if(mutating) requireThat(req.headers['x-csrf-token']===admin.csrfToken,403,'CSRF_FORBIDDEN','Sessão da tela inválida. Atualize a página.');
+        if(req.method==='GET'&&url.pathname==='/api/platform/me') return send(res,200,await platform.me(admin));
+        if(req.method==='POST'&&url.pathname==='/api/platform/logout') { await platform.logout(admin); res.setHeader('Set-Cookie',adminCookie('')); return send(res,200,{ok:true}); }
+        if(req.method==='GET'&&url.pathname==='/api/platform/tenants') return send(res,200,await platform.listTenants());
+        if(req.method==='POST'&&url.pathname==='/api/platform/tenants') {
+          const result=await platform.createTenant(admin,req.headers['idempotency-key'],await json(req),origin);
+          return send(res,result.replayed?200:201,result);
+        }
+        if(req.method==='POST'&&url.pathname==='/api/platform/tenants/status') {
+          const result=await platform.setTenantActive(admin,req.headers['idempotency-key'],await json(req));
+          return send(res,result.replayed?200:201,result);
+        }
+        throw new AppError(404,'NOT_FOUND','Rota não encontrada.');
+      }
       const ctx=await auth.resolve(req.headers.cookie);
       requireThat(ctx,401,'AUTH_REQUIRED','Faça login para continuar.');
       if(mutating) requireThat(req.headers['x-csrf-token']===ctx.csrfToken,403,'CSRF_FORBIDDEN','Sessão da tela inválida. Atualize a página.');

@@ -2,20 +2,20 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-const IMMUTABLE_TABLES = ['sales','sale_items','payments','sale_cancellations','sale_returns','sale_return_items','stock_movements','cash_movements','operations','audit_events'];
+const IMMUTABLE_TABLES = ['platform_operations','platform_audit_events','sales','sale_items','payments','sale_cancellations','sale_returns','sale_return_items','stock_movements','cash_movements','operations','audit_events'];
 
 export function connect(filename) {
   if (filename !== ':memory:') mkdirSync(dirname(filename), { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(filename);
   db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 9) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
+  if (version > 10) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
   if (version === 0) {
     transaction(db, () => {
       if (db.prepare('PRAGMA user_version').get().user_version !== 0) return;
       db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
       createImmutableTriggers(db);
-      db.exec('PRAGMA user_version=9;');
+      db.exec('PRAGMA user_version=10;');
     });
   }
   if (version === 1) {
@@ -168,6 +168,35 @@ export function connect(filename) {
         ) STRICT;
         CREATE INDEX password_reset_open ON password_resets(tenant_id,user_id) WHERE used_at IS NULL;`);
       db.exec('PRAGMA user_version=9;');
+    });
+  }
+  if (version <= 9) {
+    transaction(db, () => {
+      if (db.prepare('PRAGMA user_version').get().user_version !== 9) return;
+      db.exec(`ALTER TABLE tenants ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1));
+        CREATE TABLE platform_admins (
+          id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, password_hash TEXT NOT NULL,
+          active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)), created_at INTEGER NOT NULL
+        ) STRICT;
+        CREATE TABLE platform_sessions (
+          token_hash TEXT PRIMARY KEY, admin_id TEXT NOT NULL REFERENCES platform_admins(id),
+          csrf_token TEXT NOT NULL, expires_at INTEGER NOT NULL
+        ) STRICT;
+        CREATE TABLE platform_password_resets (
+          id TEXT PRIMARY KEY, admin_id TEXT NOT NULL REFERENCES platform_admins(id), token_hash TEXT NOT NULL UNIQUE,
+          expires_at INTEGER NOT NULL, used_at INTEGER, created_at INTEGER NOT NULL
+        ) STRICT;
+        CREATE INDEX platform_password_reset_open ON platform_password_resets(admin_id) WHERE used_at IS NULL;
+        CREATE TABLE platform_operations (
+          key TEXT PRIMARY KEY, admin_id TEXT NOT NULL REFERENCES platform_admins(id), kind TEXT NOT NULL,
+          payload_hash TEXT NOT NULL, response_json TEXT NOT NULL, created_at INTEGER NOT NULL
+        ) STRICT;
+        CREATE TABLE platform_audit_events (
+          id TEXT PRIMARY KEY, admin_id TEXT REFERENCES platform_admins(id), action TEXT NOT NULL,
+          entity_id TEXT NOT NULL, details_json TEXT NOT NULL, created_at INTEGER NOT NULL
+        ) STRICT;`);
+      createImmutableTriggers(db, ['platform_operations','platform_audit_events']);
+      db.exec('PRAGMA user_version=10;');
     });
   }
   return db;

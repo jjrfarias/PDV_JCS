@@ -13,7 +13,8 @@
     "check": "node scripts-check.mjs",
     "migrate:postgres": "node scripts/migrate-postgres.mjs",
     "reset:password:postgres": "node scripts/reset-production-password.mjs",
-    "smoke:production": "node scripts/smoke-production.mjs"
+    "smoke:production": "node scripts/smoke-production.mjs",
+    "create:platform-admin": "node scripts/create-platform-admin.mjs"
   },
   "dependencies": {
     "pg": "^8.16.3"

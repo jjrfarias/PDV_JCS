@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PDV JCS · Administração</title><link rel="stylesheet" href="/style.css"><script type="module" src="/admin.mjs"></script></head>
+<body>
+  <main id="login-panel" class="login-wrap">
+    <section class="login-intro"><span class="wordmark">JCS <span>PDV</span></span><h1>Administração do sistema</h1><p>Cadastro e status das empresas contratantes. Esta área não acessa vendas, caixa, clientes nem estoque de nenhuma empresa.</p></section>
+    <form id="login-form" class="login-form"><h2>Acesso do administrador</h2><p>Use o e-mail de administrador do sistema.</p>
+      <label>E-mail<input name="email" type="email" required autocomplete="username"></label>
+      <label>Senha<input name="password" type="password" required autocomplete="current-password"></label>
+      <button class="primary" type="submit">Entrar</button>
+      <button id="forgot-open" class="ghost forgot-link" type="button">Esqueci minha senha</button>
+      <p id="login-notice" class="login-notice" role="status"></p>
+      <p id="login-error" role="alert"></p>
+    </form>
+  </main>
+  <div id="workspace" hidden>
+    <header class="header"><div class="wordmark">JCS <span>ADMIN</span></div><div class="head-controls"><div class="operator-card"><small>ADMINISTRADOR</small><div id="admin-label"></div></div><button id="logout" type="button">Sair</button></div></header>
+    <div class="page-heading"><div><span class="eyebrow">SISTEMA</span><h1>Empresas contratantes</h1></div><div class="register-actions"><button id="refresh" type="button">Atualizar</button><button id="new-tenant" class="primary" type="button">Nova empresa</button></div></div>
+    <div id="message" class="message" role="status" aria-live="polite" hidden></div>
+    <section class="management view-panel"><div id="tenant-table" class="table-wrap"></div></section>
+    <footer>Jordão Consultoria e Soluções · PDV JCS <span>Administração do sistema</span></footer>
+  </div>
+  <dialog id="tenant-dialog"><form id="tenant-form"><h2>Nova empresa</h2><p>Cria a empresa com uma loja, o terminal Caixa 01 e o primeiro gerente. O gerente recebe por e-mail um convite para criar a própria senha.</p>
+    <label>Nome da empresa<input name="name" maxlength="120" required></label>
+    <label>Identificador de acesso<input name="slug" maxlength="40" minlength="3" pattern="[a-z0-9][a-z0-9\-]{1,38}[a-z0-9]" required placeholder="ex.: mercado-silva"></label>
+    <label>Nome da primeira loja<input name="storeName" maxlength="120" required placeholder="ex.: Loja Centro"></label>
+    <div class="form-grid"><label>Nome do gerente<input name="managerName" maxlength="120" required></label><label>E-mail do gerente<input name="managerEmail" type="email" maxlength="120" required></label></div>
+    <div class="dialog-actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Criar empresa</button></div></form></dialog>
+  <dialog id="forgot-dialog"><form id="forgot-form"><h2>Recuperar senha</h2><p>Se o e-mail for de um administrador ativo, enviaremos um link válido por 30 minutos.</p><label>E-mail<input name="email" type="email" required autocomplete="username"></label><p id="forgot-status" class="dialog-status" role="status"></p><div class="dialog-actions"><button type="button" data-close>Fechar</button><button class="primary" type="submit">Enviar link</button></div></form></dialog>
+  <dialog id="reset-dialog"><form id="reset-form"><h2>Criar nova senha</h2><p>A nova senha deve ter 12 caracteres, com letras maiúsculas, minúsculas e número.</p><label>Nova senha<input name="newPassword" type="password" autocomplete="new-password" minlength="12" required></label><label>Confirmar nova senha<input name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required></label><p id="reset-status" class="dialog-status" role="alert"></p><div class="dialog-actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Salvar nova senha</button></div></form></dialog>
+</body></html>

@@ -22,6 +22,19 @@ Rotas sem sessão, com o mesmo cabeçalho `Origin` do login.
 
 `POST /api/password/reset` com `{"token":"...","newPassword":"..."}` troca a senha, consome o link e encerra todas as sessões do usuário. Link inválido, usado, expirado ou de usuário inativo retorna `400 INVALID_RESET_TOKEN`. Senha fraca retorna `400 WEAK_PASSWORD` sem consumir o link.
 
+## Administração do sistema
+
+Página em `/admin`. Rotas em `/api/platform/`, com cookie `jcs_admin` (HttpOnly, SameSite=Strict, Path=/api/platform, 8 horas) e `X-CSRF-Token` próprios. A sessão de tenant não vale aqui, e a de administrador não vale no PDV.
+
+- `POST /api/platform/login` com `{"email","password"}` retorna `csrfToken`.
+- `POST /api/platform/password/forgot` com `{"email"}` e `POST /api/platform/password/reset` com `{"token","newPassword"}` funcionam como a recuperação dos tenants. O link aponta para `/admin#redefinir=<token>`.
+- `GET /api/platform/me` e `POST /api/platform/logout`.
+- `GET /api/platform/tenants` lista só `id`, `slug`, `name`, `active` e `userCount`.
+- `POST /api/platform/tenants` com `Idempotency-Key` e `{"slug","name","storeName","managerName","managerEmail"}` cria empresa, loja, terminal Caixa 01 e o gerente. O gerente recebe convite por e-mail válido por 24 horas para criar a própria senha. Slug repetido retorna `409 SLUG_TAKEN`.
+- `POST /api/platform/tenants/status` com `Idempotency-Key` e `{"tenantId","active":0|1}` ativa ou desativa. Desativar encerra todas as sessões do tenant e bloqueia login e recuperação de senha dele.
+
+O administrador não tem rota para ler vendas, caixa, clientes, produtos ou estoque de nenhum tenant.
+
 ## Mutação e repetição
 
 As rotas de negócio abaixo exigem `Idempotency-Key` com 16 a 100 caracteres `[a-zA-Z0-9_-]`; um UUID atende. A primeira confirmação retorna 201. A repetição da mesma chave, mesmo autor e mesmo payload normalizado retorna 200, com a mesma resposta e `replayed: true`. Outra operação ou payload na mesma chave retorna 409.

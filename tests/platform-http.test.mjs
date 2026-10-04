@@ -1,0 +1,180 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { createApp } from '../src/http.mjs';
+import { hashPassword } from '../src/security.mjs';
+import { fixture, PASSWORD, key } from './helpers.mjs';
+
+const ADMIN_EMAIL = 'admin.sistema@jcs.local';
+const ADMIN_PASSWORD = 'Admin-Sistema-2026';
+const tick = () => new Promise(resolve => setImmediate(resolve));
+
+async function web(t) {
+  const { db } = fixture(t);
+  db.prepare('INSERT INTO platform_admins(id,email,name,password_hash,created_at) VALUES(?,?,?,?,?)')
+    .run('admin-1', ADMIN_EMAIL, 'Administrador de teste', hashPassword(ADMIN_PASSWORD), Date.now());
+  const outbox = [];
+  const mailer = {
+    async sendPasswordReset(message) { outbox.push({ kind: 'reset', ...message }); },
+    async sendInvite(message) { outbox.push({ kind: 'invite', ...message }); }
+  };
+  const server = createApp(db, { mailer });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  async function call(path, { method = 'POST', body, cookie = '', csrf = '', headers = {} } = {}) {
+    const response = await fetch(origin + path, {
+      method,
+      headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: cookie, 'X-CSRF-Token': csrf, ...headers },
+      body: body ? JSON.stringify(body) : undefined
+    });
+    const content = await response.text();
+    let data; try { data = JSON.parse(content); } catch { data = content; }
+    return { response, data };
+  }
+  const cookieOf = result => result.response.headers.get('set-cookie')?.split(';')[0] ?? '';
+  async function adminLogin(email = ADMIN_EMAIL, password = ADMIN_PASSWORD) {
+    const result = await call('/api/platform/login', { body: { email, password } });
+    return { status: result.response.status, cookie: cookieOf(result), csrf: result.data.csrfToken };
+  }
+  async function tenantLogin(tenant, email, password) {
+    const result = await call('/api/login', { body: { tenant, email, password } });
+    return { status: result.response.status, cookie: cookieOf(result), csrf: result.data.csrfToken };
+  }
+  const as = session => ({
+    get: path => call(path, { method: 'GET', cookie: session.cookie }),
+    post: (path, body, headers = {}) => call(path, { body, cookie: session.cookie, csrf: session.csrf, headers })
+  });
+  async function lastLink() { await tick(); return outbox.at(-1)?.link ?? ''; }
+  const tokenOf = link => link.match(/#redefinir=([\w-]{43})$/)?.[1];
+  return { db, origin, outbox, call, adminLogin, tenantLogin, as, lastLink, tokenOf };
+}
+
+const NEW_TENANT = { slug: 'mercado-silva', name: 'Mercado Silva', storeName: 'Loja Centro', managerName: 'Ana Silva', managerEmail: 'ana@silva.local' };
+
+test('admin page is served and admin login is separate from tenant sessions', async t => {
+  const w = await web(t);
+  const page = await w.call('/admin', { method: 'GET' });
+  assert.equal(page.response.status, 200);
+  assert.match(page.data, /Administração do sistema/);
+
+  assert.equal((await w.adminLogin(ADMIN_EMAIL, 'senha-errada')).status, 401);
+  const admin = await w.adminLogin();
+  assert.equal(admin.status, 200);
+  assert.match(admin.cookie, /^jcs_admin=/);
+  const me = await w.as(admin).get('/api/platform/me');
+  assert.equal(me.data.admin.email, ADMIN_EMAIL);
+  assert.equal(me.data.admin.password_hash, undefined);
+
+  const listed = await w.as(admin).get('/api/platform/tenants');
+  assert.deepEqual(listed.data.tenants.map(row => row.slug).sort(), ['demo', 'outra']);
+  assert.deepEqual(Object.keys(listed.data.tenants[0]).sort(), ['active', 'id', 'name', 'slug', 'userCount']);
+
+  // Cookies não se cruzam: sessão de admin não serve no PDV, sessão de tenant não serve no painel.
+  assert.equal((await w.as(admin).get('/api/me')).response.status, 401);
+  const manager = await w.tenantLogin('demo', 'gerente@jcs.local', PASSWORD);
+  assert.equal((await w.as(manager).get('/api/platform/me')).response.status, 401);
+  assert.equal((await w.as(manager).get('/api/platform/tenants')).response.status, 401);
+  assert.equal((await w.call('/api/platform/tenants', { method: 'GET' })).response.status, 401);
+});
+
+test('admin creates a tenant whose manager sets a password through the invite', async t => {
+  const w = await web(t);
+  const admin = w.as(await w.adminLogin());
+  const opKey = key();
+  const created = await admin.post('/api/platform/tenants', NEW_TENANT, { 'Idempotency-Key': opKey });
+  assert.equal(created.response.status, 201);
+  assert.equal(created.data.tenant.slug, NEW_TENANT.slug);
+  const link = await w.lastLink();
+  assert.equal(w.outbox.length, 1);
+  assert.equal(w.outbox[0].kind, 'invite');
+  assert.equal(w.outbox[0].to, NEW_TENANT.managerEmail);
+  assert.ok(link.startsWith(`${w.origin}/#redefinir=`));
+
+  const replay = await admin.post('/api/platform/tenants', NEW_TENANT, { 'Idempotency-Key': opKey });
+  assert.equal(replay.response.status, 200);
+  assert.equal(replay.data.replayed, true);
+  assert.equal(replay.data.tenant.id, created.data.tenant.id);
+  await w.lastLink();
+  assert.equal(w.outbox.length, 1, 'replay does not send a second invite');
+  assert.equal((await admin.post('/api/platform/tenants', { ...NEW_TENANT, name: 'Outro' }, { 'Idempotency-Key': opKey })).data.error.code, 'KEY_REUSED');
+  assert.equal((await admin.post('/api/platform/tenants', NEW_TENANT, { 'Idempotency-Key': key() })).data.error.code, 'SLUG_TAKEN');
+  assert.equal(w.db.prepare("SELECT COUNT(*) n FROM tenants WHERE slug='mercado-silva'").get().n, 1);
+
+  // Antes do convite o gerente não tem senha utilizável.
+  assert.equal((await w.tenantLogin(NEW_TENANT.slug, NEW_TENANT.managerEmail, PASSWORD)).status, 401);
+  const chosen = 'SenhaDaAna2026x';
+  assert.equal((await w.call('/api/password/reset', { body: { token: w.tokenOf(link), newPassword: chosen } })).response.status, 200);
+  const manager = await w.tenantLogin(NEW_TENANT.slug, NEW_TENANT.managerEmail, chosen);
+  assert.equal(manager.status, 200);
+  const managerMe = await w.as(manager).get('/api/me');
+  assert.deepEqual(managerMe.data.stores.map(store => store.name), [NEW_TENANT.storeName]);
+  assert.equal(managerMe.data.user.role, 'MANAGER');
+
+  const audit = w.db.prepare("SELECT action FROM platform_audit_events WHERE action='TENANT_CREATED'").all();
+  assert.equal(audit.length, 1);
+});
+
+test('tenant creation validates input', async t => {
+  const w = await web(t);
+  const admin = w.as(await w.adminLogin());
+  for (const [patch, code] of [[{ slug: 'Com Espaco' }, 'INVALID_SLUG'], [{ managerEmail: 'sem-arroba' }, 'INVALID_INPUT']]) {
+    const result = await admin.post('/api/platform/tenants', { ...NEW_TENANT, ...patch }, { 'Idempotency-Key': key() });
+    assert.equal(result.response.status, 400);
+    assert.equal(result.data.error.code, code);
+  }
+  assert.equal((await admin.post('/api/platform/tenants', { ...NEW_TENANT, tenantId: 'x' }, { 'Idempotency-Key': key() })).data.error.code, 'UNKNOWN_FIELD');
+  assert.equal((await admin.post('/api/platform/tenants', NEW_TENANT)).data.error.code, 'INVALID_KEY');
+});
+
+test('deactivating a tenant ends its sessions and blocks login and recovery', async t => {
+  const w = await web(t);
+  const admin = w.as(await w.adminLogin());
+  const manager = await w.tenantLogin('demo', 'gerente@jcs.local', PASSWORD);
+  const other = await w.tenantLogin('outra', 'gerente@outra.local', PASSWORD);
+  assert.equal((await w.as(manager).get('/api/me')).response.status, 200);
+
+  const off = await admin.post('/api/platform/tenants/status', { tenantId: 'tenant-demo', active: 0 }, { 'Idempotency-Key': key() });
+  assert.equal(off.response.status, 201);
+  assert.equal((await w.as(manager).get('/api/me')).response.status, 401);
+  assert.equal((await w.tenantLogin('demo', 'gerente@jcs.local', PASSWORD)).status, 401);
+  assert.equal((await w.call('/api/password/forgot', { body: { tenant: 'demo', email: 'gerente@jcs.local' } })).response.status, 200);
+  await w.lastLink();
+  assert.equal(w.outbox.length, 0);
+  // Outro tenant não é afetado.
+  assert.equal((await w.as(other).get('/api/me')).response.status, 200);
+
+  assert.equal((await admin.post('/api/platform/tenants/status', { tenantId: 'tenant-demo', active: 1 }, { 'Idempotency-Key': key() })).response.status, 201);
+  assert.equal((await w.tenantLogin('demo', 'gerente@jcs.local', PASSWORD)).status, 200);
+  assert.equal((await admin.post('/api/platform/tenants/status', { tenantId: 'nao-existe', active: 0 }, { 'Idempotency-Key': key() })).data.error.code, 'TENANT_NOT_FOUND');
+});
+
+test('platform mutations require CSRF and same origin', async t => {
+  const w = await web(t);
+  const session = await w.adminLogin();
+  const noCsrf = await w.call('/api/platform/tenants', { body: NEW_TENANT, cookie: session.cookie, headers: { 'Idempotency-Key': key() } });
+  assert.equal(noCsrf.response.status, 403);
+  assert.equal(noCsrf.data.error.code, 'CSRF_FORBIDDEN');
+  const foreign = await w.call('/api/platform/login', { body: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD }, headers: { Origin: 'https://evil.example' } });
+  assert.equal(foreign.response.status, 403);
+});
+
+test('admin recovers the password through a link to the admin page', async t => {
+  const w = await web(t);
+  const before = await w.adminLogin();
+  assert.deepEqual((await w.call('/api/platform/password/forgot', { body: { email: 'ninguem@jcs.local' } })).data, { ok: true });
+  await w.lastLink();
+  assert.equal(w.outbox.length, 0);
+  assert.deepEqual((await w.call('/api/platform/password/forgot', { body: { email: ADMIN_EMAIL.toUpperCase() } })).data, { ok: true });
+  const link = await w.lastLink();
+  assert.ok(link.startsWith(`${w.origin}/admin#redefinir=`));
+  const token = w.tokenOf(link);
+  // Token de administrador não vale no fluxo de tenant.
+  assert.equal((await w.call('/api/password/reset', { body: { token, newPassword: 'NovaSenhaAdmin2026' } })).data.error.code, 'INVALID_RESET_TOKEN');
+  assert.equal((await w.call('/api/platform/password/reset', { body: { token, newPassword: 'NovaSenhaAdmin2026' } })).response.status, 200);
+  assert.equal((await w.as(before).get('/api/platform/me')).response.status, 401);
+  assert.equal((await w.adminLogin()).status, 401);
+  assert.equal((await w.adminLogin(ADMIN_EMAIL, 'NovaSenhaAdmin2026')).status, 200);
+  assert.equal((await w.call('/api/platform/password/reset', { body: { token, newPassword: 'OutraSenhaAdmin2026' } })).data.error.code, 'INVALID_RESET_TOKEN');
+});

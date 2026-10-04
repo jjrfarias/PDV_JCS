@@ -52,7 +52,7 @@ export function hashPassword(password) {
   const salt = randomBytes(16).toString('hex');
   return `scrypt$${salt}$${scryptSync(password, salt, 64, SCRYPT).toString('hex')}`;
 }
-async function verifyPassword(password, encoded) {
+export async function verifyPassword(password, encoded) {
   const [algorithm, salt, hash] = encoded.split('$');
   if (algorithm !== 'scrypt' || !salt || !/^[0-9a-f]{128}$/.test(hash)) return false;
   const candidate = await derive(password, salt, 64, SCRYPT);
@@ -94,7 +94,7 @@ export class Auth {
     const user = postgres
       ? await one(this.db, 'SELECT * FROM public.pdv_login_user($1,$2)', [tenant, email])
       : this.db.prepare(`SELECT u.* FROM users u JOIN tenants t ON t.id=u.tenant_id
-        WHERE t.slug=? AND u.email=? AND u.active=1`).get(tenant, email);
+        WHERE t.slug=? AND u.email=? AND u.active=1 AND t.active=1`).get(tenant, email);
     if (!user) return { ok: true };
     const token = randomToken();
     const id = randomUUID();
@@ -151,7 +151,8 @@ export class Auth {
       transaction(this.db, () => {
         const found = this.db.prepare(`SELECT r.tenant_id,r.id,r.user_id FROM password_resets r
           JOIN users u ON u.tenant_id=r.tenant_id AND u.id=r.user_id
-          WHERE r.token_hash=? AND r.used_at IS NULL AND r.expires_at>? AND u.active=1`).get(tokenHash, now);
+          JOIN tenants t ON t.id=r.tenant_id
+          WHERE r.token_hash=? AND r.used_at IS NULL AND r.expires_at>? AND u.active=1 AND t.active=1`).get(tokenHash, now);
         if (!found) invalid();
         this.db.prepare('UPDATE password_resets SET used_at=? WHERE tenant_id=? AND id=?').run(now, found.tenant_id, found.id);
         this.db.prepare('UPDATE users SET password_hash=? WHERE tenant_id=? AND id=?').run(passwordHash, found.tenant_id, found.user_id);
@@ -179,7 +180,7 @@ export class Auth {
     const user = postgres
       ? await one(this.db, 'SELECT * FROM public.pdv_login_user($1,$2)', [tenant,email])
       : this.db.prepare(`SELECT u.*, t.slug FROM users u JOIN tenants t ON t.id=u.tenant_id
-        WHERE t.slug=? AND u.email=? AND u.active=1`).get(tenant, email);
+        WHERE t.slug=? AND u.email=? AND u.active=1 AND t.active=1`).get(tenant, email);
     const valid = await verifyPassword(password, user?.password_hash ?? this.dummyHash);
     requireThat(user && valid, 401, 'INVALID_LOGIN', 'Empresa, e-mail ou senha inválidos.');
     const token = randomToken();
@@ -207,7 +208,8 @@ export class Auth {
     const session = typeof this.db.query === 'function'
       ? await one(this.db,'SELECT * FROM public.pdv_resolve_session($1)',[sha256(token)])
       : this.db.prepare(`SELECT s.* FROM sessions s JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.user_id
-        WHERE s.token_hash=? AND s.expires_at>? AND u.active=1`).get(sha256(token),Date.now());
+        JOIN tenants t ON t.id=s.tenant_id
+        WHERE s.token_hash=? AND s.expires_at>? AND u.active=1 AND t.active=1`).get(sha256(token),Date.now());
     return session ? { tenantId: session.tenant_id, userId: session.user_id, csrfToken: session.csrf_token, tokenHash: session.token_hash } : null;
   }
   async logout(ctx) {

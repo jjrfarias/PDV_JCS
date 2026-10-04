@@ -141,14 +141,22 @@ test('password reset rejects malformed tokens, foreign origins and abuse', async
   assert.equal(limited.data.error.code, 'RESET_RATE_LIMIT');
 });
 
-test('local SQLite database at version 8 gains the password reset table', async t => {
+test('local SQLite database at version 8 upgrades to password resets and platform admin', async t => {
   const { db, filename } = fixture(t, { file: true });
-  db.exec('DROP TABLE password_resets; PRAGMA user_version=8;');
+  // Reproduz um banco real da versão 8: sem recuperação de senha, sem plataforma e tenants sem coluna active.
+  db.exec(`PRAGMA foreign_keys=OFF;
+    DROP TABLE password_resets; DROP TABLE platform_audit_events; DROP TABLE platform_operations;
+    DROP TABLE platform_password_resets; DROP TABLE platform_sessions; DROP TABLE platform_admins;
+    CREATE TABLE tenants_v8 (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL) STRICT;
+    INSERT INTO tenants_v8 SELECT id,slug,name FROM tenants; DROP TABLE tenants; ALTER TABLE tenants_v8 RENAME TO tenants;
+    PRAGMA user_version=8;`);
   db.close();
   const upgraded = connect(filename);
   const version = upgraded.prepare('PRAGMA user_version').get().user_version;
-  const tables = upgraded.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE name='password_resets'").get().n;
+  const tables = upgraded.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('password_resets','platform_admins','platform_sessions','platform_password_resets','platform_operations','platform_audit_events') ORDER BY name").all().map(row => row.name);
+  const active = upgraded.prepare('SELECT DISTINCT active FROM tenants').all().map(row => row.active);
   upgraded.close();
-  assert.equal(version, 9);
-  assert.equal(tables, 1);
+  assert.equal(version, 10);
+  assert.deepEqual(tables, ['password_resets','platform_admins','platform_audit_events','platform_operations','platform_password_resets','platform_sessions']);
+  assert.deepEqual(active, [1]);
 });
