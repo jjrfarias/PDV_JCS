@@ -69,6 +69,10 @@ npm.cmd run migrate:postgres
 
 4. Fechar o tunel com `Ctrl+C`.
 
+## Recuperação operacional do MFA
+
+Se um administrador ou gerente perder o autenticador, use uma conexão administrativa pelo túnel PostgreSQL e execute `npm.cmd run reset:mfa:postgres`. Defina `PDV_MFA_TARGET` como `platform` ou `manager`, `PDV_MFA_EMAIL`, `PDV_MFA_TENANT` para gerente e `PDV_MFA_CONFIRM=RESET_MFA`. O comando remove o segredo, encerra todas as sessões e registra auditoria. Confirme a identidade da pessoa por procedimento interno antes de executar; nunca use a conexão runtime.
+
 ## Deploy
 
 O deploy normal e por GitHub:
