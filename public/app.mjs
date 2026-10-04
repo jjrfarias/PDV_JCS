@@ -1,6 +1,6 @@
 ﻿import {cents,brl} from './money.mjs';
 const $=id=>document.getElementById(id);
-const state={me:null,data:null,network:null,networkCache:new Map(),networkLoading:false,networkLoadQueued:false,networkFailed:false,networkPeriod:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:'',reportSection:'resumo'};
+const state={me:null,data:null,network:null,networkCache:new Map(),networkLoading:false,networkLoadQueued:false,networkFailed:false,networkPeriod:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',viewRevision:0,lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:'',reportSection:'resumo'};
 let messageTimer=null;
 function element(tag,content,className=''){const node=document.createElement(tag);if(content!==undefined)node.textContent=String(content);if(className)node.className=className;return node;}
 function serviceAlert(show,text='Estamos tentando restabelecer a conexão. Não repita uma venda sem recuperar a operação anterior.'){
@@ -96,8 +96,9 @@ function renderCash(){
   renderCashMovements();
   lock();
 }
-function setView(view){
+function setView(view,{userInitiated=false}={}){
   if(view==='network'&&!manager())return;
+  if(userInitiated)state.viewRevision++;
   state.view=view;
   document.querySelectorAll('[data-panel]').forEach(panel=>{panel.hidden=panel.dataset.panel!==view;});
   document.querySelectorAll('[data-view]').forEach(button=>button.classList.toggle('selected',button.dataset.view===view));
@@ -617,8 +618,9 @@ async function boot(){
   for(const store of state.me.stores){const option=element('option',store.name);option.value=store.id;$('store-select').append(option);}
   const raw=localStorage.getItem(scope());state.pending=raw?JSON.parse(raw):null;
   if(state.pending&&state.me.stores.some(s=>s.id===state.pending.body.storeId))$('store-select').value=state.pending.body.storeId;
+  const viewRevision=state.viewRevision;
   await refresh();
-  if(manager())setView('network');
+  if(manager()&&state.viewRevision===viewRevision)setView('network');
 }
 $('login-form').addEventListener('submit',async event=>{
   event.preventDefault();const button=event.submitter;button.disabled=true;
@@ -762,9 +764,9 @@ function openUserEdit(user){
 $('user-edit-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/users/update',{storeId:storeId(),userId:f.userId,email:f.email,name:f.name,role:f.role,active:Number(f.active),temporaryPassword:f.temporaryPassword||null});});});
 $('recover').addEventListener('click',()=>run(submitPending));
 $('print').addEventListener('click',()=>window.print());
-$('cash-gate-action').addEventListener('click',()=>setView('cash'));
+$('cash-gate-action').addEventListener('click',()=>setView('cash',{userInitiated:true}));
 document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
-document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
+document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view,{userInitiated:true})));
 document.querySelectorAll('[data-network-period]').forEach(button=>button.addEventListener('click',()=>{
   state.networkPeriod=presetPeriod(button.dataset.networkPeriod);$('network-custom-period').hidden=true;requestNetworkLoad();
 }));
