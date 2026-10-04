@@ -381,3 +381,12 @@ dialog::backdrop{background:#0f172a99}
 .hour-now{position:relative;background:var(--brand)}
 .hour-past{position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:100%!important;max-width:24px!important;background:#cbd5e1;opacity:.7}
 .hour-column small{height:14px;font-size:10px;color:var(--muted);text-align:center;font-weight:700}
+/* Coluna lateral da rede: nunca mais larga que o cartão. A tabela rola por dentro quando faltar espaço. */
+.network-main{grid-template-columns:minmax(0,2.5fr) minmax(300px,.9fr)}
+.network-stores,.network-insights{min-width:0}
+.network-insights{grid-template-rows:auto auto;align-content:start}
+.network-payment-legend{grid-template-columns:repeat(auto-fit,minmax(96px,1fr))}
+.network-payment-legend div{min-width:0}
+.network-payment-legend strong{white-space:nowrap}
+.network-hourly{overflow:hidden}
+.hour-column small{white-space:nowrap;overflow:visible;font-size:9px}
