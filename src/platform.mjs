@@ -225,7 +225,7 @@ export class Platform {
         await q.run('INSERT INTO companies(tenant_id,id,name) VALUES($1,$2,$3)', [tenantId, companyId, input.name]);
         await q.run('INSERT INTO stores(tenant_id,id,company_id,name) VALUES($1,$2,$3,$4)', [tenantId, storeId, companyId, input.storeName]);
         await q.run('INSERT INTO terminals(tenant_id,store_id,id,name) VALUES($1,$2,$3,$4)', [tenantId, storeId, terminalId, 'Caixa 01']);
-        await q.run(`INSERT INTO users(tenant_id,id,email,name,password_hash,role) VALUES($1,$2,$3,$4,$5,'MANAGER')`,
+        await q.run(`INSERT INTO users(tenant_id,id,email,name,password_hash,role,company_admin) VALUES($1,$2,$3,$4,$5,'MANAGER',1)`,
           [tenantId, userId, input.managerEmail, input.managerName, unusable]);
         await q.run('INSERT INTO memberships(tenant_id,user_id,store_id) VALUES($1,$2,$3)', [tenantId, userId, storeId]);
         await q.run('INSERT INTO password_resets(tenant_id,id,user_id,token_hash,expires_at,created_at) VALUES($1,$2,$3,$4,$5,$6)',
@@ -233,13 +233,13 @@ export class Platform {
         await this.audit(q, ctx.adminId, 'TENANT_CREATED', tenantId, { slug: input.slug, storeId });
         created = true;
         return { tenant: { id: tenantId, slug: input.slug, name: input.name, active: 1 }, store: { id: storeId, name: input.storeName },
-          manager: { id: userId, email: input.managerEmail, invited: true } };
+          administrator: { id: userId, email: input.managerEmail, invited: true } };
       });
     } catch (error) {
       if (unique(error)) throw new AppError(409, 'SLUG_TAKEN', 'Já existe uma empresa com este identificador.');
       throw error;
     }
-    if (created) this.send('sendInvite', { to: input.managerEmail, link: `${origin}/#redefinir=${inviteToken}`, tenantName: input.name, tenantSlug: input.slug });
+    if (created) this.send('sendInvite', { to: input.managerEmail, link: `${origin}/#redefinir=${inviteToken}`, tenantName: input.name, tenantSlug: input.slug, profile: 'administrador da empresa' });
     return result;
   }
 

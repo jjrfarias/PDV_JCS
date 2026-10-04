@@ -90,7 +90,7 @@ $('tenant-form').addEventListener('submit', event => {
     const body = Object.fromEntries(new FormData(form));
     const result = await api('/api/platform/tenants', { method: 'POST', headers: { 'Idempotency-Key': form.dataset.key }, body: JSON.stringify(body) });
     $('tenant-dialog').close(); delete form.dataset.key;
-    message(`Empresa ${result.tenant.name} criada. Convite enviado para ${result.manager.email}.`); await load();
+    message(`Empresa ${result.tenant.name} criada. Convite enviado para ${result.administrator.email}.`); await load();
   });
 });
 $('forgot-open').addEventListener('click', () => { $('forgot-form').email.value = $('login-form').email.value; $('forgot-status').textContent = ''; $('forgot-dialog').showModal(); });

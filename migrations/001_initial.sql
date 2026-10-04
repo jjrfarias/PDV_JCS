@@ -15,6 +15,7 @@ CREATE TABLE users (
   tenant_id TEXT NOT NULL, id TEXT NOT NULL, email TEXT NOT NULL, name TEXT NOT NULL,
   password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('MANAGER','CASHIER')),
   active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+  company_admin INTEGER NOT NULL DEFAULT 0 CHECK(company_admin IN (0,1)),
   PRIMARY KEY(tenant_id,id), UNIQUE(tenant_id,email), FOREIGN KEY(tenant_id) REFERENCES tenants(id)
 );
 CREATE TABLE memberships (

@@ -9,13 +9,13 @@ export function connect(filename) {
   const db = new DatabaseSync(filename);
   db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 14) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
+  if (version > 15) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
   if (version === 0) {
     transaction(db, () => {
       if (db.prepare('PRAGMA user_version').get().user_version !== 0) return;
       db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
       createImmutableTriggers(db);
-      db.exec('PRAGMA user_version=13;');
+      db.exec('PRAGMA user_version=15;');
     });
   }
   if (version === 1) {
@@ -239,6 +239,21 @@ export function connect(filename) {
         if (!columns.has('mfa_last_step')) db.exec(`ALTER TABLE ${table} ADD COLUMN mfa_last_step INTEGER`);
       }
       db.exec('PRAGMA user_version=14;');
+    });
+  }
+  if (version <= 14) {
+    transaction(db, () => {
+      if (db.prepare('PRAGMA user_version').get().user_version !== 14) return;
+      const columns=new Set(db.prepare('PRAGMA table_info(users)').all().map(column=>column.name));
+      if(!columns.has('company_admin')) db.exec('ALTER TABLE users ADD COLUMN company_admin INTEGER NOT NULL DEFAULT 0 CHECK(company_admin IN (0,1));');
+      db.exec(`UPDATE users SET company_admin=1 WHERE id IN (
+        SELECT u.id FROM users u WHERE u.role='MANAGER' AND u.active=1
+          AND NOT EXISTS (SELECT 1 FROM users a WHERE a.tenant_id=u.tenant_id AND a.company_admin=1)
+          AND u.id=(SELECT u2.id FROM users u2 LEFT JOIN memberships m ON m.tenant_id=u2.tenant_id AND m.user_id=u2.id
+            WHERE u2.tenant_id=u.tenant_id AND u2.role='MANAGER' AND u2.active=1
+            GROUP BY u2.id ORDER BY COUNT(m.store_id) DESC,u2.id LIMIT 1)
+      );`);
+      db.exec('PRAGMA user_version=15;');
     });
   }
   return db;

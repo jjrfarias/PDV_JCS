@@ -54,9 +54,10 @@ O operador `operador@jcs.local` tem acesso apenas à Loja A e não pode conceder
 
 ## O que funciona neste incremento
 
-- Login individual, sessão com expiração, autorização por loja, perfil de gerente/operador e proteção de origem/CSRF nas gravações.
+- Login individual, sessão com expiração, autorização por loja, perfis de administrador da empresa, gerente e operador, e proteção de origem/CSRF nas gravações.
 - Troca da própria senha com confirmação da senha atual e encerramento das demais sessões do mesmo usuário.
 - Cadastro, edição, ativação/inativação e reset de senha temporária por gerente, com vínculo à loja selecionada.
+- Criação de filial pelo administrador da empresa, com Caixa 01, vínculo automático do administrador e convite por e-mail para o gerente criar a própria senha.
 - Cadastro, edição e inativação de clientes por loja. Nome, documento, telefone, e-mail e observação ficam criptografados no banco; hashes protegidos são usados apenas para duplicidade/busca interna.
 - Produtos por unidade, código interno, código de barras opcional, preço, saldo inicial, leitura assistida de QR/EAN no cadastro, edição/inativação gerencial e ajuste manual de estoque com motivo.
 - Seleção entre lojas e terminais fictícios. Estoque separado por loja, sem transferência ou sincronização de máquinas.
@@ -76,7 +77,7 @@ O operador `operador@jcs.local` tem acesso apenas à Loja A e não pode conceder
 
 Não há emissão de NFC-e/NF-e, PIX automático, cartão integrado, TEF, integração de maquininha, certificado digital, impressora fiscal, contas a pagar/receber, troca por outro produto no mesmo fluxo, inventário completo, transferência entre lojas, sincronização com nuvem, gestão consolidada de várias máquinas, contingência fiscal, empacotamento Electron, instalador comercial, restauração/backup homologado nem atualização automática.
 
-A autenticação possui redefinição de senha por e-mail quando o provedor está configurado. O administrador da plataforma e os gerentes podem ativar MFA por aplicativo autenticador; ainda não há troca obrigatória no primeiro login nem recuperação automática quando o autenticador é perdido. O usuário autenticado consegue alterar a própria senha, gerentes administram usuários da loja selecionada e o convite do primeiro gerente é enviado por e-mail. A autorização do gerente significa **o próprio gerente autenticado concede o desconto**; não há fluxo de aprovação por senha do supervisor em uma venda de outro operador.
+A autenticação possui redefinição de senha por e-mail quando o provedor está configurado. O administrador da plataforma, o administrador da empresa e os gerentes podem ativar MFA por aplicativo autenticador; ainda não há recuperação automática quando o autenticador é perdido. O usuário autenticado consegue alterar a própria senha, gerentes administram usuários da loja selecionada e convites permitem que o administrador da empresa e os gerentes escolham a própria senha. A autorização do gerente significa **o próprio gerente autenticado concede o desconto**; não há fluxo de aprovação por senha do supervisor em uma venda de outro operador.
 
 O Aviso de Privacidade está disponível em `/privacidade`. Os procedimentos internos de segurança, retenção e resposta a incidentes ficam em `docs/SEGURANCA-E-PRIVACIDADE.md` e `docs/RESPOSTA-A-INCIDENTES.md`. Os dados jurídicos e o canal formal de privacidade precisam ser preenchidos no contrato e no aviso antes da expansão comercial.
 

@@ -24,11 +24,11 @@
     </main>
     <footer><span>Jordão Consultoria e Soluções · PDV JCS · <a href="/privacidade" target="_blank" rel="noopener">Privacidade</a></span><span>Administração do sistema</span></footer>
   </div>
-  <dialog id="tenant-dialog"><form id="tenant-form"><h2>Nova empresa</h2><p>Cria a empresa com uma loja, o terminal Caixa 01 e o primeiro gerente. O gerente recebe por e-mail um convite para criar a própria senha.</p>
+  <dialog id="tenant-dialog"><form id="tenant-form"><h2>Nova empresa</h2><p>Cria a empresa com uma loja, o terminal Caixa 01 e o administrador da empresa. Ele recebe por e-mail um convite para criar a própria senha.</p>
     <label>Nome da empresa<input name="name" maxlength="120" required></label>
     <label>Identificador de acesso<input name="slug" maxlength="40" minlength="3" pattern="[a-z0-9][a-z0-9\-]{1,38}[a-z0-9]" required placeholder="ex.: mercado-silva"></label>
     <label>Nome da primeira loja<input name="storeName" maxlength="120" required placeholder="ex.: Loja Centro"></label>
-    <div class="form-grid"><label>Nome do gerente<input name="managerName" maxlength="120" required></label><label>E-mail do gerente<input name="managerEmail" type="email" maxlength="120" required></label></div>
+    <div class="form-grid"><label>Nome do administrador<input name="managerName" maxlength="120" required></label><label>E-mail do administrador<input name="managerEmail" type="email" maxlength="120" required></label></div>
     <div class="dialog-actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Criar empresa</button></div></form></dialog>
   <dialog id="forgot-dialog"><form id="forgot-form"><h2>Recuperar senha</h2><p>Se o e-mail for de um administrador ativo, enviaremos um link válido por 30 minutos.</p><label>E-mail<input name="email" type="email" required autocomplete="username"></label><p id="forgot-status" class="dialog-status" role="status"></p><div class="dialog-actions"><button type="button" data-close>Fechar</button><button class="primary" type="submit">Enviar link</button></div></form></dialog>
   <dialog id="reset-dialog"><form id="reset-form"><h2>Criar nova senha</h2><p>A nova senha deve ter 12 caracteres, com letras maiúsculas, minúsculas e número.</p><label>Nova senha<input name="newPassword" type="password" autocomplete="new-password" minlength="12" required></label><label>Confirmar nova senha<input name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required></label><p id="reset-status" class="dialog-status" role="alert"></p><div class="dialog-actions"><button type="button" data-close>Cancelar</button><button class="primary" type="submit">Salvar nova senha</button></div></form></dialog>

@@ -7,9 +7,11 @@ import { requireThat, object, text, integer, id, operationKey } from './errors.m
 import { hourlySales } from './pos.mjs';
 import { reportRange } from './time.mjs';
 import { customerSummary } from './privacy.mjs';
+import { createMailer } from './mailer.mjs';
 
 const now = () => new Date().toISOString();
 const MAX_MONEY = 100_000_000;
+const INVITE_TTL_MS = 24 * 60 * 60_000;
 const PAYMENT_METHODS = new Set(['CASH', 'PIX', 'CARD']);
 const CASH_ADJUSTMENTS = new Set(['SUPPLY', 'WITHDRAWAL']);
 const onlyDigits = value => value ? String(value).replace(/\D/g, '') : null;
@@ -63,7 +65,7 @@ class TransactionPos {
   run(sql, ...args) { return run(this.client, sql, args); }
 
   async user(ctx) {
-    const user = await this.one(`SELECT id,name,email,role,mfa_enabled FROM users
+    const user = await this.one(`SELECT id,name,email,role,company_admin,mfa_enabled FROM users
       WHERE tenant_id=$1 AND id=$2 AND active=1${this.readOnly ? '' : ' FOR SHARE'}`, ctx.tenantId, ctx.userId);
     requireThat(user, 401, 'AUTH_REQUIRED', 'Faça login novamente.');
     return user;
@@ -181,7 +183,7 @@ class TransactionPos {
       products: await this.products.listForStore(ctx.tenantId, storeId),
       terminals: await this.all('SELECT id,name FROM terminals WHERE tenant_id=$1 AND store_id=$2 ORDER BY id', ctx.tenantId, storeId),
       users: (await this.user(ctx)).role === 'MANAGER'
-        ? await this.all(`SELECT u.id,u.email,u.name,u.role,u.active
+        ? await this.all(`SELECT u.id,u.email,u.name,u.role,u.company_admin,u.active
           FROM users u JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
           WHERE u.tenant_id=$1 AND m.store_id=$2 ORDER BY u.name`, ctx.tenantId, storeId)
         : [],
@@ -338,7 +340,7 @@ class TransactionPos {
 }
 
 export class PostgresPos {
-  constructor(pool, hooks = {}) { this.pool = pool; this.hooks = hooks; }
+  constructor(pool, hooks = {}) { this.pool = pool; this.hooks = hooks; this.mailer = hooks.mailer ?? createMailer(); }
 
   async #transaction(ctx, readOnly, work) {
     requireThat(ctx && typeof ctx.tenantId === 'string' && typeof ctx.userId === 'string',
@@ -367,6 +369,34 @@ export class PostgresPos {
       await tx.audit(ctx, storeId, 'REPORT_EXPORTED', storeId,
         { from: range.from, to: range.to, section });
     });
+  }
+
+  async createStore(ctx, key, raw, origin) {
+    object(raw, ['name', 'managerName', 'managerEmail']); operationKey(key);
+    const input={name:text(raw.name,'Nome da loja',120,2),managerName:text(raw.managerName,'Nome do gerente',120,2),managerEmail:text(raw.managerEmail,'E-mail do gerente',120).toLowerCase()};
+    requireThat(/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(input.managerEmail),400,'INVALID_EMAIL','E-mail inválido.');
+    const ids={storeId:`store-${randomUUID()}`,terminalId:`terminal-${randomUUID()}`,managerId:`user-${randomUUID()}`,resetId:randomUUID()};
+    const inviteToken=`${randomUUID()}${randomUUID()}`.replaceAll('-',''),createdAt=Date.now();let created=false;
+    const result=await this.#transaction(ctx,false,async tx=>{
+      const user=await tx.user(ctx);requireThat(Number(user.company_admin)===1,403,'COMPANY_ADMIN_REQUIRED','Somente o administrador da empresa pode criar lojas.');
+      const payloadHash=sha256(JSON.stringify({kind:'STORE_CREATE',input}));await tx.operations.lock(ctx.tenantId,key);
+      const previous=await tx.operations.find(ctx.tenantId,key);
+      if(previous){requireThat(previous.user_id===ctx.userId&&previous.kind==='STORE_CREATE'&&previous.payload_hash===payloadHash,409,'IDEMPOTENCY_CONFLICT','Esta chave já foi usada em outra operação ou com outros dados.');return {data:JSON.parse(previous.response_json),replayed:true};}
+      requireThat(!(await tx.one('SELECT 1 FROM stores WHERE tenant_id=$1 AND lower(name)=lower($2)',ctx.tenantId,input.name)),409,'DUPLICATE_STORE','Já existe uma loja com este nome.');
+      requireThat(!(await tx.one('SELECT 1 FROM users WHERE tenant_id=$1 AND email=$2',ctx.tenantId,input.managerEmail)),409,'DUPLICATE_USER','E-mail já cadastrado.');
+      const company=await tx.one('SELECT id,name FROM companies WHERE tenant_id=$1 ORDER BY id LIMIT 1',ctx.tenantId);requireThat(company,404,'COMPANY_NOT_FOUND','Empresa não encontrada.');
+      await tx.run('INSERT INTO stores(tenant_id,id,company_id,name) VALUES($1,$2,$3,$4)',ctx.tenantId,ids.storeId,company.id,input.name);
+      await tx.run('INSERT INTO terminals(tenant_id,store_id,id,name) VALUES($1,$2,$3,$4)',ctx.tenantId,ids.storeId,ids.terminalId,'Caixa 01');
+      await tx.run("INSERT INTO users(tenant_id,id,email,name,password_hash,role,company_admin) VALUES($1,$2,$3,$4,$5,'MANAGER',0)",ctx.tenantId,ids.managerId,input.managerEmail,input.managerName,hashPassword(inviteToken));
+      await tx.run('INSERT INTO memberships(tenant_id,user_id,store_id) VALUES($1,$2,$3)',ctx.tenantId,ctx.userId,ids.storeId);await tx.run('INSERT INTO memberships(tenant_id,user_id,store_id) VALUES($1,$2,$3)',ctx.tenantId,ids.managerId,ids.storeId);
+      await tx.run('INSERT INTO stock(tenant_id,store_id,product_id,quantity) SELECT tenant_id,$1,id,0 FROM products WHERE tenant_id=$2',ids.storeId,ctx.tenantId);
+      await tx.run('INSERT INTO password_resets(tenant_id,id,user_id,token_hash,expires_at,created_at) VALUES($1,$2,$3,$4,$5,$6)',ctx.tenantId,ids.resetId,ids.managerId,sha256(inviteToken),createdAt+INVITE_TTL_MS,createdAt);
+      await tx.audit(ctx,ids.storeId,'STORE_CREATED',ids.storeId,{terminalId:ids.terminalId,managerId:ids.managerId});
+      const data={store:{id:ids.storeId,name:input.name},terminal:{id:ids.terminalId,name:'Caixa 01'},manager:{id:ids.managerId,name:input.managerName,email:input.managerEmail,invited:true}};
+      await tx.operations.save({tenantId:ctx.tenantId,key,userId:ctx.userId,storeId:ids.storeId,kind:'STORE_CREATE',payloadHash,response:data});created=true;return {data,replayed:false};
+    });
+    if(created){const tenant=await this.#transaction(ctx,true,tx=>tx.one('SELECT name,slug FROM tenants WHERE id=$1',ctx.tenantId));Promise.resolve(this.mailer.sendInvite({to:input.managerEmail,link:`${origin}/#redefinir=${inviteToken}`,tenantName:tenant.name,tenantSlug:tenant.slug})).catch(()=>{});}
+    return result;
   }
 
   async #mutate(ctx, kind, key, input, work) {
@@ -495,11 +525,12 @@ export class PostgresPos {
     }
     return this.#mutate(ctx, 'USER_UPDATE', key, input, async (tx, user) => {
       requireThat(user.role === 'MANAGER', 403, 'MANAGER_REQUIRED', 'Somente gerente altera usuários.');
-      const current = await tx.one(`SELECT u.id,u.role FROM users u
+      const current = await tx.one(`SELECT u.id,u.role,u.company_admin FROM users u
         JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
         WHERE u.tenant_id=$1 AND u.id=$2 AND m.store_id=$3 FOR UPDATE OF u`,
       ctx.tenantId, input.userId, input.storeId);
       requireThat(current, 404, 'USER_NOT_FOUND', 'Usuário não encontrado nesta loja.');
+      requireThat(Number(current.company_admin)!==1,403,'COMPANY_ADMIN_PROTECTED','O administrador da empresa não pode ser alterado pela gestão da loja.');
       requireThat(!(input.userId === ctx.userId && input.active === 0), 400, 'SELF_DEACTIVATE_FORBIDDEN', 'Não é permitido inativar seu próprio usuário.');
       requireThat(!(input.userId === ctx.userId && input.role !== 'MANAGER'), 400, 'SELF_ROLE_CHANGE_FORBIDDEN', 'Não é permitido remover seu próprio perfil de gerente.');
       const duplicate = await tx.one('SELECT 1 FROM users WHERE tenant_id=$1 AND email=$2 AND id<>$3',

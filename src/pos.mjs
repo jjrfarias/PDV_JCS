@@ -5,11 +5,13 @@ import { requireThat, object, text, integer, id, operationKey } from './errors.m
 import { PostgresPos } from './postgres-pos.mjs';
 import { reportRange } from './time.mjs';
 import { customerSummary } from './privacy.mjs';
+import { createMailer } from './mailer.mjs';
 
 const now = () => new Date().toISOString();
 const PAYMENT_METHODS = new Set(['CASH','PIX','CARD']);
 const CASH_ADJUSTMENTS = new Set(['SUPPLY','WITHDRAWAL']);
 const MAX_MONEY = 100_000_000; // R$ 1 milhão por entrada monetária neste laboratório.
+const INVITE_TTL_MS = 24 * 60 * 60_000;
 const onlyDigits = value => value ? String(value).replace(/\D/g, '') : null;
 function customerInput(raw, { updating = false } = {}) {
   object(raw, updating ? ['storeId','customerId','name','document','phone','email','note','active'] : ['storeId','name','document','phone','email','note']);
@@ -54,13 +56,13 @@ export function hourlySales(sales) {
 export class Pos {
   constructor(db, hooks = {}) {
     if (typeof db.query === 'function' && typeof db.connect === 'function') return new PostgresPos(db, hooks);
-    this.db = db; this.hooks = hooks;
+    this.db = db; this.hooks = hooks; this.mailer = hooks.mailer ?? createMailer();
   }
   one(sql, ...args) { return this.db.prepare(sql).get(...args); }
   all(sql, ...args) { return this.db.prepare(sql).all(...args); }
   run(sql, ...args) { return this.db.prepare(sql).run(...args); }
   user(ctx) {
-    const user = this.one('SELECT id,name,email,role,mfa_enabled FROM users WHERE tenant_id=? AND id=? AND active=1',ctx.tenantId,ctx.userId);
+    const user = this.one('SELECT id,name,email,role,company_admin,mfa_enabled FROM users WHERE tenant_id=? AND id=? AND active=1',ctx.tenantId,ctx.userId);
     requireThat(user,401,'AUTH_REQUIRED','Faça login novamente.');
     return user;
   }
@@ -109,6 +111,33 @@ export class Pos {
     requireThat(op,404,'NOT_FOUND','Operação não encontrada para este usuário.');
     this.authorize(ctx,op.store_id);
     return {data:JSON.parse(op.response_json),replayed:true,kind:op.kind};
+  }
+  async createStore(ctx,key,raw,origin) {
+    object(raw,['name','managerName','managerEmail']);operationKey(key);
+    const input={name:text(raw.name,'Nome da loja',120,2),managerName:text(raw.managerName,'Nome do gerente',120,2),managerEmail:text(raw.managerEmail,'E-mail do gerente',120).toLowerCase()};
+    requireThat(/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(input.managerEmail),400,'INVALID_EMAIL','E-mail inválido.');
+    const ids={storeId:`store-${randomUUID()}`,terminalId:`terminal-${randomUUID()}`,managerId:`user-${randomUUID()}`,resetId:randomUUID()};
+    const inviteToken=`${randomUUID()}${randomUUID()}`.replaceAll('-',''),createdAt=Date.now();let created=false;
+    const result=transaction(this.db,()=>{
+      const user=this.user(ctx);requireThat(user.company_admin===1,403,'COMPANY_ADMIN_REQUIRED','Somente o administrador da empresa pode criar lojas.');
+      const hash=sha256(JSON.stringify({kind:'STORE_CREATE',input}));
+      const previous=this.one('SELECT * FROM operations WHERE tenant_id=? AND key=?',ctx.tenantId,key);
+      if(previous){requireThat(previous.user_id===ctx.userId&&previous.kind==='STORE_CREATE'&&previous.payload_hash===hash,409,'IDEMPOTENCY_CONFLICT','Esta chave já foi usada em outra operação ou com outros dados.');return {data:JSON.parse(previous.response_json),replayed:true};}
+      requireThat(!this.one('SELECT 1 FROM stores WHERE tenant_id=? AND lower(name)=lower(?)',ctx.tenantId,input.name),409,'DUPLICATE_STORE','Já existe uma loja com este nome.');
+      requireThat(!this.one('SELECT 1 FROM users WHERE tenant_id=? AND email=?',ctx.tenantId,input.managerEmail),409,'DUPLICATE_USER','E-mail já cadastrado.');
+      const company=this.one('SELECT id,name FROM companies WHERE tenant_id=? ORDER BY id LIMIT 1',ctx.tenantId);requireThat(company,404,'COMPANY_NOT_FOUND','Empresa não encontrada.');
+      this.run('INSERT INTO stores(tenant_id,id,company_id,name) VALUES(?,?,?,?)',ctx.tenantId,ids.storeId,company.id,input.name);
+      this.run('INSERT INTO terminals(tenant_id,store_id,id,name) VALUES(?,?,?,?)',ctx.tenantId,ids.storeId,ids.terminalId,'Caixa 01');
+      this.run("INSERT INTO users(tenant_id,id,email,name,password_hash,role,company_admin) VALUES(?,?,?,?,?,'MANAGER',0)",ctx.tenantId,ids.managerId,input.managerEmail,input.managerName,hashPassword(inviteToken));
+      this.run('INSERT INTO memberships VALUES(?,?,?)',ctx.tenantId,ctx.userId,ids.storeId);this.run('INSERT INTO memberships VALUES(?,?,?)',ctx.tenantId,ids.managerId,ids.storeId);
+      this.run('INSERT INTO stock(tenant_id,store_id,product_id,quantity) SELECT tenant_id,?,id,0 FROM products WHERE tenant_id=?',ids.storeId,ctx.tenantId);
+      this.run('INSERT INTO password_resets(tenant_id,id,user_id,token_hash,expires_at,created_at) VALUES(?,?,?,?,?,?)',ctx.tenantId,ids.resetId,ids.managerId,sha256(inviteToken),createdAt+INVITE_TTL_MS,createdAt);
+      this.audit(ctx,ids.storeId,'STORE_CREATED',ids.storeId,{terminalId:ids.terminalId,managerId:ids.managerId});
+      const data={store:{id:ids.storeId,name:input.name},terminal:{id:ids.terminalId,name:'Caixa 01'},manager:{id:ids.managerId,name:input.managerName,email:input.managerEmail,invited:true}};
+      this.run('INSERT INTO operations VALUES(?,?,?,?,?,?,?,?)',ctx.tenantId,key,ctx.userId,ids.storeId,'STORE_CREATE',hash,JSON.stringify(data),now());created=true;return {data,replayed:false};
+    });
+    if(created) Promise.resolve(this.mailer.sendInvite({to:input.managerEmail,link:`${origin}/#redefinir=${inviteToken}`,tenantName:this.one('SELECT name FROM tenants WHERE id=?',ctx.tenantId).name,tenantSlug:this.one('SELECT slug FROM tenants WHERE id=?',ctx.tenantId).slug})).catch(()=>{});
+    return result;
   }
   createProduct(ctx,key,raw) {
     object(raw,['storeId','sku','barcode','name','priceCents','initialQuantity']);
@@ -174,9 +203,10 @@ export class Pos {
       400,'WEAK_PASSWORD','A senha temporária deve ter 12 caracteres, com letras maiúsculas, minúsculas e número.');
     return this.mutate(ctx,'USER_UPDATE',key,input,user => {
       requireThat(user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente altera usuários.');
-      const current=this.one(`SELECT u.id,u.role FROM users u JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
+      const current=this.one(`SELECT u.id,u.role,u.company_admin FROM users u JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
         WHERE u.tenant_id=? AND u.id=? AND m.store_id=?`,ctx.tenantId,input.userId,input.storeId);
       requireThat(current,404,'USER_NOT_FOUND','Usuário não encontrado nesta loja.');
+      requireThat(current.company_admin!==1,403,'COMPANY_ADMIN_PROTECTED','O administrador da empresa não pode ser alterado pela gestão da loja.');
       requireThat(!(input.userId===ctx.userId&&input.active===0),400,'SELF_DEACTIVATE_FORBIDDEN','Não é permitido inativar seu próprio usuário.');
       requireThat(!(input.userId===ctx.userId&&input.role!=='MANAGER'),400,'SELF_ROLE_CHANGE_FORBIDDEN','Não é permitido remover seu próprio perfil de gerente.');
       requireThat(!this.one('SELECT 1 FROM users WHERE tenant_id=? AND email=? AND id<>?',ctx.tenantId,input.email,input.userId),409,'DUPLICATE_USER','E-mail já cadastrado.');
@@ -573,7 +603,7 @@ export class Pos {
       products:this.all(`SELECT p.id,p.sku,p.barcode,p.name,p.price_cents,s.quantity FROM products p JOIN stock s ON s.tenant_id=p.tenant_id AND s.product_id=p.id
         WHERE s.tenant_id=? AND s.store_id=? AND p.active=1 ORDER BY p.name`,ctx.tenantId,storeId),
       terminals:this.all('SELECT id,name FROM terminals WHERE tenant_id=? AND store_id=? ORDER BY id',ctx.tenantId,storeId),
-      users:this.user(ctx).role==='MANAGER'?this.all(`SELECT u.id,u.email,u.name,u.role,u.active
+      users:this.user(ctx).role==='MANAGER'?this.all(`SELECT u.id,u.email,u.name,u.role,u.company_admin,u.active
         FROM users u JOIN memberships m ON m.tenant_id=u.tenant_id AND m.user_id=u.id
         WHERE u.tenant_id=? AND m.store_id=? ORDER BY u.name`,ctx.tenantId,storeId):[],
       customers:this.all('SELECT * FROM customers WHERE tenant_id=? AND store_id=? ORDER BY updated_at DESC LIMIT 100',ctx.tenantId,storeId).map(row=>customerSummary(this.customerRow(row))),

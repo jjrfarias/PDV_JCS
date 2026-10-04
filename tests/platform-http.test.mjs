@@ -124,11 +124,38 @@ test('admin creates a tenant whose manager sets a password through the invite', 
   assert.equal((await w.tenantLogin(NEW_TENANT.slug, NEW_TENANT.managerEmail, PASSWORD)).status, 401);
   const chosen = 'SenhaDaAna2026x';
   assert.equal((await w.call('/api/password/reset', { body: { token: w.tokenOf(link), newPassword: chosen } })).response.status, 200);
+  enableTestMfa(w.db, 'users', `tenant_id='${created.data.tenant.id}' AND email='${NEW_TENANT.managerEmail}'`);
   const manager = await w.tenantLogin(NEW_TENANT.slug, NEW_TENANT.managerEmail, chosen);
   assert.equal(manager.status, 200);
   const managerMe = await w.as(manager).get('/api/me');
   assert.deepEqual(managerMe.data.stores.map(store => store.name), [NEW_TENANT.storeName]);
   assert.equal(managerMe.data.user.role, 'MANAGER');
+  assert.equal(managerMe.data.user.company_admin, 1);
+
+  const branchInput = { name: 'Loja Norte', managerName: 'Bruno Gerente', managerEmail: 'bruno@mercado.test' };
+  const branchKey = key();
+  const branch = await w.as(manager).post('/api/stores', branchInput, { 'Idempotency-Key': branchKey });
+  assert.equal(branch.response.status, 201);
+  assert.equal(branch.data.data.store.name, branchInput.name);
+  assert.equal(w.db.prepare('SELECT name FROM terminals WHERE tenant_id=? AND store_id=?').get(created.data.tenant.id, branch.data.data.store.id).name, 'Caixa 01');
+  assert.equal(w.db.prepare('SELECT COUNT(*) n FROM memberships WHERE tenant_id=? AND store_id=?').get(created.data.tenant.id, branch.data.data.store.id).n, 2);
+  assert.equal(w.db.prepare('SELECT COUNT(*) n FROM stock WHERE tenant_id=? AND store_id=?').get(created.data.tenant.id, branch.data.data.store.id).n, 0);
+  await w.lastLink();
+  assert.equal(w.outbox.length, 2);
+  assert.equal(w.outbox[1].to, branchInput.managerEmail);
+  const branchReplay = await w.as(manager).post('/api/stores', branchInput, { 'Idempotency-Key': branchKey });
+  assert.equal(branchReplay.response.status, 200);
+  await w.lastLink();
+  assert.equal(w.outbox.length, 2, 'replay does not resend the store manager invite');
+
+  const commonManager = w.db.prepare("SELECT id FROM users WHERE tenant_id=? AND email=?").get(created.data.tenant.id, branchInput.managerEmail);
+  w.db.prepare("UPDATE users SET password_hash=(SELECT password_hash FROM users WHERE tenant_id=? AND email=?) WHERE tenant_id=? AND id=?")
+    .run(created.data.tenant.id, NEW_TENANT.managerEmail, created.data.tenant.id, commonManager.id);
+  enableTestMfa(w.db, 'users', `tenant_id='${created.data.tenant.id}' AND id='${commonManager.id}'`);
+  const commonSession = await w.tenantLogin(NEW_TENANT.slug, branchInput.managerEmail, chosen);
+  const forbidden = await w.as(commonSession).post('/api/stores', { name: 'Proibida', managerName: 'Outra', managerEmail: 'outra@mercado.test' }, { 'Idempotency-Key': key() });
+  assert.equal(forbidden.response.status, 403);
+  assert.equal(forbidden.data.error.code, 'COMPANY_ADMIN_REQUIRED');
 
   const audit = w.db.prepare("SELECT action FROM platform_audit_events WHERE action='TENANT_CREATED'").all();
   assert.equal(audit.length, 1);

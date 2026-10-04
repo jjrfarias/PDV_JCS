@@ -23,6 +23,7 @@ const terminalId=()=> $('terminal-select').value;
 const currentCash=()=>state.data?.cash.find(c=>c.terminal_id===terminalId());
 const scope=()=>`jcs.pending.v1:${state.me.tenantId}:${state.me.user.id}`;
 const manager=()=>state.me?.user.role==='MANAGER';
+const companyAdmin=()=>state.me?.user.company_admin===1;
 const customerLabel=customer=>[customer.name,customer.document,customer.phone].filter(Boolean).join(' · ');
 function clearSaleCustomer(){
   $('sale-customer').value='';
@@ -59,6 +60,7 @@ function lock(){
   document.querySelectorAll('[data-payment-method]').forEach(el=>{el.disabled=locked;});
   $('new-product').hidden=!manager();
   $('new-user').hidden=!manager();
+  $('new-store').hidden=!companyAdmin();
   $('adjust-stock').hidden=!manager();
   $('password-open').disabled=locked;
   $('logout').disabled=locked;
@@ -376,10 +378,10 @@ function renderManagement(){
       const deactivate=element('button','Inativar');deactivate.type='button';deactivate.dataset.productAction='deactivate';deactivate.addEventListener('click',()=>deactivateProduct(p));actions.append(deactivate);}
     return [p.sku,p.name,p.barcode??'—',brl(p.price_cents),p.quantity,actions];
   }));}
-  if(state.tab==='users'){const rows=(d.users??[]).filter(u=>includes([u.name,u.email,u.role,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo'],query));renderSummary([['Usuários',rows.length],['Ativos',rows.filter(u=>u.active===1).length],['Gerentes',rows.filter(u=>u.role==='MANAGER').length]]);content=table(['Nome','E-mail','Perfil','Status','Ações'],rows.map(u=>{
+  if(state.tab==='users'){const roleName=u=>u.company_admin===1?'Administrador da empresa':u.role==='MANAGER'?'Gerente':'Operador';const rows=(d.users??[]).filter(u=>includes([u.name,u.email,u.role,roleName(u),u.active===1?'Ativo':'Inativo'],query));renderSummary([['Usuários',rows.length],['Ativos',rows.filter(u=>u.active===1).length],['Gerentes',rows.filter(u=>u.role==='MANAGER'&&u.company_admin!==1).length]]);content=table(['Nome','E-mail','Perfil','Status','Ações'],rows.map(u=>{
     const actions=element('div',undefined,'row-actions');
-    if(manager()){const edit=element('button','Editar');edit.type='button';edit.dataset.userAction='edit';edit.addEventListener('click',()=>openUserEdit(u));actions.append(edit);}
-    return [u.name,u.email,u.role==='MANAGER'?'Gerente':'Operador',u.active===1?'Ativo':'Inativo',actions];
+    if(manager()&&u.company_admin!==1){const edit=element('button','Editar');edit.type='button';edit.dataset.userAction='edit';edit.addEventListener('click',()=>openUserEdit(u));actions.append(edit);}
+    return [u.name,u.email,roleName(u),u.active===1?'Ativo':'Inativo',actions];
   }));}
   if(state.tab==='customers'){const rows=(d.customers??[]).filter(c=>includes([c.name,c.document,c.phone,c.email,c.active===1?'Ativo':'Inativo'],query));renderSummary([['Clientes',rows.length],['Ativos',rows.filter(c=>c.active===1).length],['Com documento',rows.filter(c=>c.document).length]]);content=table(['Nome','Documento','Telefone','E-mail','Status','Ações'],rows.map(c=>{
     const actions=element('div',undefined,'row-actions'),edit=element('button','Editar');edit.type='button';edit.dataset.customerAction='edit';edit.addEventListener('click',()=>run(()=>openCustomerEdit(c)));actions.append(edit);
@@ -488,6 +490,11 @@ async function submitPending(){
     if(pending.path==='/api/users/update')$('user-edit-form').reset();
     if(pending.path==='/api/customers')$('customer-form').reset();
     if(pending.path==='/api/customers/update')$('customer-edit-form').reset();
+    if(pending.path==='/api/stores'){
+      $('store-form').reset();state.me=await api('/api/me');$('store-select').replaceChildren();
+      for(const store of state.me.stores){const option=element('option',store.name);option.value=store.id;$('store-select').append(option);}
+      $('store-select').value=result.data.store.id;
+    }
     updateMoneyPreviews();
     message(result.replayed?'Operação recuperada. Nenhum registro foi duplicado.':'Operação confirmada.');
     await refresh();
@@ -512,7 +519,7 @@ async function requireMfaSetup(){
 async function boot(){
   state.me=await api('/api/me');state.csrf=state.me.csrfToken;
   $('login-panel').hidden=true;$('workspace').hidden=false;$('user-label').textContent=state.me.user.name;
-  $('role-label').textContent=manager()?'GERENTE':'OPERADOR';
+  $('role-label').textContent=companyAdmin()?'ADMINISTRADOR DA EMPRESA':manager()?'GERENTE':'OPERADOR';
   $('mfa-open').hidden=!manager();$('mfa-open').textContent=state.me.user.mfa_enabled===1?'MFA ativo':'Ativar MFA';$('mfa-open').disabled=state.me.user.mfa_enabled===1;
   $('network-nav').hidden=!manager();
   if(manager()&&state.me.user.mfa_enabled!==1)return requireMfaSetup();
@@ -650,6 +657,8 @@ async function openCustomerEdit(summary){
   $('customer-edit-dialog').showModal();
 }
 $('customer-edit-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/customers/update',{storeId:storeId(),customerId:f.customerId,name:f.name,document:f.document||null,phone:f.phone||null,email:f.email||null,note:f.note||null,active:Number(f.active)});});});
+$('new-store').addEventListener('click',()=>$('store-dialog').showModal());
+$('store-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/stores',{name:f.name,managerName:f.managerName,managerEmail:f.managerEmail});});});
 $('new-user').addEventListener('click',()=>$('user-dialog').showModal());
 $('user-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/users',{storeId:storeId(),email:f.email,name:f.name,role:f.role,temporaryPassword:f.temporaryPassword});});});
 function openUserEdit(user){

@@ -89,7 +89,7 @@ export function clientIp(req, env = process.env) {
 const MFA_SETUP_ROUTES=new Set(['GET /api/me','POST /api/me/mfa/start','POST /api/me/mfa/confirm','POST /api/me/password','POST /api/logout']);
 const PLATFORM_MFA_SETUP_ROUTES=new Set(['GET /api/platform/me','POST /api/platform/mfa/start','POST /api/platform/mfa/confirm','POST /api/platform/logout']);
 export function createApp(db,{mailer}={}) {
-  const auth=new Auth(db,mailer?{mailer}:{}); const pos=new Pos(db); const platform=new Platform(db,mailer?{mailer}:{});
+  const auth=new Auth(db,mailer?{mailer}:{}); const pos=new Pos(db,mailer?{mailer}:{}); const platform=new Platform(db,mailer?{mailer}:{});
   const server=createServer(async(req,res)=>{
     res.setHeader('X-Content-Type-Options','nosniff');
     res.setHeader('X-Frame-Options','DENY');
@@ -174,6 +174,10 @@ export function createApp(db,{mailer}={}) {
         throw new AppError(403,'MFA_SETUP_REQUIRED','Ative a autenticação em duas etapas para continuar.');
       if(req.method==='GET'&&url.pathname==='/api/me') return send(res,200,{...await pos.me(ctx),csrfToken:ctx.csrfToken});
       if(req.method==='GET'&&url.pathname==='/api/network/overview') return send(res,200,await pos.networkOverview(ctx,url.searchParams.get('from')??'',url.searchParams.get('to')??''));
+      if(req.method==='POST'&&url.pathname==='/api/stores') {
+        const result=await pos.createStore(ctx,req.headers['idempotency-key'],await json(req),origin);
+        return send(res,result.replayed?200:201,result);
+      }
       if(req.method==='POST'&&url.pathname==='/api/logout') {
         await auth.logout(ctx,clientIp(req)); res.setHeader('Set-Cookie',`jcs_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${production?'; Secure':''}`);
         return send(res,200,{ok:true});

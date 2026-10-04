@@ -7,7 +7,7 @@ CREATE TABLE platform_admins (
   id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, password_hash TEXT NOT NULL,
   active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)), created_at INTEGER NOT NULL,
   mfa_secret_enc TEXT, mfa_pending_secret_enc TEXT,
-  mfa_enabled INTEGER NOT NULL DEFAULT 0 CHECK(mfa_enabled IN (0,1))
+  mfa_enabled INTEGER NOT NULL DEFAULT 0 CHECK(mfa_enabled IN (0,1)), mfa_last_step INTEGER
 ) STRICT;
 CREATE TABLE platform_sessions (
   token_hash TEXT PRIMARY KEY, admin_id TEXT NOT NULL REFERENCES platform_admins(id),
@@ -38,8 +38,9 @@ CREATE TABLE users (
   tenant_id TEXT NOT NULL, id TEXT NOT NULL, email TEXT NOT NULL, name TEXT NOT NULL,
   password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('MANAGER','CASHIER')),
   active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+  company_admin INTEGER NOT NULL DEFAULT 0 CHECK(company_admin IN (0,1)),
   mfa_secret_enc TEXT, mfa_pending_secret_enc TEXT,
-  mfa_enabled INTEGER NOT NULL DEFAULT 0 CHECK(mfa_enabled IN (0,1)),
+  mfa_enabled INTEGER NOT NULL DEFAULT 0 CHECK(mfa_enabled IN (0,1)), mfa_last_step INTEGER,
   PRIMARY KEY(tenant_id,id), UNIQUE(tenant_id,email), FOREIGN KEY(tenant_id) REFERENCES tenants(id)
 ) STRICT;
 CREATE TABLE memberships (

@@ -30,7 +30,8 @@ Página em `/admin`. Rotas em `/api/platform/`, com cookie `jcs_admin` (HttpOnly
 - `POST /api/platform/password/forgot` com `{"email"}` e `POST /api/platform/password/reset` com `{"token","newPassword"}` funcionam como a recuperação dos tenants. O link aponta para `/admin#redefinir=<token>`.
 - `GET /api/platform/me` e `POST /api/platform/logout`.
 - `GET /api/platform/tenants` lista só `id`, `slug`, `name`, `active` e `userCount`.
-- `POST /api/platform/tenants` com `Idempotency-Key` e `{"slug","name","storeName","managerName","managerEmail"}` cria empresa, loja, terminal Caixa 01 e o gerente. O gerente recebe convite por e-mail válido por 24 horas para criar a própria senha. Slug repetido retorna `409 SLUG_TAKEN`.
+- `POST /api/platform/tenants` com `Idempotency-Key` e `{"slug","name","storeName","managerName","managerEmail"}` cria empresa, loja, terminal Caixa 01 e o administrador da empresa. Ele recebe convite por e-mail válido por 24 horas para criar a própria senha. Slug repetido retorna `409 SLUG_TAKEN`.
+- `POST /api/stores` com `Idempotency-Key` e `{"name","managerName","managerEmail"}` é exclusivo do administrador da empresa. Cria a filial, o terminal Caixa 01, estoque inicial zero para o catálogo existente e o gerente vinculado somente à nova loja. O gerente cria a própria senha por convite válido por 24 horas. Nome de loja ou e-mail repetido são recusados.
 - `POST /api/platform/tenants/status` com `Idempotency-Key` e `{"tenantId","active":0|1}` ativa ou desativa. Desativar encerra todas as sessões do tenant e bloqueia login e recuperação de senha dele.
 
 O administrador não tem rota para ler vendas, caixa, clientes, produtos ou estoque de nenhum tenant.
