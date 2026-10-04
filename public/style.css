@@ -372,15 +372,12 @@ dialog::backdrop{background:#0f172a99}
 .network-alerts.has-alerts>strong{color:#991b1b}
 .network-store-table tr.needs-attention td:first-child{box-shadow:inset 3px 0 0 #dc2626}
 .network-store-table td.alert-cell{color:#b91c1c;font-weight:800}
+.network-store-table td.alert-cell small{display:block;margin-top:1px;color:#b91c1c;font-size:9px;font-weight:700}
 .network-store-card.needs-attention{border-color:#fecaca;box-shadow:inset 3px 0 0 #dc2626}
 .network-payment-legend strong small{margin-left:6px;font-size:11px;font-weight:700;color:var(--muted)}
-.network-hourly{display:flex;align-items:flex-end;gap:4px;height:150px;padding-top:8px}
-.hour-column{flex:1;min-width:0;height:100%;display:flex;flex-direction:column;gap:4px}
-.hour-bars{position:relative;flex:1;display:flex;align-items:flex-end;justify-content:center}
-.hour-bars span{display:block;width:70%;max-width:18px;border-radius:4px 4px 0 0}
-.hour-now{position:relative;background:var(--brand)}
-.hour-past{position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:100%!important;max-width:24px!important;background:#cbd5e1;opacity:.7}
-.hour-column small{height:14px;font-size:10px;color:var(--muted);text-align:center;font-weight:700}
+.sales-cell{position:relative;isolation:isolate;min-width:126px;overflow:hidden}.sales-cell .sales-bar{position:absolute;z-index:0;inset:5px auto 5px 0;border-radius:0 5px 5px 0;background:#ccfbf1}.sales-cell strong{position:relative;z-index:1;font-weight:500;font-variant-numeric:tabular-nums}
+.cumulative-legend{display:flex;gap:12px;margin-top:8px;font-size:9px;color:var(--muted);font-weight:800}.cumulative-legend span{display:flex;align-items:center;gap:5px}.cumulative-legend i{display:block;width:16px;height:3px;border-radius:2px}.legend-today{background:var(--brand)}.legend-reference{border-top:2px dashed #94a3b8}
+.network-hourly{height:150px;padding-top:5px}.network-hourly svg{display:block;width:100%;height:100%;overflow:visible}.chart-grid{stroke:#e2e8f0;stroke-width:1}.cumulative-today,.cumulative-reference{fill:none;stroke-linecap:round;stroke-linejoin:round}.cumulative-today{stroke:var(--brand);stroke-width:4}.cumulative-reference{stroke:#94a3b8;stroke-width:3;stroke-dasharray:6 5}.chart-label{fill:#64748b;font-size:9px;font-weight:700}
 /* Coluna lateral da rede: nunca mais larga que o cartão. A tabela rola por dentro quando faltar espaço. */
 .network-main{grid-template-columns:minmax(0,2.5fr) minmax(300px,.9fr)}
 .network-stores,.network-insights{min-width:0}
@@ -389,4 +386,3 @@ dialog::backdrop{background:#0f172a99}
 .network-payment-legend div{min-width:0}
 .network-payment-legend strong{white-space:nowrap}
 .network-hourly{overflow:hidden}
-.hour-column small{white-space:nowrap;overflow:visible;font-size:9px}

@@ -5,6 +5,7 @@ import { PostgresOperations } from './postgres-operations.mjs';
 import { decryptField, encryptField, fieldDigest, hashPassword, sha256 } from './security.mjs';
 import { requireThat, object, text, integer, id, operationKey } from './errors.mjs';
 import { hourlySales } from './pos.mjs';
+import { reportRange } from './time.mjs';
 
 const now = () => new Date().toISOString();
 const MAX_MONEY = 100_000_000;
@@ -41,19 +42,6 @@ function saleReturnInput(raw) {
 function proratedReturnCents(sale, lineCents) {
   return integer(Math.floor(lineCents * cashInteger(sale.total_cents) / cashInteger(sale.subtotal_cents)), 'Total da devolução', 1);
 }
-function reportRange(from, to) {
-  const date = /^\d{4}-\d{2}-\d{2}$/;
-  requireThat(date.test(from) && date.test(to), 400, 'INVALID_PERIOD', 'Informe datas no formato AAAA-MM-DD.');
-  const start = new Date(`${from}T00:00:00.000Z`);
-  const endDay = new Date(`${to}T00:00:00.000Z`);
-  requireThat(!Number.isNaN(start.getTime()) && !Number.isNaN(endDay.getTime()) && endDay >= start,
-    400, 'INVALID_PERIOD', 'Período inválido.');
-  const days = Math.floor((endDay - start) / 86_400_000) + 1;
-  requireThat(days <= 366, 400, 'PERIOD_TOO_LONG', 'Relatório limitado a 366 dias.');
-  const end = new Date(endDay.getTime() + 86_400_000);
-  return { from, to, start: start.toISOString(), end: end.toISOString() };
-}
-
 function cashInteger(value) {
   // PostgreSQL SUM(integer) is bigint and pg returns it as text by default.
   const result = Number(value);
@@ -302,7 +290,7 @@ class TransactionPos {
         FROM cash_sessions WHERE tenant_id=$1 AND store_id=$2`, ctx.tenantId, store.id);
       stores.push({ ...store, ...report.summary, open_cash_count: cashInteger(status.open_cash_count),
         last_sale_at: status.last_sale_at instanceof Date ? status.last_sale_at.toISOString() : status.last_sale_at,
-        payments: report.payments });
+        payments: report.payments, hourly: hourlySales(report.sales) });
     }
     const payments = new Map();
     for (const store of stores) for (const payment of store.payments) {

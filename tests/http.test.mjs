@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { request } from 'node:http';
 import { createApp } from '../src/http.mjs';
 import { fixture,PASSWORD,DEMO,key } from './helpers.mjs';
+import { businessDate } from '../src/time.mjs';
 
 async function web(t){
   const {db,pos}=fixture(t);const server=createApp(db);server.listen(0,'127.0.0.1');await once(server,'listening');
@@ -60,7 +61,7 @@ test('HTTP 19 - relatorio e exportacao CSV respeitam loja e periodo',async t=>{
   const w=await web(t);await w.login();
   const cash=await w.call('/api/cash/open',{method:'POST',headers:{'Idempotency-Key':key()},body:{storeId:DEMO.storeA,terminalId:DEMO.terminalA,openingCents:10000}});
   await w.call('/api/sales',{method:'POST',headers:{'Idempotency-Key':key()},body:{storeId:DEMO.storeA,cashSessionId:cash.data.data.id,items:[{productId:DEMO.product,quantity:1}],discountCents:0,discountReason:null,paymentMethod:'CARD',tenderedCents:0}});
-  const today=new Date().toISOString().slice(0,10);
+  const today=businessDate();
   const report=await w.call(`/api/stores/store-a/report?from=${today}&to=${today}`);
   assert.equal(report.response.status,200);
   assert.equal(report.data.summary.active_sale_count,1);
@@ -77,7 +78,7 @@ test('HTTP 19.1 - painel da rede entrega consolidado das lojas autorizadas',asyn
   const w=await web(t);await w.login();
   const cash=await w.call('/api/cash/open',{method:'POST',headers:{'Idempotency-Key':key()},body:{storeId:DEMO.storeA,terminalId:DEMO.terminalA,openingCents:10000}});
   await w.call('/api/sales',{method:'POST',headers:{'Idempotency-Key':key()},body:{storeId:DEMO.storeA,cashSessionId:cash.data.data.id,items:[{productId:DEMO.product,quantity:1}],discountCents:0,discountReason:null,paymentMethod:'CASH',tenderedCents:2500}});
-  const today=new Date().toISOString().slice(0,10),overview=await w.call(`/api/network/overview?from=${today}&to=${today}`);
+  const today=businessDate(),overview=await w.call(`/api/network/overview?from=${today}&to=${today}`);
   assert.equal(overview.response.status,200);assert.equal(overview.data.stores.length,2);
   assert.equal(overview.data.totals.gross_cents,2500);assert.equal(overview.data.totals.open_cash_count,1);
   assert.equal(overview.data.stores.some(store=>store.id===DEMO.otherStore),false);

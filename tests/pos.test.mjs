@@ -6,6 +6,7 @@ import { Pos, hourlySales } from '../src/pos.mjs';
 import { transaction } from '../src/database.mjs';
 import { seedDemo } from '../src/demo.mjs';
 import { cents } from '../public/money.mjs';
+import { businessDate } from '../src/time.mjs';
 import { fixture,open,saleInput,counts,key,DEMO } from './helpers.mjs';
 const fails=(fn,code)=>assert.throws(fn,error=>error.code===code);
 
@@ -148,7 +149,7 @@ test('17f - relatorio consolida vendas, pagamentos, produtos e cancelamentos no 
   const cashSale=pos.sell(DEMO.manager,key(),saleInput(cash,{discountCents:0,discountReason:null,tenderedCents:5000})).data;
   pos.sell(DEMO.manager,key(),saleInput(cash,{paymentMethod:'PIX',items:[{productId:DEMO.product,quantity:1}],discountCents:0,discountReason:null,tenderedCents:0}));
   pos.cancelSale(DEMO.manager,key(),{storeId:DEMO.storeA,saleId:cashSale.id,reason:'cliente desistiu'});
-  const today=new Date().toISOString().slice(0,10);
+  const today=businessDate();
   const report=pos.report(DEMO.manager,DEMO.storeA,today,today);
   assert.equal(report.summary.sale_count,2);
   assert.equal(report.summary.active_sale_count,1);
@@ -164,7 +165,7 @@ test('17f.1 - painel da rede consolida somente lojas autorizadas do tenant',t=>{
   const {pos}=fixture(t);const cashA=open(pos);const cashB=open(pos,DEMO.manager,DEMO.terminalB);
   pos.sell(DEMO.manager,key(),saleInput(cashA,{items:[{productId:DEMO.product,quantity:1}],discountCents:0,discountReason:null,tenderedCents:2500}));
   pos.sell(DEMO.manager,key(),saleInput(cashB,{storeId:DEMO.storeB,items:[{productId:DEMO.product,quantity:2}],discountCents:0,discountReason:null,paymentMethod:'PIX',tenderedCents:0}));
-  const today=new Date().toISOString().slice(0,10),overview=pos.networkOverview(DEMO.manager,today,today);
+  const today=businessDate(),overview=pos.networkOverview(DEMO.manager,today,today);
   assert.equal(overview.stores.length,2);assert.equal(overview.totals.active_sale_count,2);
   assert.equal(overview.totals.gross_cents,7500);assert.equal(overview.totals.open_cash_count,2);
   assert.equal(overview.stores.some(store=>store.id===DEMO.otherStore),false);
@@ -192,7 +193,7 @@ test('17g - gerente registra devolucao parcial com estoque, caixa e relatorio li
   assert.equal(pos.cash(DEMO.manager,cash.id).expected_cents,12500);
   assert.equal(pos.returnSale(DEMO.manager,returnKey,{storeId:DEMO.storeA,saleId:sale.id,items:[{productId:DEMO.product,quantity:1}],reason:'cliente devolveu um item'}).replayed,true);
   fails(()=>pos.returnSale(DEMO.manager,key(),{storeId:DEMO.storeA,saleId:sale.id,items:[{productId:DEMO.product,quantity:2}],reason:'saldo maior'}),'RETURN_QUANTITY_EXCEEDED');
-  const today=new Date().toISOString().slice(0,10),report=pos.report(DEMO.manager,DEMO.storeA,today,today);
+  const today=businessDate(),report=pos.report(DEMO.manager,DEMO.storeA,today,today);
   assert.equal(report.summary.gross_cents,2500);
   assert.equal(report.summary.returned_cents,2500);
   assert.equal(report.sales[0].returned_cents,2500);

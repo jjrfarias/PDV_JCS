@@ -104,8 +104,10 @@ function setView(view){
   if(view==='sale')setTimeout(()=>$('search').focus(),0);
   if(view==='network')run(loadNetwork);
 }
-const localDay=()=>{const now=new Date(),pad=value=>String(value).padStart(2,'0');return `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;};
-const dayOffset=days=>{const value=new Date();value.setDate(value.getDate()+days);const pad=part=>String(part).padStart(2,'0');return `${value.getFullYear()}-${pad(value.getMonth()+1)}-${pad(value.getDate())}`;};
+const BUSINESS_TIME_ZONE='America/Sao_Paulo';
+const localDay=(value=new Date())=>new Intl.DateTimeFormat('en-CA',{timeZone:BUSINESS_TIME_ZONE,year:'numeric',month:'2-digit',day:'2-digit'}).format(value);
+const dayOffset=days=>{const [year,month,day]=localDay().split('-').map(Number);return localDay(new Date(Date.UTC(year,month-1,day+days,15)));};
+const businessHour=value=>Number(new Intl.DateTimeFormat('en-US',{timeZone:BUSINESS_TIME_ZONE,hour:'2-digit',hourCycle:'h23'}).format(new Date(value)));
 async function loadNetwork(){
   if(!manager()||state.networkLoading)return;
   state.networkLoading=true;$('network-status').textContent='Atualizando';$('network-status').classList.add('loading');
@@ -124,17 +126,19 @@ function storeAttention(store,now){
 }
 function renderNetwork(){
   const overview=state.network?.current,previous=state.network?.previous;if(!overview)return;
-  const totals=overview.totals,now=new Date(overview.generated_at).getTime();
+  const totals=overview.totals,now=new Date(overview.generated_at).getTime(),currentHour=businessHour(overview.generated_at);
   const hasHistory=previous.totals.gross_cents>0;
   const variation=(value,reference)=>reference?`${value>=reference?'▲':'▼'} ${Math.abs((value-reference)/reference*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}% vs. semana passada`:'';
+  const throughHour=(items,hour)=>items.filter(item=>businessHour(item.hour)<=hour).reduce((sum,item)=>sum+item.gross_cents,0);
+  const comparablePrevious=throughHour(previous.hourly??[],currentHour);
   const openStores=overview.stores.filter(store=>store.open_cash_count).length;
-  const summary=[['Vendas líquidas',brl(totals.gross_cents),variation(totals.gross_cents,previous.totals.gross_cents),'primary'],['Vendas confirmadas',totals.active_sale_count,variation(totals.active_sale_count,previous.totals.active_sale_count)],['Ticket médio',brl(totals.ticket_average_cents),variation(totals.ticket_average_cents,previous.totals.ticket_average_cents)],['Caixas abertos',totals.open_cash_count,`em ${plural(openStores,'loja','lojas')} de ${overview.stores.length}`]];
+  const summary=[['Vendas líquidas',brl(totals.gross_cents),variation(totals.gross_cents,comparablePrevious),'primary'],['Vendas confirmadas',totals.active_sale_count,''],['Ticket médio',brl(totals.ticket_average_cents),''],['Caixas abertos',totals.open_cash_count,`em ${plural(openStores,'loja','lojas')} de ${overview.stores.length}`]];
   $('network-summary').replaceChildren(...summary.map(([label,value,note,kind])=>{const card=element('div',undefined,kind==='primary'?'primary-metric':'');card.append(element('span',label),element('strong',value));if(note)card.append(element('small',note,note.startsWith('▲')?'positive':note.startsWith('▼')?'negative':''));return card;}));
   $('network-history-note').textContent=hasHistory?'':'A comparação com a semana passada aparece quando houver vendas no mesmo dia da semana anterior.';
   // Alertas: só exceções que pedem ação. Caixa fechado à noite é normal e não entra aqui.
   const attention=new Map(overview.stores.map(store=>[store.id,storeAttention(store,now)]));
   const idleAlerts=[...attention.values()].filter(Boolean).sort((a,b)=>b.idle-a.idle);
-  const alerts=[...idleAlerts.map(item=>({text:item.text,level:'critical'})),
+  const alerts=[...(idleAlerts.length?[{text:`${plural(idleAlerts.length,'loja com caixa aberto','lojas com caixa aberto')} sem venda há mais de 2 horas`,level:'critical'}]:[]),
     ...(totals.canceled_sale_count?[{text:plural(totals.canceled_sale_count,'venda cancelada','vendas canceladas'),level:'warning'}]:[]),
     ...(totals.returned_cents?[{text:`${brl(totals.returned_cents)} em devoluções`,level:'warning'}]:[])];
   $('network-alerts').classList.toggle('has-alerts',alerts.length>0);
@@ -145,44 +149,42 @@ function renderNetwork(){
   const share=item=>`${paymentTotal?Math.round(item.amount/paymentTotal*100):0}%`;
   $('network-payment-bar').replaceChildren(...paymentData.map(item=>{const part=element('span',undefined,`payment-${item.method.toLowerCase()}`);part.style.width=`${paymentTotal?item.amount/paymentTotal*100:0}%`;part.title=`${paymentName(item.method)}: ${brl(item.amount)}`;return part;}));
   $('network-payment-legend').replaceChildren(...paymentData.map(item=>{const row=element('div');const value=element('strong',brl(item.amount));value.append(element('small',share(item)));row.append(element('i',undefined,`payment-${item.method.toLowerCase()}`),element('span',paymentName(item.method)),value);return row;}));
-  const previousStores=new Map(previous.stores.map(store=>[store.id,store]));
+  const previousStores=new Map(previous.stores.map(store=>[store.id,{...store,gross_cents:throughHour(store.hourly??[],currentHour)}]));
   // Ordem: lojas com alerta primeiro (mais tempo parado no topo), depois por faturamento.
   const stores=[...overview.stores].sort((a,b)=>(attention.get(b.id)?.idle??-1)-(attention.get(a.id)?.idle??-1)||b.gross_cents-a.gross_cents);
   const openStore=store=>run(async()=>{$('store-select').value=store.id;state.cart=[];await refresh();setView('management');});
   const cashLabel=store=>store.open_cash_count?plural(store.open_cash_count,'aberto','abertos'):'Fechados';
   document.querySelectorAll('.compare-col').forEach(cell=>{cell.hidden=!hasHistory;});
+  const maxStoreGross=Math.max(...stores.map(store=>store.gross_cents),1);
   $('network-store-rows').replaceChildren(...stores.map(store=>{const reference=previousStores.get(store.id),ticket=store.active_sale_count?Math.round(store.gross_cents/store.active_sale_count):0,tr=element('tr');tr.tabIndex=0;if(attention.get(store.id))tr.className='needs-attention';
     const compare=element('td',variation(store.gross_cents,reference?.gross_cents??0)||'—',`compare-col ${reference?.gross_cents?(store.gross_cents>=reference.gross_cents?'positive':'negative'):'muted-cell'}`);compare.hidden=!hasHistory;
-    tr.append(element('td',store.name),element('td',brl(store.gross_cents),'number'),compare,element('td',store.active_sale_count,'number'),element('td',brl(ticket),'number'),element('td',cashLabel(store),attention.get(store.id)?'alert-cell':store.open_cash_count?'positive':'muted-cell'),element('td',store.last_sale_at?date(store.last_sale_at):'Sem venda'),element('td','Abrir','row-link'));
+    const sales=element('td',undefined,'number sales-cell'),salesBar=element('span',undefined,'sales-bar'),salesValue=element('strong',brl(store.gross_cents));salesBar.style.width=`${store.gross_cents/maxStoreGross*100}%`;sales.append(salesBar,salesValue);
+    const cash=element('td',undefined,attention.get(store.id)?'alert-cell':store.open_cash_count?'positive':'muted-cell');cash.append(element('span',cashLabel(store)));if(attention.get(store.id))cash.append(element('small',attention.get(store.id).text.replace(`${store.name}: caixa aberto `,'')));
+    tr.append(element('td',store.name),sales,compare,element('td',store.active_sale_count,'number'),element('td',brl(ticket),'number'),cash,element('td',store.last_sale_at?date(store.last_sale_at):'Sem venda'),element('td','Abrir','row-link'));
     tr.addEventListener('click',()=>openStore(store));tr.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openStore(store);}});return tr;}));
   $('network-store-cards').replaceChildren(...stores.map(store=>{const card=element('button',undefined,`network-store-card${attention.get(store.id)?' needs-attention':''}`);card.type='button';const reference=previousStores.get(store.id),ticket=store.active_sale_count?Math.round(store.gross_cents/store.active_sale_count):0,note=variation(store.gross_cents,reference?.gross_cents??0);card.append(element('strong',store.name),element('b',brl(store.gross_cents)));if(note)card.append(element('span',note,store.gross_cents>=reference.gross_cents?'positive':'negative'));card.append(element('small',`${plural(store.active_sale_count,'venda','vendas')} · ticket ${brl(ticket)} · ${store.open_cash_count?plural(store.open_cash_count,'caixa aberto','caixas abertos'):'caixas fechados'}`));card.addEventListener('click',()=>openStore(store));return card;}));
-  renderHourly(overview.hourly??[],hasHistory?previous.hourly??[]:[]);
+  renderCumulative(overview.hourly??[],hasHistory?previous.hourly??[]:[],overview.generated_at);
   $('network-period').textContent=`Hoje, ${new Date(`${localDay()}T12:00:00`).toLocaleDateString('pt-BR')}`;
   $('network-updated').textContent=`Atualizado às ${new Date(overview.generated_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
 }
-// Vendas por hora no horário local. Com histórico, a semana passada aparece como barra clara atrás.
-function renderHourly(today,reference){
-  const byHour=list=>{const map=new Map();for(const item of list){const hour=new Date(item.hour).getHours();map.set(hour,(map.get(hour)??0)+item.gross_cents);}return map;};
-  const current=byHour(today),past=byHour(reference);
-  const hours=[...current.keys(),...past.keys()];
+// Curva acumulada no fuso da operação. A referência é comparada somente até a mesma hora.
+function renderCumulative(today,reference,generatedAt){
+  const byHour=list=>{const map=new Map();for(const item of list){const hour=businessHour(item.hour);map.set(hour,(map.get(hour)??0)+item.gross_cents);}return map;};
+  const current=byHour(today),past=byHour(reference),currentHour=businessHour(generatedAt),first=7,last=23;
   const chart=$('network-hourly');
-  if(!hours.length){chart.replaceChildren(element('p','Nenhuma venda registrada hoje.','muted-cell'));return;}
-  const first=Math.min(...hours),last=Math.max(...hours,new Date().getHours());
-  const max=Math.max(...current.values(),...past.values(),1);
-  const columns=[];
-  for(let hour=first;hour<=last;hour++){
-    const column=element('div',undefined,'hour-column');
-    const value=current.get(hour)??0,before=past.get(hour)??0;
-    column.title=`${String(hour).padStart(2,'0')}h: ${brl(value)}${reference.length?` · semana passada ${brl(before)}`:''}`;
-    const bars=element('div',undefined,'hour-bars');
-    if(reference.length){const ghost=element('span',undefined,'hour-past');ghost.style.height=`${before/max*100}%`;bars.append(ghost);}
-    const bar=element('span',undefined,'hour-now');bar.style.height=`${value/max*100}%`;bars.append(bar);
-    column.append(bars,element('small',hour%2===first%2?`${String(hour).padStart(2,'0')}h`:''));
-    columns.push(column);
-  }
-  chart.replaceChildren(...columns);
-  const best=[...current].sort((a,b)=>b[1]-a[1])[0];
-  $('network-hourly-note').textContent=best?`Pico às ${String(best[0]).padStart(2,'0')}h, com ${brl(best[1])}.`:'';
+  if(!today.length&&!reference.length){chart.replaceChildren(element('p','Nenhuma venda registrada hoje.','muted-cell'));$('network-hourly-note').textContent='Vendas líquidas acumuladas';return;}
+  const cumulative=(map,limit=last)=>{let total=0;const result=[];for(let hour=first;hour<=last;hour++){total+=map.get(hour)??0;if(hour<=limit)result.push({hour,total});}return result;};
+  const todayPoints=cumulative(current,Math.min(currentHour,last)),pastPoints=reference.length?cumulative(past):[],max=Math.max(...todayPoints.map(item=>item.total),...pastPoints.map(item=>item.total),1);
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 320 150');svg.setAttribute('preserveAspectRatio','none');svg.setAttribute('role','img');svg.setAttribute('aria-label','Vendas acumuladas de hoje e do mesmo dia da semana passada');
+  const node=(name,attributes={})=>{const value=document.createElementNS('http://www.w3.org/2000/svg',name);for(const [key,item] of Object.entries(attributes))value.setAttribute(key,item);return value;};
+  const x=hour=>12+(hour-first)/(last-first)*296,y=value=>128-value/max*105;
+  for(const fraction of [0,.5,1]){svg.append(node('line',{x1:12,y1:y(max*fraction),x2:308,y2:y(max*fraction),class:'chart-grid'}));}
+  const line=(items,className)=>{if(!items.length)return;const points=items.map(item=>`${x(item.hour)},${y(item.total)}`).join(' ');svg.append(node('polyline',{points,class:className}));};
+  line(pastPoints,'cumulative-reference');line(todayPoints,'cumulative-today');
+  for(const hour of [7,11,15,19,23]){const label=node('text',{x:x(hour),y:146,class:'chart-label','text-anchor':'middle'});label.textContent=`${String(hour).padStart(2,'0')}h`;svg.append(label);}
+  chart.replaceChildren(svg);
+  const currentTotal=todayPoints.at(-1)?.total??0,referenceNow=pastPoints.find(item=>item.hour===Math.min(currentHour,last))?.total??0,difference=currentTotal-referenceNow;
+  $('network-hourly-note').textContent=reference.length?`${difference>=0?'À frente':'Atrás'} em ${brl(Math.abs(difference))} neste horário.`:'Referência disponível após o primeiro ciclo semanal.';
 }
 function renderSearch(){
   const query=$('search').value.trim().toLowerCase();$('search-results').replaceChildren();
@@ -294,8 +296,7 @@ function table(headers,rows){
   if(!rows.length){const tr=element('tr'),td=element('td','Nenhum registro nesta loja.');td.colSpan=headers.length;tr.append(td);body.append(tr);}t.append(body);return t;
 }
 const date=value=>{
-  const d=new Date(value),pad=n=>String(n).padStart(2,'0');
-  return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return new Intl.DateTimeFormat('pt-BR',{timeZone:BUSINESS_TIME_ZONE,day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date(value)).replace(',','');
 };
 const dateOnly=value=>{
   const [y,m,d]=String(value??'').slice(0,10).split('-');
