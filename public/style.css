@@ -46,6 +46,8 @@ p{color:var(--muted);font-size:14px}
 .login-intro h1{font-size:52px;line-height:1.05;margin:42px 0 24px;max-width:620px}
 .login-intro p{font-size:18px;max-width:520px}
 .muted{margin-top:70px;color:#6b7a8d;font-size:13px!important;font-weight:700}
+.mfa-qr{text-align:center}.mfa-qr p{margin-bottom:10px}.mfa-qr img{display:block;width:min(240px,100%);height:auto;aspect-ratio:1;margin:0 auto 14px;border:1px solid var(--line);border-radius:12px;background:#fff;padding:8px}
+.mfa-manual{margin:4px 0 14px}.mfa-manual summary{cursor:pointer;color:var(--brand);font-size:13px;font-weight:800}.mfa-manual label{margin-top:10px}.mfa-secret-note{margin:10px 0 0;font-size:12px;font-weight:700}
 .login-form{background:#fff;padding:34px;border:1px solid #e1e7ef;border-radius:16px;box-shadow:var(--shadow)}
 .login-form .primary{width:100%;padding:13px}
 .login-form code{font-size:12px;overflow-wrap:anywhere}

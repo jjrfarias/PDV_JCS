@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import QRCode from 'qrcode';
 import { isIP } from 'node:net';
 import { readFileSync } from 'node:fs';
 import { Auth } from './security.mjs';
@@ -99,6 +100,16 @@ export function clientIp(req, env = process.env) {
 // MFA obrigatório para contas privilegiadas: sem MFA ativo, só estas rotas respondem.
 const MFA_SETUP_ROUTES=new Set(['GET /api/me','POST /api/me/mfa/start','POST /api/me/mfa/confirm','POST /api/me/password','POST /api/logout']);
 const PLATFORM_MFA_SETUP_ROUTES=new Set(['GET /api/platform/me','POST /api/platform/mfa/start','POST /api/platform/mfa/confirm','POST /api/platform/logout']);
+
+async function mfaSetupWithQr(setup) {
+  const qrCodeDataUrl = await QRCode.toDataURL(setup.uri, {
+    width: 240,
+    margin: 2,
+    errorCorrectionLevel: 'M',
+    color: { dark: '#0f172a', light: '#ffffff' }
+  });
+  return { ...setup, qrCodeDataUrl };
+}
 export function createApp(db,{mailer}={}) {
   const auth=new Auth(db,mailer?{mailer}:{}); const pos=new Pos(db,mailer?{mailer}:{}); const platform=new Platform(db,mailer?{mailer}:{});
   const server=createServer(async(req,res)=>{
@@ -166,7 +177,7 @@ export function createApp(db,{mailer}={}) {
         if(!PLATFORM_MFA_SETUP_ROUTES.has(`${req.method} ${url.pathname}`)&&await platform.mfaSetupPending(admin))
           throw new AppError(403,'MFA_SETUP_REQUIRED','Ative a autenticação em duas etapas para continuar.');
         if(req.method==='GET'&&url.pathname==='/api/platform/me') return send(res,200,await platform.me(admin));
-        if(req.method==='POST'&&url.pathname==='/api/platform/mfa/start') return send(res,200,await platform.beginMfa(admin));
+        if(req.method==='POST'&&url.pathname==='/api/platform/mfa/start') return send(res,200,await mfaSetupWithQr(await platform.beginMfa(admin)));
         if(req.method==='POST'&&url.pathname==='/api/platform/mfa/confirm') return send(res,200,await platform.confirmMfa(admin,await json(req)));
         if(req.method==='POST'&&url.pathname==='/api/platform/logout') { await platform.logout(admin); res.setHeader('Set-Cookie',adminCookie('')); return send(res,200,{ok:true}); }
         if(req.method==='GET'&&url.pathname==='/api/platform/tenants') return send(res,200,await platform.listTenants());
@@ -196,7 +207,7 @@ export function createApp(db,{mailer}={}) {
         return send(res,200,{ok:true});
       }
       if(req.method==='POST'&&url.pathname==='/api/me/password') return send(res,200,await auth.changePassword(ctx,await json(req)));
-      if(req.method==='POST'&&url.pathname==='/api/me/mfa/start') return send(res,200,await auth.beginMfa(ctx));
+      if(req.method==='POST'&&url.pathname==='/api/me/mfa/start') return send(res,200,await mfaSetupWithQr(await auth.beginMfa(ctx)));
       if(req.method==='POST'&&url.pathname==='/api/me/mfa/confirm') return send(res,200,await auth.confirmMfa(ctx,await json(req)));
       let match;
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/stores\/([\w-]+)\/state$/))) return send(res,200,await pos.state(ctx,match[1]));

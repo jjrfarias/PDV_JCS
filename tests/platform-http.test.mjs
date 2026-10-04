@@ -62,6 +62,8 @@ test('admin ativa MFA TOTP e novos logins exigem código válido', async t => {
   const started=await w.as(admin).post('/api/platform/mfa/start',{});
   assert.match(started.data.secret,/^[A-Z2-7]{32}$/);
   assert.match(started.data.uri,/^otpauth:\/\/totp\//);
+  assert.match(started.data.qrCodeDataUrl,/^data:image\/png;base64,/);
+  assert.deepEqual(Buffer.from(started.data.qrCodeDataUrl.split(',')[1],'base64').subarray(0,8),Buffer.from([137,80,78,71,13,10,26,10]));
   assert.equal((await w.as(admin).post('/api/platform/mfa/confirm',{code:totpCode(started.data.secret)})).response.status,200);
   assert.equal((await w.adminLogin(ADMIN_EMAIL,ADMIN_PASSWORD,'')).status,401);
   assert.equal((await w.adminLogin(ADMIN_EMAIL,ADMIN_PASSWORD,'000000')).status,401);

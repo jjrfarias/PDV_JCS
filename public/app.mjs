@@ -516,7 +516,7 @@ async function submitPending(){
 async function requireMfaSetup(){
   state.mfaRequired=true;
   const result=await api('/api/me/mfa/start',{method:'POST',body:'{}'});
-  $('mfa-form').reset();$('mfa-secret').value=result.secret;
+  $('mfa-form').reset();$('mfa-secret').value=result.secret;$('mfa-qr').src=result.qrCodeDataUrl;
   $('mfa-required-note').hidden=false;
   $('mfa-dialog').showModal();
 }
@@ -541,7 +541,7 @@ $('login-form').addEventListener('submit',async event=>{
 });
 $('logout').addEventListener('click',()=>run(async()=>{if(state.pending)throw new Error('Resolva a pendência antes de sair.');await api('/api/logout',{method:'POST',body:'{}'});location.reload();}));
 $('password-open').addEventListener('click',()=>$('password-dialog').showModal());
-$('mfa-open').addEventListener('click',()=>run(async()=>{const result=await api('/api/me/mfa/start',{method:'POST',body:'{}'});$('mfa-form').reset();$('mfa-secret').value=result.secret;$('mfa-dialog').showModal();}));
+$('mfa-open').addEventListener('click',()=>run(async()=>{const result=await api('/api/me/mfa/start',{method:'POST',body:'{}'});$('mfa-form').reset();$('mfa-secret').value=result.secret;$('mfa-qr').src=result.qrCodeDataUrl;$('mfa-dialog').showModal();}));
 $('mfa-form').addEventListener('submit',event=>{event.preventDefault();run(async()=>{await api('/api/me/mfa/confirm',{method:'POST',body:JSON.stringify({code:event.target.code.value})});state.mfaRequired=false;$('mfa-required-note').hidden=true;$('mfa-dialog').close();message('MFA ativado. Os próximos acessos exigirão o código do aplicativo.');await boot();});});
 $('password-form').addEventListener('submit',event=>{event.preventDefault();run(async()=>{
   const data=Object.fromEntries(new FormData(event.target));
@@ -689,4 +689,4 @@ document.addEventListener('keydown',event=>{
 boot().catch(error=>{if(error.status!==401)$('login-error').textContent=error.message;});
 setInterval(()=>{if(state.me&&state.view==='network'&&document.visibilityState==='visible')run(loadNetwork);},5000);
 
-$('mfa-dialog').addEventListener('close',()=>{if(state.mfaRequired)api('/api/logout',{method:'POST',body:'{}'}).finally(()=>location.reload());});
+$('mfa-dialog').addEventListener('close',()=>{$('mfa-qr').removeAttribute('src');$('mfa-secret').value='';if(state.mfaRequired)api('/api/logout',{method:'POST',body:'{}'}).finally(()=>location.reload());});
