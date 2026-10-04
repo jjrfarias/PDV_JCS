@@ -9,7 +9,7 @@ export function connect(filename) {
   const db = new DatabaseSync(filename);
   db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 17) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
+  if (version > 18) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
   if (version === 0) {
     transaction(db, () => {
       if (db.prepare('PRAGMA user_version').get().user_version !== 0) return;
@@ -272,6 +272,26 @@ export function connect(filename) {
       if (!columns.has('active')) db.exec('ALTER TABLE memberships ADD COLUMN active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1))');
       db.exec('UPDATE memberships SET role=(SELECT u.role FROM users u WHERE u.tenant_id=memberships.tenant_id AND u.id=memberships.user_id)');
       db.exec('PRAGMA user_version=17;');
+    });
+  }
+  if (version <= 17) {
+    transaction(db, () => {
+      if (db.prepare('PRAGMA user_version').get().user_version !== 17) return;
+      db.exec(`CREATE TABLE stock_transfers (
+          tenant_id TEXT NOT NULL, id TEXT NOT NULL, origin_store_id TEXT NOT NULL, destination_store_id TEXT NOT NULL,
+          product_id TEXT NOT NULL, quantity INTEGER NOT NULL CHECK(quantity BETWEEN 1 AND 10000),
+          status TEXT NOT NULL CHECK(status IN('REQUESTED','APPROVED','IN_TRANSIT','RECEIVED','CANCELED')),
+          note TEXT, requested_by TEXT NOT NULL, approved_by TEXT, shipped_by TEXT, received_by TEXT, canceled_by TEXT,
+          created_at TEXT NOT NULL, approved_at TEXT, shipped_at TEXT, received_at TEXT, canceled_at TEXT,
+          PRIMARY KEY(tenant_id,id), CHECK(origin_store_id<>destination_store_id),
+          FOREIGN KEY(tenant_id,origin_store_id,product_id) REFERENCES stock(tenant_id,store_id,product_id),
+          FOREIGN KEY(tenant_id,destination_store_id,product_id) REFERENCES stock(tenant_id,store_id,product_id),
+          FOREIGN KEY(tenant_id,requested_by) REFERENCES users(tenant_id,id), FOREIGN KEY(tenant_id,approved_by) REFERENCES users(tenant_id,id),
+          FOREIGN KEY(tenant_id,shipped_by) REFERENCES users(tenant_id,id), FOREIGN KEY(tenant_id,received_by) REFERENCES users(tenant_id,id),
+          FOREIGN KEY(tenant_id,canceled_by) REFERENCES users(tenant_id,id)
+        ) STRICT;
+        CREATE INDEX stock_transfer_history ON stock_transfers(tenant_id,created_at);
+        PRAGMA user_version=18;`);
     });
   }
   return db;

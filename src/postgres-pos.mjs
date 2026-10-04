@@ -413,7 +413,15 @@ class TransactionPos {
       ORDER BY c.closed_at DESC LIMIT 300`, ctx.tenantId, ctx.userId, range.start, range.end))
       .map(row => ({ ...row, expected_cents: cashInteger(row.expected_cents), counted_cents: cashInteger(row.counted_cents),
         difference_cents: cashInteger(row.difference_cents), closed_at: row.closed_at instanceof Date ? row.closed_at.toISOString() : row.closed_at }));
-    return { range, stores, stock, movements, sales, closures };
+    const transfers=(await this.all(`SELECT x.*,p.sku,p.name product_name,o.name origin_name,d.name destination_name,u.name requested_by_name
+      FROM stock_transfers x JOIN products p ON p.tenant_id=x.tenant_id AND p.id=x.product_id
+      JOIN stores o ON o.tenant_id=x.tenant_id AND o.id=x.origin_store_id JOIN stores d ON d.tenant_id=x.tenant_id AND d.id=x.destination_store_id
+      JOIN users u ON u.tenant_id=x.tenant_id AND u.id=x.requested_by
+      WHERE x.tenant_id=$1 AND (x.created_at>=$3 AND x.created_at<$4 OR x.status IN('REQUESTED','APPROVED','IN_TRANSIT'))
+        AND EXISTS(SELECT 1 FROM memberships m WHERE m.tenant_id=x.tenant_id AND m.user_id=$2 AND m.active=1 AND m.role='MANAGER' AND m.store_id IN(x.origin_store_id,x.destination_store_id))
+      ORDER BY CASE x.status WHEN 'IN_TRANSIT' THEN 1 WHEN 'REQUESTED' THEN 2 WHEN 'APPROVED' THEN 3 ELSE 4 END,x.created_at DESC LIMIT 300`,ctx.tenantId,ctx.userId,range.start,range.end))
+      .map(row=>({...row,quantity:cashInteger(row.quantity),created_at:row.created_at instanceof Date?row.created_at.toISOString():row.created_at}));
+    return { range, stores, stock, movements, sales, closures, transfers };
   }
 
   async customerDetail(ctx, storeId, customerId) {
@@ -793,6 +801,41 @@ export class PostgresPos {
       const updated = await tx.one('SELECT quantity FROM stock WHERE tenant_id=$1 AND store_id=$2 AND product_id=$3',
         ctx.tenantId, input.storeId, input.productId);
       return { productId: input.productId, name: product.name, quantity: updated.quantity, adjustment: input.quantity, reason: input.reason };
+    });
+  }
+
+  async transferStock(ctx, key, raw) {
+    const action = String(raw?.action ?? 'REQUEST').toUpperCase();
+    if (action === 'REQUEST') {
+      object(raw, ['action','storeId','originStoreId','destinationStoreId','productId','quantity','note']);
+      const input = { action, storeId:id(raw.storeId), originStoreId:id(raw.originStoreId), destinationStoreId:id(raw.destinationStoreId),
+        productId:id(raw.productId), quantity:integer(raw.quantity,'Quantidade',1,10000), note:raw.note?text(raw.note,'Observação',200):null };
+      requireThat(input.storeId === input.destinationStoreId,400,'INVALID_INPUT','A solicitação deve partir da loja de destino.');
+      requireThat(input.originStoreId !== input.destinationStoreId,400,'INVALID_INPUT','Escolha lojas diferentes.');
+      return this.#mutate(ctx,'TRANSFER_REQUEST',key,input,async(tx,user)=>{
+        requireThat(user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente solicita transferência.');
+        const product=await tx.one(`SELECT p.name,o.quantity origin_quantity FROM products p
+          JOIN stock o ON o.tenant_id=p.tenant_id AND o.product_id=p.id AND o.store_id=$1
+          JOIN stock d ON d.tenant_id=p.tenant_id AND d.product_id=p.id AND d.store_id=$2
+          WHERE p.tenant_id=$3 AND p.id=$4 AND p.active=1 FOR UPDATE OF o,d`,input.originStoreId,input.destinationStoreId,ctx.tenantId,input.productId);
+        requireThat(product,404,'PRODUCT_NOT_FOUND','Produto não disponível nas duas lojas.');requireThat(cashInteger(product.origin_quantity)>=input.quantity,409,'INSUFFICIENT_STOCK','A loja de origem não possui saldo suficiente.');
+        const transferId=randomUUID(),createdAt=now();await tx.run(`INSERT INTO stock_transfers
+          (tenant_id,id,origin_store_id,destination_store_id,product_id,quantity,status,note,requested_by,created_at)
+          VALUES($1,$2,$3,$4,$5,$6,'REQUESTED',$7,$8,$9)`,ctx.tenantId,transferId,input.originStoreId,input.destinationStoreId,input.productId,input.quantity,input.note,ctx.userId,createdAt);
+        await tx.audit(ctx,input.destinationStoreId,'TRANSFER_REQUESTED',transferId,{originStoreId:input.originStoreId,productId:input.productId,quantity:input.quantity});
+        return {id:transferId,status:'REQUESTED',productName:product.name};
+      });
+    }
+    object(raw,['action','storeId','transferId']);const input={action,storeId:id(raw.storeId),transferId:id(raw.transferId)};
+    return this.#mutate(ctx,`TRANSFER_${action}`,key,input,async(tx,user)=>{
+      requireThat(user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente movimenta transferências.');
+      const transfer=await tx.one('SELECT * FROM stock_transfers WHERE tenant_id=$1 AND id=$2 FOR UPDATE',ctx.tenantId,input.transferId);requireThat(transfer,404,'TRANSFER_NOT_FOUND','Transferência não encontrada.');const timestamp=now();
+      if(action==='APPROVE'){requireThat(input.storeId===transfer.origin_store_id,403,'STORE_FORBIDDEN','A loja de origem deve aprovar.');requireThat(transfer.status==='REQUESTED',409,'TRANSFER_STATUS','Esta transferência não aguarda aprovação.');await tx.run("UPDATE stock_transfers SET status='APPROVED',approved_by=$1,approved_at=$2 WHERE tenant_id=$3 AND id=$4",ctx.userId,timestamp,ctx.tenantId,input.transferId);}
+      else if(action==='SHIP'){requireThat(input.storeId===transfer.origin_store_id,403,'STORE_FORBIDDEN','A loja de origem deve enviar.');requireThat(transfer.status==='APPROVED',409,'TRANSFER_STATUS','A transferência precisa estar aprovada.');const changed=await tx.run('UPDATE stock SET quantity=quantity-$1 WHERE tenant_id=$2 AND store_id=$3 AND product_id=$4 AND quantity>=$1',transfer.quantity,ctx.tenantId,transfer.origin_store_id,transfer.product_id);requireThat(changed.changes===1,409,'INSUFFICIENT_STOCK','Saldo insuficiente na loja de origem.');await tx.run("UPDATE stock_transfers SET status='IN_TRANSIT',shipped_by=$1,shipped_at=$2 WHERE tenant_id=$3 AND id=$4",ctx.userId,timestamp,ctx.tenantId,input.transferId);await tx.run(`INSERT INTO stock_movements(tenant_id,id,store_id,product_id,sale_id,quantity,kind,reason,actor_id,created_at) VALUES($1,$2,$3,$4,NULL,$5,'ADJUSTMENT',$6,$7,$8)`,ctx.tenantId,randomUUID(),transfer.origin_store_id,transfer.product_id,-cashInteger(transfer.quantity),`Transferência enviada ${transfer.id}`,ctx.userId,timestamp);}
+      else if(action==='RECEIVE'){requireThat(input.storeId===transfer.destination_store_id,403,'STORE_FORBIDDEN','A loja de destino deve receber.');requireThat(transfer.status==='IN_TRANSIT',409,'TRANSFER_STATUS','A transferência ainda não foi enviada.');await tx.run('UPDATE stock SET quantity=quantity+$1 WHERE tenant_id=$2 AND store_id=$3 AND product_id=$4',transfer.quantity,ctx.tenantId,transfer.destination_store_id,transfer.product_id);await tx.run("UPDATE stock_transfers SET status='RECEIVED',received_by=$1,received_at=$2 WHERE tenant_id=$3 AND id=$4",ctx.userId,timestamp,ctx.tenantId,input.transferId);await tx.run(`INSERT INTO stock_movements(tenant_id,id,store_id,product_id,sale_id,quantity,kind,reason,actor_id,created_at) VALUES($1,$2,$3,$4,NULL,$5,'ADJUSTMENT',$6,$7,$8)`,ctx.tenantId,randomUUID(),transfer.destination_store_id,transfer.product_id,cashInteger(transfer.quantity),`Transferência recebida ${transfer.id}`,ctx.userId,timestamp);}
+      else if(action==='CANCEL'){requireThat(input.storeId===transfer.origin_store_id||input.storeId===transfer.destination_store_id,403,'STORE_FORBIDDEN','Somente uma loja envolvida pode cancelar.');requireThat(['REQUESTED','APPROVED'].includes(transfer.status),409,'TRANSFER_STATUS','Transferência enviada não pode ser cancelada.');await tx.run("UPDATE stock_transfers SET status='CANCELED',canceled_by=$1,canceled_at=$2 WHERE tenant_id=$3 AND id=$4",ctx.userId,timestamp,ctx.tenantId,input.transferId);}
+      else throw new AppError(400,'INVALID_INPUT','Ação de transferência inválida.');
+      const status=action==='APPROVE'?'APPROVED':action==='SHIP'?'IN_TRANSIT':action==='RECEIVE'?'RECEIVED':'CANCELED';await tx.audit(ctx,input.storeId,`TRANSFER_${status}`,input.transferId,{status});return {id:input.transferId,status};
     });
   }
 

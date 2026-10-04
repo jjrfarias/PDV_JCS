@@ -270,6 +270,19 @@ test('22b - gerente ajusta estoque com motivo sem permitir saldo negativo',t=>{
   fails(()=>pos.adjustStock(DEMO.manager,key(),{storeId:DEMO.storeA,productId:DEMO.product,quantity:-13,reason:'erro de contagem'}),'STOCK_LIMIT');
   assert.equal(db.prepare("SELECT COUNT(*) n FROM stock_movements WHERE kind='ADJUSTMENT'").get().n,2);
 });
+test('22b.1 - transferência só altera saldos no envio e no recebimento',t=>{
+  const {pos,db}=fixture(t),request={action:'REQUEST',storeId:DEMO.storeA,originStoreId:DEMO.storeB,destinationStoreId:DEMO.storeA,productId:DEMO.product,quantity:5,note:'Cliente aguardando'};
+  fails(()=>pos.transferStock(DEMO.cashier,key(),request),'MANAGER_REQUIRED');
+  const transfer=pos.transferStock(DEMO.manager,key(),request).data;
+  assert.equal(transfer.status,'REQUESTED');assert.equal(db.prepare('SELECT quantity FROM stock WHERE tenant_id=? AND store_id=? AND product_id=?').get(DEMO.manager.tenantId,DEMO.storeB,DEMO.product).quantity,30);
+  pos.transferStock(DEMO.manager,key(),{action:'APPROVE',storeId:DEMO.storeB,transferId:transfer.id});
+  pos.transferStock(DEMO.manager,key(),{action:'SHIP',storeId:DEMO.storeB,transferId:transfer.id});
+  assert.equal(db.prepare('SELECT quantity FROM stock WHERE tenant_id=? AND store_id=? AND product_id=?').get(DEMO.manager.tenantId,DEMO.storeB,DEMO.product).quantity,25);
+  pos.transferStock(DEMO.manager,key(),{action:'RECEIVE',storeId:DEMO.storeA,transferId:transfer.id});
+  assert.equal(db.prepare('SELECT quantity FROM stock WHERE tenant_id=? AND store_id=? AND product_id=?').get(DEMO.manager.tenantId,DEMO.storeA,DEMO.product).quantity,15);
+  assert.equal(db.prepare('SELECT status FROM stock_transfers WHERE tenant_id=? AND id=?').get(DEMO.manager.tenantId,transfer.id).status,'RECEIVED');
+  assert.deepEqual(db.prepare("SELECT quantity FROM stock_movements WHERE reason LIKE 'Transferência %' ORDER BY created_at,id").all().map(row=>row.quantity).sort((a,b)=>a-b),[-5,5]);
+});
 test('22c - gerente edita produto sem alterar snapshot de venda antiga',t=>{
   const {pos}=fixture(t);const cash=open(pos);
   const sale=pos.sell(DEMO.manager,key(),saleInput(cash,{discountCents:0,discountReason:null,tenderedCents:5000})).data;

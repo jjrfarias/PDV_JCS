@@ -236,7 +236,7 @@ export function createApp(db,{mailer}={}) {
       }
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/sales\/([\w-]+)$/))) return send(res,200,await pos.receipt(ctx,match[1]));
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/operations\/([\w-]+)$/))) return send(res,200,await pos.operation(ctx,match[1]));
-      const routes={'/api/products':'createProduct','/api/products/update':'updateProduct','/api/users':'createUser','/api/users/update':'updateUser','/api/customers':'createCustomer','/api/customers/update':'updateCustomer','/api/stock/adjust':'adjustStock','/api/cash/open':'openCash','/api/cash/close':'closeCash','/api/cash/move':'moveCash','/api/sales':'sell','/api/sales/cancel':'cancelSale','/api/sales/return':'returnSale'};
+      const routes={'/api/products':'createProduct','/api/products/update':'updateProduct','/api/users':'createUser','/api/users/update':'updateUser','/api/customers':'createCustomer','/api/customers/update':'updateCustomer','/api/stock/adjust':'adjustStock','/api/stock/transfer':'transferStock','/api/cash/open':'openCash','/api/cash/close':'closeCash','/api/cash/move':'moveCash','/api/sales':'sell','/api/sales/cancel':'cancelSale','/api/sales/return':'returnSale'};
       if(req.method==='POST'&&routes[url.pathname]) {
         const result=await pos[routes[url.pathname]](ctx,req.headers['idempotency-key'],await json(req));
         // Senha redefinida pelo gerente: o dono da conta é avisado por e-mail.

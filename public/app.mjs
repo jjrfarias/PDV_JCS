@@ -90,7 +90,7 @@ async function refresh(){
   const selected=(state.data.customers??[]).find(c=>c.id===customer&&c.active===1);
   if(selected){$('sale-customer').value=selected.id;$('sale-customer-search').value=customerLabel(selected);}else if(customer)clearSaleCustomer();
   if(state.tab==='reports')await loadReport();
-  if(state.view==='network'&&accountManager())await loadNetwork();
+  if(state.view==='network'&&accountManager()){await loadNetwork();if(state.networkSection!=='overview')await loadNetworkOperations();}
   renderCash();renderSearch();renderManagement();renderCart();
 }
 function renderCash(){
@@ -242,8 +242,9 @@ function renderNetworkDetail(){
   if(state.networkSection==='overview')return;
   const data=state.networkOperations;if(!data)return;
   const query=$('network-detail-search').value.trim().toLowerCase(),summary=$('network-detail-summary'),content=$('network-detail-content');
-  const titles={stock:['Estoque da rede','Saldo atual de cada produto em todas as lojas gerenciadas.'],movements:['Movimentações de estoque','Entradas, saídas por venda, devoluções e ajustes no período.'],sales:['Vendas recentes','Vendas de todas as lojas gerenciadas no período selecionado.'],closures:['Fechamentos','Conferências de caixa realizadas no período.'],reports:['Relatório consolidado','Indicadores comparativos das lojas no período selecionado.']};
+  const titles={stock:['Estoque da rede','Saldo atual de cada produto em todas as lojas gerenciadas.'],transfers:['Transferências entre lojas','Acompanhe solicitações, aprovações, mercadorias em trânsito e recebimentos.'],movements:['Movimentações de estoque','Entradas, saídas por venda, devoluções e ajustes no período.'],sales:['Vendas recentes','Vendas de todas as lojas gerenciadas no período selecionado.'],closures:['Fechamentos','Conferências de caixa realizadas no período.'],reports:['Relatório consolidado','Indicadores comparativos das lojas no período selecionado.']};
   const [title,note]=titles[state.networkSection];$('network-detail-title').textContent=title;$('network-detail-note').textContent=note;
+  $('new-transfer').hidden=state.networkSection!=='transfers';
   if(state.networkSection==='stock'){
     const rows=networkStockRows().filter(p=>includes([p.name,p.sku,p.barcode,...p.stores.map(s=>s.name)],query));
     const stores=[...(data.stores??[])].sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'));
@@ -255,6 +256,21 @@ function renderNetworkDetail(){
     const names={SALE:'Venda',INITIAL:'Entrada inicial',ADJUSTMENT:'Ajuste'},rows=data.movements.filter(m=>includes([m.name,m.sku,m.store_name,m.actor_name,m.reason,names[m.kind]],query));
     summary.replaceChildren(...[['Movimentos',rows.length],['Entradas',rows.filter(m=>m.quantity>0).reduce((n,m)=>n+m.quantity,0)],['Saídas',Math.abs(rows.filter(m=>m.quantity<0).reduce((n,m)=>n+m.quantity,0))],['Lojas',new Set(rows.map(m=>m.store_id)).size]].map(([l,v])=>{const c=element('div',undefined,'summary-card');c.append(element('span',l),element('strong',v));return c;}));
     content.replaceChildren(dataTable([{label:'Data'},{label:'Loja'},{label:'Produto'},{label:'Movimento'},{label:'Qtd.',className:'number'},{label:'Responsável'},{label:'Motivo'}],rows.map(m=>({cells:[date(m.created_at),m.store_name,m.name,names[m.kind]??m.kind,m.quantity,m.actor_name,m.reason]})),'Nenhuma movimentação no período.'));
+  }
+  if(state.networkSection==='transfers'){
+    const labels={REQUESTED:'Aguardando aprovação',APPROVED:'Aprovada',IN_TRANSIT:'Em trânsito',RECEIVED:'Recebida',CANCELED:'Cancelada'};
+    const rows=(data.transfers??[]).filter(t=>includes([t.product_name,t.sku,t.origin_name,t.destination_name,t.requested_by_name,labels[t.status]],query));
+    const managed=new Set((state.me?.stores??[]).filter(store=>store.role==='MANAGER').map(store=>store.id));
+    summary.replaceChildren(...[['Pendentes',rows.filter(t=>['REQUESTED','APPROVED'].includes(t.status)).length],['Em trânsito',rows.filter(t=>t.status==='IN_TRANSIT').length],['Recebidas',rows.filter(t=>t.status==='RECEIVED').length],['Canceladas',rows.filter(t=>t.status==='CANCELED').length]].map(([l,v])=>{const c=element('div',undefined,'summary-card');c.append(element('span',l),element('strong',v));return c;}));
+    content.replaceChildren(dataTable([{label:'Solicitada'},{label:'Produto'},{label:'Origem'},{label:'Destino'},{label:'Qtd.',className:'number'},{label:'Status'},{label:'Solicitante'},{label:'Ações'}],rows.map(t=>{
+      const actions=element('div',undefined,'row-actions');
+      const action=(label,value,tone='')=>{const button=element('button',label,tone);button.type='button';button.addEventListener('click',()=>run(()=>command('/api/stock/transfer',{action:value,storeId:value==='RECEIVE'?t.destination_store_id:t.origin_store_id,transferId:t.id})));actions.append(button);};
+      if(t.status==='REQUESTED'&&managed.has(t.origin_store_id))action('Aprovar','APPROVE','primary');
+      if(t.status==='APPROVED'&&managed.has(t.origin_store_id))action('Marcar envio','SHIP','primary');
+      if(t.status==='IN_TRANSIT'&&managed.has(t.destination_store_id))action('Confirmar recebimento','RECEIVE','primary');
+      if(['REQUESTED','APPROVED'].includes(t.status)&&(managed.has(t.origin_store_id)||managed.has(t.destination_store_id)))action('Cancelar','CANCEL','danger-text');
+      return {cells:[date(t.created_at),`${t.product_name} · ${t.sku}`,t.origin_name,t.destination_name,t.quantity,labels[t.status]??t.status,t.requested_by_name,actions]};
+    }),'Nenhuma transferência no período.'));
   }
   if(state.networkSection==='sales'){
     const rows=data.sales.filter(s=>includes([s.id,s.store_name,s.operator_name,paymentName(s.method),s.canceled_at?'Cancelada':'Confirmada'],query)),active=rows.filter(s=>!s.canceled_at);
@@ -277,6 +293,13 @@ async function setNetworkSection(section){
   document.querySelectorAll('[data-network-section]').forEach(button=>button.classList.toggle('selected',button.dataset.networkSection===section));
   const overview=section==='overview';$('network-summary').hidden=!overview;$('network-alerts').hidden=!overview;$('network-main').hidden=!overview;$('network-detail').hidden=overview;
   if(!overview){$('network-detail-search').value='';await loadNetworkOperations();}
+}
+function openTransferDialog(){
+  const data=state.networkOperations,form=$('transfer-form'),stores=[...(data?.stores??[])].sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'));
+  const products=networkStockRows().sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'));
+  form.productId.replaceChildren(...products.map(product=>{const option=element('option',`${product.name} · ${product.sku}`);option.value=product.id;return option;}));
+  const options=()=>stores.map(store=>{const option=element('option',store.name);option.value=store.id;return option;});form.originStoreId.replaceChildren(...options());form.destinationStoreId.replaceChildren(...options());
+  form.destinationStoreId.value=stores.some(store=>store.id===storeId())?storeId():stores[0]?.id;form.originStoreId.value=stores.find(store=>store.id!==form.destinationStoreId.value)?.id??'';form.quantity.value='1';form.note.value='';$('transfer-dialog').showModal();
 }
 function renderStoreShare(stores){
   const colors=['#0f766e','#0ea5e9','#6366f1','#f59e0b','#ec4899','#94a3b8'];
@@ -667,6 +690,7 @@ async function submitPending(){
     if(pending.path==='/api/products')$('product-form').reset();
     if(pending.path==='/api/products/update')$('product-edit-form').reset();
     if(pending.path==='/api/stock/adjust')$('stock-form').reset();
+    if(pending.path==='/api/stock/transfer'){state.networkOperations=null;$('transfer-form').reset();}
     if(pending.path==='/api/sales/cancel')$('sale-cancel-form').reset();
     if(pending.path==='/api/sales/return')$('sale-return-form').reset();
     if(pending.path==='/api/users')$('user-form').reset();
@@ -771,6 +795,8 @@ $('availability-open').addEventListener('click',()=>{
   $('availability-dialog').showModal();setTimeout(()=>{if(query)run(()=>searchAvailability(query));else $('availability-search').focus();});
 });
 $('availability-form').addEventListener('submit',event=>{event.preventDefault();run(()=>searchAvailability($('availability-search').value.trim()));});
+$('new-transfer').addEventListener('click',openTransferDialog);
+$('transfer-form').addEventListener('submit',event=>{event.preventDefault();const form=event.currentTarget;run(()=>command('/api/stock/transfer',{action:'REQUEST',storeId:form.destinationStoreId.value,originStoreId:form.originStoreId.value,destinationStoreId:form.destinationStoreId.value,productId:form.productId.value,quantity:Number(form.quantity.value),note:form.note.value||null}));});
 document.querySelectorAll('.money-input').forEach(input=>input.addEventListener('input',()=>{updateMoneyPreviews();if(input.id==='discount'||input.id==='tendered')renderTotals();}));
 $('sale-form').addEventListener('submit',event=>{event.preventDefault();run(async()=>{
   const cash=currentCash();if(!cash)throw new Error('Abra o caixa primeiro.');
