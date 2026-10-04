@@ -40,7 +40,19 @@ Somente o e-mail do usuário e o link de recuperação são enviados ao provedor
 
 O usuario da aplicacao deve ser membro de `pdv_runtime` e nao pode ser superuser, `BYPASSRLS` nem dono das tabelas. O servidor valida isso ao iniciar.
 
-Guarde `JCS_FIELD_ENCRYPTION_KEY` em cofre/backup seguro. Perder essa chave torna os dados de clientes criptografados irrecuperáveis. Troca/rotação de chave ainda não está implementada.
+Guarde `JCS_FIELD_ENCRYPTION_KEY` em cofre/backup seguro. Perder essa chave torna os dados de clientes e os segredos MFA irrecuperáveis.
+
+### Rotação da chave de campos
+
+1. Gere e guarde uma nova chave de 32 bytes no cofre, sem remover a atual.
+2. Pare o serviço da aplicação para impedir leituras com a chave antiga durante a troca.
+3. Aplique todas as migrations com a conexão administrativa.
+4. Em um terminal seguro, informe `PG_MIGRATION_DATABASE_URL`, `JCS_OLD_FIELD_ENCRYPTION_KEY`, `JCS_NEW_FIELD_ENCRYPTION_KEY`, `PDV_ROTATION_MAINTENANCE=CONFIRM_APP_STOPPED` e `PDV_ROTATION_CONFIRM=ROTATE_FIELD_KEY`.
+5. Execute `npm.cmd run rotate:field-key:postgres`. O comando bloqueia as tabelas, recriptografa clientes e MFA, recalcula hashes de busca e registra apenas IDs de chave e contagens em `security_maintenance_events`.
+6. Atualize `JCS_FIELD_ENCRYPTION_KEY` no serviço para a nova chave e inicie a aplicação.
+7. Valide login com MFA, leitura de cliente e duplicidade de documento. Preserve a chave antiga em cofre até concluir a validação e o backup pós-rotação.
+
+Qualquer erro desfaz a transação inteira. Nunca registre as chaves em arquivo, Git, chamado ou mensagem.
 
 ## Migrations
 

@@ -88,7 +88,7 @@ O `node:sqlite` continua existindo para execução local e testes sem infraestru
 
 Em produção, o servidor exige `DATABASE_ENGINE=postgres` e valida que `DATABASE_URL` usa role runtime sem superuser, sem `BYPASSRLS` e sem propriedade das tabelas. O usuário admin/dono do banco deve ficar restrito a migrations e tarefas operacionais controladas.
 
-Cadastros de clientes exigem `JCS_FIELD_ENCRYPTION_KEY` com 32 bytes em Base64 ou 64 caracteres hexadecimais. Sem essa chave, o servidor bloqueia gravação/leitura de dados pessoais em vez de persistir em texto puro. A chave precisa ser preservada em backup seguro: sem ela os dados criptografados não são recuperáveis.
+Cadastros de clientes exigem `JCS_FIELD_ENCRYPTION_KEY` com 32 bytes em Base64 ou 64 caracteres hexadecimais. Sem essa chave, o servidor bloqueia gravação/leitura de dados pessoais em vez de persistir em texto puro. Novas gravações incluem um identificador não secreto da versão da chave; o procedimento em `docs/OPERACAO.md` permite rotacioná-la de forma transacional. A chave precisa ser preservada em backup seguro: sem ela os dados criptografados não são recuperáveis.
 
 Não compartilhar o arquivo SQLite por pasta de rede nem sincronizá-lo por Dropbox/OneDrive/Google Drive enquanto estiver aberto.
 
@@ -133,7 +133,7 @@ npm.cmd test
 
 Os testes usam memória ou diretórios temporários criados especificamente para a suíte. Não apontam para `data/pdv.sqlite` e não removem seu banco de demonstração.
 
-Foram executados 93 testes automatizados, sem falhas, no ambiente de preparação. A navegação automatizada da interface não pode ser concluída porque o Chromium disponível bloqueou a abertura dos endereços de teste por política administrativa. Isso não é teste visual aprovado. Execute o roteiro manual acima no seu computador antes de demonstrar a interface.
+Foram executados 95 testes automatizados, sem falhas, no ambiente de preparação. A navegação automatizada da interface não pode ser concluída porque o Chromium disponível bloqueou a abertura dos endereços de teste por política administrativa. Isso não é teste visual aprovado. Execute o roteiro manual acima no seu computador antes de demonstrar a interface.
 
 ## Persistência e manutenção local
 

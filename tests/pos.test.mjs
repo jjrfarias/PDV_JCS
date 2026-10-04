@@ -318,7 +318,7 @@ test('22g - cliente fica criptografado no banco e operacao nao guarda PII em cla
   assert.notEqual(row.name_enc,body.name);
   assert.notEqual(row.document_enc,body.document);
   assert.notEqual(row.email_enc,body.email);
-  assert.match(row.name_enc,/^v1:/);
+  assert.match(row.name_enc,/^v2:[0-9a-f]{16}:/);
   const stored=JSON.stringify(db.prepare('SELECT response_json FROM operations WHERE kind=?').get('CUSTOMER_CREATE'));
   assert.equal(stored.includes(body.email),false);
   assert.equal(stored.includes('12345678901'),false);

@@ -38,4 +38,4 @@ Registros de incidentes com dados pessoais devem ser conservados por pelo menos 
 
 ## Lacuna atual
 
-O projeto possui backup/restauração documentados, recuperação operacional auditada do MFA e alertas nativos da plataforma de hospedagem. Permanecem pendentes a rotação versionada da chave de criptografia e alertas específicos para eventos de segurança da aplicação.
+O projeto possui backup/restauração documentados, recuperação operacional auditada do MFA, rotação transacional e versionada da chave de campos e alertas nativos da plataforma de hospedagem. Permanecem pendentes a execução periódica registrada da rotação e alertas específicos para eventos de segurança da aplicação.
