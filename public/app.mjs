@@ -100,30 +100,39 @@ function setView(view){
   document.querySelectorAll('[data-view]').forEach(button=>button.classList.toggle('selected',button.dataset.view===view));
   const headings={network:['REDE DE LOJAS','Acompanhamento em tempo real'],sale:['FRENTE DE CAIXA','Nova venda'],cash:['CAIXA','Operação do caixa'],management:['GESTÃO','Produtos, equipe e movimentações']};
   $('page-eyebrow').textContent=headings[view][0];$('page-title').textContent=headings[view][1];
+  $('workspace').classList.toggle('network-context',view==='network');
   if(view==='sale')setTimeout(()=>$('search').focus(),0);
   if(view==='network')run(loadNetwork);
 }
 const localDay=()=>{const now=new Date(),pad=value=>String(value).padStart(2,'0');return `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;};
+const dayOffset=days=>{const value=new Date();value.setDate(value.getDate()+days);const pad=part=>String(part).padStart(2,'0');return `${value.getFullYear()}-${pad(value.getMonth()+1)}-${pad(value.getDate())}`;};
 async function loadNetwork(){
   if(!manager()||state.networkLoading)return;
   state.networkLoading=true;$('network-status').textContent='Atualizando';$('network-status').classList.add('loading');
-  try{const today=localDay();state.network=await api(`/api/network/overview?from=${today}&to=${today}`);renderNetwork();}
+  try{const today=localDay(),reference=dayOffset(-7);const [current,previous]=await Promise.all([api(`/api/network/overview?from=${today}&to=${today}`),api(`/api/network/overview?from=${reference}&to=${reference}`)]);state.network={current,previous};renderNetwork();}
   finally{state.networkLoading=false;$('network-status').textContent='Ao vivo';$('network-status').classList.remove('loading');}
 }
 function renderNetwork(){
-  const overview=state.network;if(!overview)return;
+  const overview=state.network?.current,previous=state.network?.previous;if(!overview)return;
   const totals=overview.totals;
-  const summary=[['Vendas líquidas',brl(totals.gross_cents)],['Vendas',totals.active_sale_count],['Ticket médio',brl(totals.ticket_average_cents)],['Caixas abertos',totals.open_cash_count],['Canceladas',totals.canceled_sale_count],['Devoluções',brl(totals.returned_cents)]];
-  $('network-summary').replaceChildren(...summary.map(([label,value])=>{const card=element('div');card.append(element('span',label),element('strong',value));return card;}));
+  const variation=(value,reference)=>reference?`${value>=reference?'▲':'▼'} ${Math.abs((value-reference)/reference*100).toLocaleString('pt-BR',{maximumFractionDigits:1})}% vs. semana passada`:'Sem histórico comparável';
+  const summary=[['Vendas líquidas',brl(totals.gross_cents),variation(totals.gross_cents,previous.totals.gross_cents),'primary'],['Vendas confirmadas',totals.active_sale_count,variation(totals.active_sale_count,previous.totals.active_sale_count)],['Ticket médio',brl(totals.ticket_average_cents),variation(totals.ticket_average_cents,previous.totals.ticket_average_cents)],['Caixas abertos',totals.open_cash_count,`${overview.stores.filter(store=>store.open_cash_count).length} de ${overview.stores.length} lojas`]];
+  $('network-summary').replaceChildren(...summary.map(([label,value,note,kind])=>{const card=element('div',undefined,kind==='primary'?'primary-metric':'');card.append(element('span',label),element('strong',value),element('small',note,note.startsWith('▲')?'positive':note.startsWith('▼')?'negative':''));return card;}));
+  const withoutSales=overview.stores.filter(store=>store.active_sale_count===0).length,closed=overview.stores.filter(store=>!store.open_cash_count).length;
+  const alerts=[withoutSales?`${withoutSales} loja(s) sem venda no período`:null,closed?`${closed} loja(s) com caixas fechados`:null,totals.canceled_sale_count?`${totals.canceled_sale_count} venda(s) cancelada(s)`:null,totals.returned_cents?`${brl(totals.returned_cents)} em devoluções`:null].filter(Boolean);
+  $('network-alerts').replaceChildren(element('strong',alerts.length?'Atenção agora':'Operação sem exceções'),...(alerts.length?alerts.map(value=>element('span',value)): [element('span','Nenhum alerta comercial registrado no período.') ]));
   const methods=['CASH','PIX','CARD'];
-  $('network-payment-cards').replaceChildren(...methods.map(method=>{const payment=overview.payments.find(item=>item.method===method);const card=element('div');card.append(element('span',paymentName(method)),element('strong',brl(payment?.amount_cents??0)),element('small',`${payment?.sale_count??0} vendas`));return card;}));
-  $('network-store-grid').replaceChildren(...overview.stores.map(store=>{
-    const card=element('button',undefined,'network-store-card');card.type='button';
-    const header=element('div',undefined,'network-store-head');header.append(element('strong',store.name),element('span',store.open_cash_count?`${store.open_cash_count} caixa(s) aberto(s)`:'Caixas fechados',store.open_cash_count?'store-open':'store-closed'));
-    const values=element('div',undefined,'network-store-values');values.append(element('strong',brl(store.gross_cents)),element('span',`${store.active_sale_count} vendas · ticket ${brl(store.active_sale_count?Math.round(store.gross_cents/store.active_sale_count):0)}`));
-    const last=element('small',store.last_sale_at?`Última venda: ${date(store.last_sale_at)}`:'Nenhuma venda registrada','network-last-sale');
-    card.append(header,values,last);card.addEventListener('click',()=>run(async()=>{$('store-select').value=store.id;state.cart=[];await refresh();setView('management');}));return card;
-  }));
+  const paymentData=methods.map(method=>{const payment=overview.payments.find(item=>item.method===method);return {method,amount:payment?.amount_cents??0,count:payment?.sale_count??0};});
+  const paymentTotal=paymentData.reduce((sum,item)=>sum+item.amount,0);$('network-payment-bar').replaceChildren(...paymentData.map(item=>{const part=element('span',undefined,`payment-${item.method.toLowerCase()}`);part.style.width=`${paymentTotal?item.amount/paymentTotal*100:0}%`;part.title=`${paymentName(item.method)}: ${brl(item.amount)}`;return part;}));
+  $('network-payment-legend').replaceChildren(...paymentData.map(item=>{const row=element('div');row.append(element('i',undefined,`payment-${item.method.toLowerCase()}`),element('span',paymentName(item.method)),element('strong',brl(item.amount)),element('small',`${paymentTotal?Math.round(item.amount/paymentTotal*100):0}%`));return row;}));
+  const previousStores=new Map(previous.stores.map(store=>[store.id,store]));
+  const stores=[...overview.stores].sort((a,b)=>(a.active_sale_count===0)-(b.active_sale_count===0)||b.gross_cents-a.gross_cents);
+  const openStore=store=>run(async()=>{$('store-select').value=store.id;state.cart=[];await refresh();setView('management');});
+  $('network-store-rows').replaceChildren(...stores.map(store=>{const reference=previousStores.get(store.id),ticket=store.active_sale_count?Math.round(store.gross_cents/store.active_sale_count):0,tr=element('tr');tr.tabIndex=0;tr.append(element('td',store.name),element('td',brl(store.gross_cents),'number'),element('td',variation(store.gross_cents,reference?.gross_cents??0),reference?.gross_cents?(store.gross_cents>=reference.gross_cents?'positive':'negative'):'muted-cell'),element('td',store.active_sale_count,'number'),element('td',brl(ticket),'number'),element('td',store.open_cash_count?`${store.open_cash_count} aberto(s)`:'Fechados',store.open_cash_count?'positive':'muted-cell'),element('td',store.last_sale_at?date(store.last_sale_at):'Sem venda'),element('td','Abrir','row-link'));tr.addEventListener('click',()=>openStore(store));tr.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openStore(store);}});return tr;}));
+  $('network-store-cards').replaceChildren(...stores.map(store=>{const card=element('button',undefined,'network-store-card');card.type='button';const reference=previousStores.get(store.id),ticket=store.active_sale_count?Math.round(store.gross_cents/store.active_sale_count):0;card.append(element('strong',store.name),element('b',brl(store.gross_cents)),element('span',variation(store.gross_cents,reference?.gross_cents??0),reference?.gross_cents?(store.gross_cents>=reference.gross_cents?'positive':'negative'):'muted-cell'),element('small',`${store.active_sale_count} vendas · ticket ${brl(ticket)} · ${store.open_cash_count?`${store.open_cash_count} caixa(s) aberto(s)`:'caixas fechados'}`));card.addEventListener('click',()=>openStore(store));return card;}));
+  const previousTotal=previous.totals.gross_cents,delta=totals.gross_cents-previousTotal;
+  $('network-comparison').replaceChildren(element('strong',brl(totals.gross_cents)),element('span',previousTotal?`${delta>=0?'+':'−'} ${brl(Math.abs(delta))} em relação à referência`:'A comparação aparecerá quando houver vendas no mesmo dia da semana anterior.'),element('div',undefined,previousTotal?(delta>=0?'comparison-positive':'comparison-negative'):'comparison-empty'));
+  $('network-period').textContent=`Hoje, ${new Date(`${localDay()}T12:00:00`).toLocaleDateString('pt-BR')}`;
   $('network-updated').textContent=`Atualizado às ${new Date(overview.generated_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
 }
 function renderSearch(){
