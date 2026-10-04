@@ -282,19 +282,44 @@ class TransactionPos {
   async networkOverview(ctx, from, to) {
     const me = await this.me(ctx);
     requireThat(me.user.role === 'MANAGER', 403, 'MANAGER_REQUIRED', 'Somente gerente acompanha a rede de lojas.');
-    const stores = [];
-    const sales = [];
-    for (const store of me.stores) {
-      const report = await this.report(ctx, store.id, from, to);
-      sales.push(...report.sales);
-      const status = await this.one(`SELECT
-          COUNT(*) FILTER (WHERE status='OPEN') open_cash_count,
-          (SELECT MAX(created_at) FROM sales WHERE tenant_id=$1 AND store_id=$2) last_sale_at
-        FROM cash_sessions WHERE tenant_id=$1 AND store_id=$2`, ctx.tenantId, store.id);
-      stores.push({ ...store, ...report.summary, open_cash_count: cashInteger(status.open_cash_count),
-        last_sale_at: status.last_sale_at instanceof Date ? status.last_sale_at.toISOString() : status.last_sale_at,
-        payments: report.payments, hourly: hourlySales(report.sales) });
-    }
+    const range = reportRange(from, to);
+    // Uma consulta para toda a rede evita dezenas de idas sequenciais ao PostgreSQL (uma série por loja).
+    const sales = (await this.all(`SELECT s.store_id,s.id,s.created_at,s.total_cents,s.discount_cents,p.method,
+          x.created_at canceled_at,COALESCE(SUM(r.total_cents),0) returned_cents
+        FROM sales s
+        JOIN memberships m ON m.tenant_id=s.tenant_id AND m.store_id=s.store_id AND m.user_id=$2
+        JOIN payments p ON p.tenant_id=s.tenant_id AND p.sale_id=s.id
+        LEFT JOIN sale_cancellations x ON x.tenant_id=s.tenant_id AND x.sale_id=s.id
+        LEFT JOIN sale_returns r ON r.tenant_id=s.tenant_id AND r.sale_id=s.id
+        WHERE s.tenant_id=$1 AND s.created_at>=$3 AND s.created_at<$4
+        GROUP BY s.store_id,s.id,s.created_at,s.total_cents,s.discount_cents,p.method,x.created_at
+        ORDER BY s.created_at`, ctx.tenantId, ctx.userId, range.start, range.end)).map(sale => ({ ...sale,
+      created_at: sale.created_at instanceof Date ? sale.created_at.toISOString() : sale.created_at,
+      canceled_at: sale.canceled_at instanceof Date ? sale.canceled_at.toISOString() : sale.canceled_at,
+      total_cents: cashInteger(sale.total_cents), discount_cents: cashInteger(sale.discount_cents),
+      returned_cents: cashInteger(sale.returned_cents) }));
+    const openCash = new Map((await this.all(`SELECT c.store_id,COUNT(*) open_cash_count
+        FROM cash_sessions c
+        JOIN memberships m ON m.tenant_id=c.tenant_id AND m.store_id=c.store_id AND m.user_id=$2
+        WHERE c.tenant_id=$1 AND c.status='OPEN' GROUP BY c.store_id`, ctx.tenantId, ctx.userId))
+      .map(row => [row.store_id, cashInteger(row.open_cash_count)]));
+    const stores = me.stores.map(store => {
+      const storeSales = sales.filter(sale => sale.store_id === store.id), active = storeSales.filter(sale => !sale.canceled_at);
+      const storePayments = new Map();
+      for (const sale of active) {
+        const payment = storePayments.get(sale.method) ?? { method: sale.method, sale_count: 0, amount_cents: 0 };
+        payment.sale_count++; payment.amount_cents += sale.total_cents - sale.returned_cents; storePayments.set(sale.method, payment);
+      }
+      return { ...store,
+        sale_count: storeSales.length, active_sale_count: active.length, canceled_sale_count: storeSales.length - active.length,
+        gross_cents: active.reduce((sum, sale) => sum + sale.total_cents - sale.returned_cents, 0),
+        discount_cents: active.reduce((sum, sale) => sum + sale.discount_cents, 0),
+        canceled_cents: storeSales.filter(sale => sale.canceled_at).reduce((sum, sale) => sum + sale.total_cents, 0),
+        returned_cents: active.reduce((sum, sale) => sum + sale.returned_cents, 0),
+        open_cash_count: openCash.get(store.id) ?? 0,
+        last_sale_at: storeSales.at(-1)?.created_at ?? null,
+        payments: [...storePayments.values()], hourly: hourlySales(storeSales) };
+    });
     const payments = new Map();
     for (const store of stores) for (const payment of store.payments) {
       const current = payments.get(payment.method) ?? { method: payment.method, sale_count: 0, amount_cents: 0 };
@@ -306,7 +331,7 @@ class TransactionPos {
       discount_cents: sum.discount_cents + store.discount_cents, returned_cents: sum.returned_cents + store.returned_cents,
       open_cash_count: sum.open_cash_count + store.open_cash_count
     }), { sale_count: 0, active_sale_count: 0, canceled_sale_count: 0, gross_cents: 0, discount_cents: 0, returned_cents: 0, open_cash_count: 0 });
-    return { generated_at: now(), range: reportRange(from, to), totals: { ...totals,
+    return { generated_at: now(), range, totals: { ...totals,
       ticket_average_cents: totals.active_sale_count ? Math.round(totals.gross_cents / totals.active_sale_count) : 0 },
     payments: [...payments.values()], hourly: hourlySales(sales), stores };
   }

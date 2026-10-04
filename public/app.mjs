@@ -1,6 +1,6 @@
 ﻿import {cents,brl} from './money.mjs';
 const $=id=>document.getElementById(id);
-const state={me:null,data:null,network:null,networkLoading:false,networkPeriod:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:'',reportSection:'resumo'};
+const state={me:null,data:null,network:null,networkLoading:false,networkFailed:false,networkPeriod:null,cart:[],csrf:'',pending:null,busy:false,tab:'products',view:'sale',lastReceipt:null,paymentMethod:'CASH',report:null,reportFrom:'',reportTo:'',reportSection:'resumo'};
 let messageTimer=null;
 function element(tag,content,className=''){const node=document.createElement(tag);if(content!==undefined)node.textContent=String(content);if(className)node.className=className;return node;}
 function serviceAlert(show,text='Estamos tentando restabelecer a conexão. Não repita uma venda sem recuperar a operação anterior.'){
@@ -123,7 +123,8 @@ async function loadNetwork(){
   if(!manager()||state.networkLoading)return;
   state.networkPeriod??=presetPeriod('today');
   state.networkLoading=true;$('network-status').textContent='Atualizando';$('network-status').classList.add('loading');
-  try{const period=state.networkPeriod,reference=comparisonPeriod(period);const [current,previous]=await Promise.all([api(`/api/network/overview?from=${period.from}&to=${period.to}`),api(`/api/network/overview?from=${reference.from}&to=${reference.to}`)]);state.network={current,previous,period,reference};renderNetwork();}
+  try{const period=state.networkPeriod,reference=comparisonPeriod(period);const [current,previous]=await Promise.all([api(`/api/network/overview?from=${period.from}&to=${period.to}`),api(`/api/network/overview?from=${reference.from}&to=${reference.to}`)]);state.network={current,previous,period,reference};state.networkFailed=false;renderNetwork();}
+  catch(error){state.networkFailed=true;throw error;}
   finally{const live=state.networkPeriod?.preset==='today';state.networkLoading=false;$('network-status').textContent=live?'Ao vivo':'Histórico';$('network-status').classList.toggle('history',!live);$('network-status').classList.remove('loading');}
 }
 // Caixa aberto sem venda por mais tempo que isto vira alerta: risco de caixa esquecido aberto.
@@ -577,7 +578,7 @@ $('password-form').addEventListener('submit',event=>{event.preventDefault();run(
 $('store-select').addEventListener('change',()=>run(async()=>{state.cart=[];await refresh();}));
 $('terminal-select').addEventListener('change',()=>{state.cart=[];renderCash();renderCart();});
 $('refresh').addEventListener('click',()=>run(refresh));
-$('service-retry').addEventListener('click',()=>run(refresh));
+$('service-retry').addEventListener('click',()=>run(state.view==='network'?loadNetwork:refresh));
 $('search').addEventListener('input',renderSearch);
 $('sale-customer-search').addEventListener('input',()=>{
   const text=$('sale-customer-search').value.trim();
@@ -717,6 +718,6 @@ document.addEventListener('keydown',event=>{
   if(event.key==='Escape'&&!document.querySelector('dialog[open]')&&state.cart.length){event.preventDefault();clearSale();}
 });
 boot().catch(error=>{if(error.status!==401)$('login-error').textContent=error.message;});
-setInterval(()=>{if(state.me&&state.view==='network'&&state.networkPeriod?.preset==='today'&&document.visibilityState==='visible')run(loadNetwork);},5000);
+setInterval(()=>{if(state.me&&state.view==='network'&&!state.networkFailed&&state.networkPeriod?.preset==='today'&&document.visibilityState==='visible')run(loadNetwork);},5000);
 
 $('mfa-dialog').addEventListener('close',()=>{$('mfa-qr').removeAttribute('src');$('mfa-secret').value='';if(state.mfaRequired)api('/api/logout',{method:'POST',body:'{}'}).finally(()=>location.reload());});
