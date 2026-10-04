@@ -15,7 +15,9 @@ function message(value,{sticky=false}={}){
 }
 async function api(path,options={}){
   let response;
-  try{response=await fetch(path,{...options,credentials:'same-origin',signal:AbortSignal.timeout(12_000),headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf,...options.headers}});}
+  // A gravação é idempotente e pode atravessar failover/replicação do banco. Um limite curto
+  // transformava apenas uma resposta lenta em falsa operação pendente no navegador.
+  try{response=await fetch(path,{...options,credentials:'same-origin',signal:AbortSignal.timeout(30_000),headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf,...options.headers}});}
   catch{serviceAlert(true);throw Object.assign(new Error('Servidor indisponível ou resposta não recebida.'),{uncertain:true,code:'NETWORK_UNAVAILABLE'});}
   let data;try{data=await response.json();}catch{throw Object.assign(new Error('Resposta inválida. Confirme o resultado antes de repetir.'),{uncertain:true});}
   if(!response.ok){const code=data.error?.code;if(code==='DATABASE_BUSY'||code==='DATABASE_UNAVAILABLE')serviceAlert(true,data.error.message);throw Object.assign(new Error(data.error?.message??'Falha na operação.'),{status:response.status,code,uncertain:response.status>=500});}

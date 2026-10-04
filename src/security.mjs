@@ -182,6 +182,7 @@ export class Auth {
   }
   // Gerente sem MFA ativo só pode configurar o MFA, trocar a senha ou sair.
   async mfaSetupPending(ctx) {
+    if (typeof ctx?.mfaSetupPending === 'boolean') return ctx.mfaSetupPending;
     const sql = 'SELECT role,mfa_enabled FROM users WHERE tenant_id=$1 AND id=$2';
     const user = typeof this.db.query === 'function'
       ? await withPostgresTransaction(this.db, client => one(client, sql, [ctx.tenantId, ctx.userId]), { tenantId: ctx.tenantId, userId: ctx.userId, readOnly: true })
@@ -260,11 +261,14 @@ export class Auth {
     const token = cookie.split(';').map(s => s.trim()).find(s => s.startsWith('jcs_session='))?.slice(12);
     if (!token || !/^[\w-]{43}$/.test(token)) return null;
     const session = typeof this.db.query === 'function'
-      ? await one(this.db,'SELECT * FROM public.pdv_resolve_session($1)',[sha256(token)])
+      ? await one(this.db,'SELECT * FROM public.pdv_resolve_session_context($1)',[sha256(token)])
       : this.db.prepare(`SELECT s.* FROM sessions s JOIN users u ON u.tenant_id=s.tenant_id AND u.id=s.user_id
         JOIN tenants t ON t.id=s.tenant_id
         WHERE s.token_hash=? AND s.expires_at>? AND u.active=1 AND t.active=1`).get(sha256(token),Date.now());
-    return session ? { tenantId: session.tenant_id, userId: session.user_id, csrfToken: session.csrf_token, tokenHash: session.token_hash } : null;
+    return session ? {
+      tenantId: session.tenant_id, userId: session.user_id, csrfToken: session.csrf_token, tokenHash: session.token_hash,
+      ...(typeof this.db.query === 'function' ? { mfaSetupPending: session.role === 'MANAGER' && Number(session.mfa_enabled) !== 1 } : {})
+    } : null;
   }
   async logout(ctx, ip) {
     if (typeof this.db.query === 'function') {
