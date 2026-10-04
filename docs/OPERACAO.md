@@ -5,6 +5,7 @@
 - Aplicacao em producao: https://pdvjcs-production.up.railway.app
 - Plataforma: Railway, servico `PDV_JCS`.
 - Banco: PostgreSQL Railway, servico `Postgres`.
+- Alta disponibilidade: cluster PostgreSQL com 1 líder, 2 réplicas, 3 coordenadores etcd e 2 instâncias HAProxy.
 - Branch de deploy: `master` do repositorio `jjrfarias/PDV_JCS`.
 - CI: GitHub Actions executa `npm ci`, `npm run check` e `npm test`.
 
@@ -41,6 +42,10 @@ Para recuperação de senha por e-mail (opcional; sem elas o pedido é aceito, m
 Somente o e-mail do usuário e o link de recuperação são enviados ao provedor. A migration `011_password_resets` precisa estar aplicada antes do deploy desta versão.
 
 O usuario da aplicacao deve ser membro de `pdv_runtime` e nao pode ser superuser, `BYPASSRLS` nem dono das tabelas. O servidor valida isso ao iniciar.
+
+O `DATABASE_URL` da aplicação deve apontar para o HAProxy usando a role `pdv_runtime`. A URL padrão do cluster usa o superusuário e é recusada deliberadamente pela aplicação. Depois de converter ou recriar o cluster, valide que a referência não voltou ao host direto do Postgres nem à role `postgres`.
+
+**Evidência de 04/10/2026:** o banco foi convertido para HA com duas réplicas. O Patroni confirmou um líder e duas réplicas em streaming com lag zero; três coordenadores etcd e duas instâncias HAProxy ficaram online. O PITR permaneceu ativo nos três nós. A aplicação foi reconectada ao HAProxy com `pdv_runtime`, passou na validação de privilégios e `/health` voltou a responder `200` consultando o PostgreSQL.
 
 Guarde `JCS_FIELD_ENCRYPTION_KEY` em cofre/backup seguro. Perder essa chave torna os dados de clientes e os segredos MFA irrecuperáveis.
 
