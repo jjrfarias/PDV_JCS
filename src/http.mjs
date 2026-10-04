@@ -21,7 +21,9 @@ function send(res,status,data) {
   res.end(JSON.stringify(data));
 }
 function csvCell(value) {
-  const text=String(value??'').replace(/\r?\n/g,' ');
+  let text=String(value??'').replace(/\r?\n/g,' ');
+  const candidate=text.trimStart();
+  if (/^[=+@]/.test(candidate)||(/^-/).test(candidate)&&!(/^-\d+(?:[.,]\d+)?$/).test(candidate)) text=`'${text}`;
   return /[;"\n]/.test(text)?`"${text.replace(/"/g,'""')}"`:text;
 }
 function csvSection(title,headers,rows) {
@@ -180,8 +182,10 @@ export function createApp(db,{mailer}={}) {
         const report=await pos.report(ctx,match[1],url.searchParams.get('from')??'',url.searchParams.get('to')??'');
         if(url.pathname.endsWith('.csv')) {
           const section=url.searchParams.get('section')??'todos';
+          const csv=reportCsv(report,section);
+          await pos.auditReportExport(ctx,match[1],report.range,section);
           res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="pdv-jcs-relatorio-${section}-${report.range.from}-${report.range.to}.csv"`});
-          return res.end(`\ufeff${reportCsv(report,section)}`);
+          return res.end(`\ufeff${csv}`);
         }
         return send(res,200,report);
       }

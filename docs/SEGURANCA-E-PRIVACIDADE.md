@@ -62,6 +62,6 @@ Trimestralmente: revisar usuários privilegiados, dependências, fornecedores, a
 2. Backup criptografado com restauração homologada e evidência periódica.
 3. Rotação versionada das chaves de criptografia.
 4. Rate limit compartilhado entre instâncias. O IP real já vem do cabeçalho `X-Real-IP` da borda da Railway, aceito só em produção na Railway; o contador ainda é em memória e reinicia a cada deploy.
-5. Alertas de segurança e auditoria de exportações.
+5. Alertas de segurança. Exportações de relatórios já registram usuário, loja, período e seção na auditoria.
 6. Dados jurídicos e canal formal de privacidade no aviso e nos contratos.
 7. Validação jurídica das bases legais, prazos e cláusulas controlador-operador.

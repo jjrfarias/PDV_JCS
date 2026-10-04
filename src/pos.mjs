@@ -77,6 +77,13 @@ export class Pos {
   audit(ctx, storeId, action, entityId, details) {
     this.run('INSERT INTO audit_events VALUES(?,?,?,?,?,?,?,?)',ctx.tenantId,randomUUID(),ctx.userId,storeId,action,entityId,JSON.stringify(details),now());
   }
+  auditReportExport(ctx,storeId,range,section) {
+    id(storeId);
+    return transaction(this.db,()=>{
+      this.authorize(ctx,storeId);
+      this.audit(ctx,storeId,'REPORT_EXPORTED',storeId,{from:range.from,to:range.to,section});
+    });
+  }
   // Todas as mutações passam por aqui. A chave e a resposta são persistidas junto com seus efeitos.
   mutate(ctx, kind, key, input, work) {
     operationKey(key);

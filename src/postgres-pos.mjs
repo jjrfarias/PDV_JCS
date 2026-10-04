@@ -360,6 +360,14 @@ export class PostgresPos {
   async customerDetail(ctx, storeId, customerId) { return this.#transaction(ctx, false, tx => tx.customerDetail(ctx, storeId, customerId)); }
   async report(ctx, storeId, from, to) { return this.#transaction(ctx, true, tx => tx.report(ctx, storeId, from, to)); }
   async networkOverview(ctx, from, to) { return this.#transaction(ctx, true, tx => tx.networkOverview(ctx, from, to)); }
+  async auditReportExport(ctx, storeId, range, section) {
+    id(storeId);
+    return this.#transaction(ctx, false, async tx => {
+      await tx.authorize(ctx, storeId);
+      await tx.audit(ctx, storeId, 'REPORT_EXPORTED', storeId,
+        { from: range.from, to: range.to, section });
+    });
+  }
 
   async #mutate(ctx, kind, key, input, work) {
     operationKey(key);

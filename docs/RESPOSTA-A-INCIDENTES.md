@@ -38,4 +38,4 @@ Registros de incidentes com dados pessoais devem ser conservados por pelo menos 
 
 ## Lacuna atual
 
-Este repositório ainda não contém automação de backup/restauração, recuperação automática do MFA, rotação de chave nem plataforma externa de alertas. Esses controles permanecem bloqueadores para uma expansão comercial sem piloto controlado.
+O projeto possui backup/restauração documentados, recuperação operacional auditada do MFA e alertas nativos da plataforma de hospedagem. Permanecem pendentes a rotação versionada da chave de criptografia e alertas específicos para eventos de segurança da aplicação.

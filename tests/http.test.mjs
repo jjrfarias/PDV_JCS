@@ -99,6 +99,20 @@ test('HTTP 19 - relatorio e exportacao CSV respeitam loja e periodo',async t=>{
   assert.match(csv.data,/Pagamentos/);
   assert.match(csv.data,/Cartao/);
   assert.doesNotMatch(csv.data,/Produtos/);
+  const audit=w.db.prepare("SELECT * FROM audit_events WHERE action='REPORT_EXPORTED'").get();
+  assert.equal(audit.user_id,DEMO.manager.userId);
+  assert.equal(audit.store_id,DEMO.storeA);
+  assert.deepEqual(JSON.parse(audit.details_json),{from:today,to:today,section:'pagamentos'});
+});
+test('HTTP 19.0.1 - exportacao neutraliza formulas vindas de campos textuais',async t=>{
+  const w=await web(t);await w.login();
+  w.db.prepare('UPDATE products SET name=? WHERE tenant_id=? AND id=?').run('=HIPERLINK("https://example.invalid")',DEMO.manager.tenantId,DEMO.product);
+  const cash=await w.call('/api/cash/open',{method:'POST',headers:{'Idempotency-Key':key()},body:{storeId:DEMO.storeA,terminalId:DEMO.terminalA,openingCents:10000}});
+  await w.call('/api/sales',{method:'POST',headers:{'Idempotency-Key':key()},body:{storeId:DEMO.storeA,cashSessionId:cash.data.data.id,items:[{productId:DEMO.product,quantity:1}],discountCents:0,discountReason:null,paymentMethod:'CARD',tenderedCents:0}});
+  const today=businessDate(),csv=await w.call(`/api/stores/store-a/report.csv?from=${today}&to=${today}&section=produtos`);
+  assert.equal(csv.response.status,200);
+  assert.match(csv.data,/'=HIPERLINK/);
+  assert.doesNotMatch(csv.data,/(?:^|;)=HIPERLINK/m);
 });
 test('HTTP 19.1 - painel da rede entrega consolidado das lojas autorizadas',async t=>{
   const w=await web(t);await w.login();
