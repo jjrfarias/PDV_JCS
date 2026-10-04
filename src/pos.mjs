@@ -69,12 +69,14 @@ export class Pos {
   authorize(ctx, storeId) {
     const user = this.user(ctx);
     requireThat(this.one('SELECT 1 FROM memberships WHERE tenant_id=? AND user_id=? AND store_id=?',ctx.tenantId,ctx.userId,storeId),403,'STORE_FORBIDDEN','Você não tem acesso a esta loja.');
+    // Loja desativada não opera: venda, caixa, estoque e cadastros ficam bloqueados.
+    requireThat(this.one('SELECT 1 FROM stores WHERE tenant_id=? AND id=? AND active=1',ctx.tenantId,storeId),403,'STORE_INACTIVE','Esta loja está desativada.');
     return user;
   }
   me(ctx) {
     return { user:this.user(ctx), tenantId:ctx.tenantId,
       stores:this.all(`SELECT s.id,s.name FROM stores s JOIN memberships m ON m.tenant_id=s.tenant_id AND m.store_id=s.id
-        WHERE m.tenant_id=? AND m.user_id=? ORDER BY s.name`,ctx.tenantId,ctx.userId) };
+        WHERE m.tenant_id=? AND m.user_id=? AND s.active=1 ORDER BY s.name`,ctx.tenantId,ctx.userId) };
   }
   audit(ctx, storeId, action, entityId, details) {
     this.run('INSERT INTO audit_events VALUES(?,?,?,?,?,?,?,?)',ctx.tenantId,randomUUID(),ctx.userId,storeId,action,entityId,JSON.stringify(details),now());
@@ -111,6 +113,40 @@ export class Pos {
     requireThat(op,404,'NOT_FOUND','Operação não encontrada para este usuário.');
     this.authorize(ctx,op.store_id);
     return {data:JSON.parse(op.response_json),replayed:true,kind:op.kind};
+  }
+  // Lojas da empresa, inclusive desativadas, para o administrador da empresa.
+  companyStores(ctx) {
+    requireThat(this.user(ctx).company_admin===1,403,'COMPANY_ADMIN_REQUIRED','Somente o administrador da empresa gerencia lojas.');
+    return {stores:this.all(`SELECT s.id,s.name,s.active,
+        (SELECT COUNT(*) FROM terminals t WHERE t.tenant_id=s.tenant_id AND t.store_id=s.id) terminal_count,
+        (SELECT COUNT(*) FROM memberships m JOIN users u ON u.tenant_id=m.tenant_id AND u.id=m.user_id WHERE m.tenant_id=s.tenant_id AND m.store_id=s.id AND u.active=1) user_count,
+        (SELECT COUNT(*) FROM cash_sessions c WHERE c.tenant_id=s.tenant_id AND c.store_id=s.id AND c.status='OPEN') open_cash_count
+      FROM stores s WHERE s.tenant_id=? ORDER BY s.active DESC,s.name`,ctx.tenantId)};
+  }
+  updateStore(ctx,key,raw) {
+    object(raw,['storeId','name','active']);operationKey(key);
+    const input={storeId:id(raw.storeId),name:text(raw.name,'Nome da loja',120,2),active:raw.active};
+    requireThat(input.active===0||input.active===1,400,'INVALID_INPUT','Status inválido.');
+    return transaction(this.db,()=>{
+      requireThat(this.user(ctx).company_admin===1,403,'COMPANY_ADMIN_REQUIRED','Somente o administrador da empresa gerencia lojas.');
+      const hash=sha256(JSON.stringify({kind:'STORE_UPDATE',input}));
+      const previous=this.one('SELECT * FROM operations WHERE tenant_id=? AND key=?',ctx.tenantId,key);
+      if(previous){requireThat(previous.user_id===ctx.userId&&previous.kind==='STORE_UPDATE'&&previous.payload_hash===hash,409,'IDEMPOTENCY_CONFLICT','Esta chave já foi usada em outra operação ou com outros dados.');return {data:JSON.parse(previous.response_json),replayed:true};}
+      const current=this.one('SELECT id,name,active FROM stores WHERE tenant_id=? AND id=?',ctx.tenantId,input.storeId);
+      requireThat(current,404,'STORE_NOT_FOUND','Loja não encontrada.');
+      requireThat(this.one('SELECT 1 FROM memberships WHERE tenant_id=? AND user_id=? AND store_id=?',ctx.tenantId,ctx.userId,input.storeId),403,'STORE_FORBIDDEN','Você não tem acesso a esta loja.');
+      requireThat(!this.one('SELECT 1 FROM stores WHERE tenant_id=? AND lower(name)=lower(?) AND id<>?',ctx.tenantId,input.name,input.storeId),409,'DUPLICATE_STORE','Já existe uma loja com este nome.');
+      if(input.active===0&&current.active===1){
+        requireThat(!this.one("SELECT 1 FROM cash_sessions WHERE tenant_id=? AND store_id=? AND status='OPEN'",ctx.tenantId,input.storeId),409,'STORE_CASH_OPEN','Feche os caixas abertos desta loja antes de desativá-la.');
+        requireThat(this.one('SELECT COUNT(*) n FROM stores WHERE tenant_id=? AND active=1 AND id<>?',ctx.tenantId,input.storeId).n>0,409,'LAST_ACTIVE_STORE','A empresa precisa de pelo menos uma loja ativa.');
+      }
+      this.run('UPDATE stores SET name=?,active=? WHERE tenant_id=? AND id=?',input.name,input.active,ctx.tenantId,input.storeId);
+      const action=current.active===input.active?'STORE_UPDATED':input.active===1?'STORE_REACTIVATED':'STORE_DEACTIVATED';
+      this.audit(ctx,input.storeId,action,input.storeId,{renamed:current.name!==input.name,active:input.active});
+      const data={store:{id:input.storeId,name:input.name,active:input.active}};
+      this.run('INSERT INTO operations VALUES(?,?,?,?,?,?,?,?)',ctx.tenantId,key,ctx.userId,input.storeId,'STORE_UPDATE',hash,JSON.stringify(data),now());
+      return {data,replayed:false};
+    });
   }
   async createStore(ctx,key,raw,origin) {
     object(raw,['name','managerName','managerEmail']);operationKey(key);

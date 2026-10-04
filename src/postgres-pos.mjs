@@ -77,6 +77,8 @@ class TransactionPos {
       WHERE tenant_id=$1 AND user_id=$2 AND store_id=$3${this.readOnly ? '' : ' FOR SHARE'}`,
     ctx.tenantId, ctx.userId, storeId);
     requireThat(membership, 403, 'STORE_FORBIDDEN', 'Você não tem acesso a esta loja.');
+    // Loja desativada não opera: venda, caixa, estoque e cadastros ficam bloqueados.
+    requireThat(await this.one('SELECT 1 FROM stores WHERE tenant_id=$1 AND id=$2 AND active=1', ctx.tenantId, storeId), 403, 'STORE_INACTIVE', 'Esta loja está desativada.');
     return user;
   }
 
@@ -85,7 +87,7 @@ class TransactionPos {
       user: await this.user(ctx), tenantId: ctx.tenantId,
       stores: await this.all(`SELECT s.id,s.name FROM stores s
         JOIN memberships m ON m.tenant_id=s.tenant_id AND m.store_id=s.id
-        WHERE m.tenant_id=$1 AND m.user_id=$2 ORDER BY s.name`, ctx.tenantId, ctx.userId)
+        WHERE m.tenant_id=$1 AND m.user_id=$2 AND s.active=1 ORDER BY s.name`, ctx.tenantId, ctx.userId)
     };
   }
 
@@ -393,6 +395,47 @@ export class PostgresPos {
       await tx.authorize(ctx, storeId);
       await tx.audit(ctx, storeId, 'REPORT_EXPORTED', storeId,
         { from: range.from, to: range.to, section });
+    });
+  }
+
+  async companyStores(ctx) {
+    return this.#transaction(ctx, true, async tx => {
+      requireThat(Number((await tx.user(ctx)).company_admin) === 1, 403, 'COMPANY_ADMIN_REQUIRED', 'Somente o administrador da empresa gerencia lojas.');
+      const rows = await tx.all(`SELECT s.id,s.name,s.active,
+          (SELECT COUNT(*) FROM terminals t WHERE t.tenant_id=s.tenant_id AND t.store_id=s.id) terminal_count,
+          (SELECT COUNT(*) FROM memberships m JOIN users u ON u.tenant_id=m.tenant_id AND u.id=m.user_id WHERE m.tenant_id=s.tenant_id AND m.store_id=s.id AND u.active=1) user_count,
+          (SELECT COUNT(*) FROM cash_sessions c WHERE c.tenant_id=s.tenant_id AND c.store_id=s.id AND c.status='OPEN') open_cash_count
+        FROM stores s WHERE s.tenant_id=$1 ORDER BY s.active DESC,s.name`, ctx.tenantId);
+      return { stores: rows.map(row => ({ id: row.id, name: row.name, active: Number(row.active), terminal_count: Number(row.terminal_count), user_count: Number(row.user_count), open_cash_count: Number(row.open_cash_count) })) };
+    });
+  }
+
+  async updateStore(ctx, key, raw) {
+    object(raw, ['storeId', 'name', 'active']); operationKey(key);
+    const input = { storeId: id(raw.storeId), name: text(raw.name, 'Nome da loja', 120, 2), active: raw.active };
+    requireThat(input.active === 0 || input.active === 1, 400, 'INVALID_INPUT', 'Status inválido.');
+    return this.#transaction(ctx, false, async tx => {
+      requireThat(Number((await tx.user(ctx)).company_admin) === 1, 403, 'COMPANY_ADMIN_REQUIRED', 'Somente o administrador da empresa gerencia lojas.');
+      const payloadHash = sha256(JSON.stringify({ kind: 'STORE_UPDATE', input })); await tx.operations.lock(ctx.tenantId, key);
+      const previous = await tx.operations.find(ctx.tenantId, key);
+      if (previous) {
+        requireThat(previous.user_id === ctx.userId && previous.kind === 'STORE_UPDATE' && previous.payload_hash === payloadHash, 409, 'IDEMPOTENCY_CONFLICT', 'Esta chave já foi usada em outra operação ou com outros dados.');
+        return { data: JSON.parse(previous.response_json), replayed: true };
+      }
+      const current = await tx.one('SELECT id,name,active FROM stores WHERE tenant_id=$1 AND id=$2 FOR UPDATE', ctx.tenantId, input.storeId);
+      requireThat(current, 404, 'STORE_NOT_FOUND', 'Loja não encontrada.');
+      requireThat(await tx.one('SELECT 1 FROM memberships WHERE tenant_id=$1 AND user_id=$2 AND store_id=$3', ctx.tenantId, ctx.userId, input.storeId), 403, 'STORE_FORBIDDEN', 'Você não tem acesso a esta loja.');
+      requireThat(!(await tx.one('SELECT 1 FROM stores WHERE tenant_id=$1 AND lower(name)=lower($2) AND id<>$3', ctx.tenantId, input.name, input.storeId)), 409, 'DUPLICATE_STORE', 'Já existe uma loja com este nome.');
+      if (input.active === 0 && Number(current.active) === 1) {
+        requireThat(!(await tx.one("SELECT 1 FROM cash_sessions WHERE tenant_id=$1 AND store_id=$2 AND status='OPEN'", ctx.tenantId, input.storeId)), 409, 'STORE_CASH_OPEN', 'Feche os caixas abertos desta loja antes de desativá-la.');
+        requireThat(Number((await tx.one('SELECT COUNT(*) n FROM stores WHERE tenant_id=$1 AND active=1 AND id<>$2', ctx.tenantId, input.storeId)).n) > 0, 409, 'LAST_ACTIVE_STORE', 'A empresa precisa de pelo menos uma loja ativa.');
+      }
+      await tx.run('UPDATE stores SET name=$1,active=$2 WHERE tenant_id=$3 AND id=$4', input.name, input.active, ctx.tenantId, input.storeId);
+      const action = Number(current.active) === input.active ? 'STORE_UPDATED' : input.active === 1 ? 'STORE_REACTIVATED' : 'STORE_DEACTIVATED';
+      await tx.audit(ctx, input.storeId, action, input.storeId, { renamed: current.name !== input.name, active: input.active });
+      const data = { store: { id: input.storeId, name: input.name, active: input.active } };
+      await tx.operations.save({ tenantId: ctx.tenantId, key, userId: ctx.userId, storeId: input.storeId, kind: 'STORE_UPDATE', payloadHash, response: data });
+      return { data, replayed: false };
     });
   }
 

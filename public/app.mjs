@@ -62,10 +62,7 @@ function lock(){
   $('cancel-sale').disabled=locked||state.cart.length===0;
   document.querySelectorAll('[data-tendered]').forEach(el=>{el.disabled=locked||state.cart.length===0;});
   document.querySelectorAll('[data-payment-method]').forEach(el=>{el.disabled=locked;});
-  $('new-product').hidden=!manager();
-  $('new-user').hidden=!manager();
-  $('new-store').hidden=!companyAdmin();
-  $('adjust-stock').hidden=!manager();
+  syncTabActions();
   $('password-open').disabled=locked;
   $('logout').disabled=locked;
 }
@@ -107,6 +104,7 @@ function setView(view){
   const headings={network:['REDE DE LOJAS','Acompanhamento em tempo real'],sale:['FRENTE DE CAIXA','Nova venda'],cash:['CAIXA','Operação do caixa'],management:['GESTÃO','Produtos, equipe e movimentações']};
   $('page-eyebrow').textContent=headings[view][0];$('page-title').textContent=headings[view][1];
   $('workspace').classList.toggle('network-context',view==='network');
+  $('workspace').classList.toggle('management-context',view==='management');
   if(view==='sale')setTimeout(()=>$('search').focus(),0);
   if(view==='network')run(loadNetwork);
 }
@@ -378,9 +376,38 @@ function renderCashMovements(){
   ])));
 }
 function renderSummary(cards){
-  $('management-summary').replaceChildren(...cards.map(([label,value])=>{
-    const card=element('div');card.append(element('span',label),element('strong',value));return card;
+  $('management-summary').replaceChildren(...cards.map(([label,value,options={}])=>{
+    const card=element(options.onClick?'button':'div',undefined,['summary-card',options.tone?`tone-${options.tone}`:'',options.active?'active':''].filter(Boolean).join(' '));
+    if(options.onClick){card.type='button';card.setAttribute('aria-pressed',String(Boolean(options.active)));card.title=options.active?'Mostrar todos':'Filtrar a tabela';card.addEventListener('click',options.onClick);}
+    card.append(element('span',label),element('strong',String(value)));return card;
   }));
+}
+// Tabela com colunas alinhadas e linha clicável (Enter também abre).
+function dataTable(columns,rows,emptyText='Nenhum registro nesta loja.'){
+  const t=element('table'),thead=element('thead'),head=element('tr');
+  columns.forEach(column=>head.append(element('th',column.label,column.className)));thead.append(head);t.append(thead);
+  const body=element('tbody');
+  for(const row of rows){
+    const tr=element('tr');
+    row.cells.forEach((value,index)=>{const td=element('td',undefined,columns[index]?.className);if(value instanceof Node)td.append(value);else td.textContent=String(value);tr.append(td);});
+    if(row.onClick){tr.className='clickable-row';tr.tabIndex=0;tr.setAttribute('aria-label',row.label??'Abrir');tr.addEventListener('click',row.onClick);tr.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();row.onClick();}});}
+    body.append(tr);
+  }
+  if(!rows.length){const tr=element('tr'),td=element('td',emptyText);td.colSpan=columns.length;tr.append(td);body.append(tr);}
+  t.append(body);return t;
+}
+const LOW_STOCK=5;
+const SEARCH_HINTS={products:'Buscar por nome, código ou código de barras',customers:'Buscar por nome ou final do documento',users:'Buscar por nome ou e-mail',stores:'Buscar loja',history:'Buscar por venda, operador ou cliente',stock:'Buscar por produto ou motivo',closures:'Buscar por terminal ou data',reports:'Buscar'};
+function syncTabActions(){
+  const allowed={products:manager(),customers:true,users:manager(),stores:companyAdmin()};
+  document.querySelectorAll('[data-tab-action]').forEach(button=>{button.hidden=button.dataset.tabAction!==state.tab||!allowed[button.dataset.tabAction];});
+  $('stores-tab').hidden=!companyAdmin();
+  $('management-search').placeholder=SEARCH_HINTS[state.tab]??'Buscar';
+}
+async function loadCompanyStores(){state.companyStores=(await api('/api/company/stores')).stores;}
+function openStoreEdit(store){
+  const form=$('store-edit-form');form.storeId.value=store.id;form.name.value=store.name;form.active.value=String(store.active);
+  $('store-edit-dialog').showModal();
 }
 const isoDate=value=>{
   const d=value?new Date(value):new Date();
@@ -412,12 +439,32 @@ function reportControls(){
 }
 function renderManagement(){
   const d=state.data,query=$('management-search').value.trim().toLowerCase();let content;
-  if(state.tab==='products'){const rows=d.products.filter(p=>includes([p.sku,p.name,p.barcode,brl(p.price_cents),p.quantity],query));renderSummary([['Produtos',rows.length],['Estoque total',rows.reduce((n,p)=>n+p.quantity,0)],['Valor em estoque',brl(rows.reduce((n,p)=>n+p.quantity*p.price_cents,0))]]);content=table(['Código','Produto','Código de barras','Preço','Estoque','Ações'],rows.map(p=>{
-    const actions=element('div',undefined,'row-actions');
-    if(manager()){const edit=element('button','Editar');edit.type='button';edit.dataset.productAction='edit';edit.addEventListener('click',()=>openProductEdit(p));actions.append(edit);
-      const deactivate=element('button','Inativar');deactivate.type='button';deactivate.dataset.productAction='deactivate';deactivate.addEventListener('click',()=>deactivateProduct(p));actions.append(deactivate);}
-    return [p.sku,p.name,p.barcode??'—',brl(p.price_cents),p.quantity,actions];
-  }));}
+  if(state.tab==='products'){
+    const all=d.products.filter(p=>includes([p.sku,p.name,p.barcode,brl(p.price_cents),p.quantity],query));
+    const groups={out:all.filter(p=>p.quantity<=0),low:all.filter(p=>p.quantity>0&&p.quantity<=LOW_STOCK),nobarcode:all.filter(p=>!p.barcode)};
+    const rows=state.productFilter?groups[state.productFilter]:all;
+    const toggle=filter=>()=>{state.productFilter=state.productFilter===filter?null:filter;renderManagement();};
+    renderSummary([
+      ['Sem estoque',groups.out.length,{tone:groups.out.length?'danger':'',onClick:toggle('out'),active:state.productFilter==='out'}],
+      [`Estoque baixo (até ${LOW_STOCK})`,groups.low.length,{tone:groups.low.length?'warning':'',onClick:toggle('low'),active:state.productFilter==='low'}],
+      ['Sem código de barras',groups.nobarcode.length,{onClick:toggle('nobarcode'),active:state.productFilter==='nobarcode'}],
+      ['Valor em estoque (preço de venda)',brl(all.reduce((n,p)=>n+Math.max(p.quantity,0)*p.price_cents,0))]
+    ]);
+    const showBarcode=all.some(p=>p.barcode);
+    const columns=[{label:'Código'},{label:'Produto'},...(showBarcode?[{label:'Código de barras'}]:[]),{label:'Preço',className:'number'},{label:'Estoque',className:'number'}];
+    content=dataTable(columns,rows.map(p=>{
+      const stock=element('span',String(p.quantity),p.quantity<=0?'stock-out':p.quantity<=LOW_STOCK?'stock-low':'');
+      return {cells:[p.sku,p.name,...(showBarcode?[p.barcode??'—']:[]),brl(p.price_cents),stock],onClick:manager()?()=>openProductEdit(p):null,label:`Editar ${p.name}`};
+    }),state.productFilter?'Nenhum produto neste filtro.':'Nenhum produto nesta loja.');
+  }
+  if(state.tab==='stores'){
+    const rows=(state.companyStores??[]).filter(s=>includes([s.name,s.active===1?'Ativa':'Desativada'],query));
+    renderSummary([['Lojas',rows.length],['Ativas',rows.filter(s=>s.active===1).length],['Desativadas',rows.filter(s=>s.active!==1).length]]);
+    content=dataTable([{label:'Loja'},{label:'Status'},{label:'Caixas',className:'number'},{label:'Pessoas com acesso',className:'number'},{label:'Caixas abertos',className:'number'}],rows.map(s=>({
+      cells:[s.name,element('span',s.active===1?'Ativa':'Desativada',`status-pill ${s.active===1?'on':'off'}`),s.terminal_count,s.user_count,s.open_cash_count],
+      onClick:()=>openStoreEdit(s),label:`Editar ${s.name}`
+    })),'Nenhuma loja cadastrada.');
+  }
   if(state.tab==='users'){const roleName=u=>u.company_admin===1?'Administrador da empresa':u.role==='MANAGER'?'Gerente':'Operador';const rows=(d.users??[]).filter(u=>includes([u.name,u.email,u.role,roleName(u),u.active===1?'Ativo':'Inativo'],query));renderSummary([['Usuários',rows.length],['Ativos',rows.filter(u=>u.active===1).length],['Gerentes',rows.filter(u=>u.role==='MANAGER'&&u.company_admin!==1).length]]);content=table(['Nome','E-mail','Perfil','Status','Ações'],rows.map(u=>{
     const actions=element('div',undefined,'row-actions');
     if(manager()&&u.company_admin!==1){const edit=element('button','Editar');edit.type='button';edit.dataset.userAction='edit';edit.addEventListener('click',()=>openUserEdit(u));actions.append(edit);}
@@ -530,10 +577,13 @@ async function submitPending(){
     if(pending.path==='/api/users/update')$('user-edit-form').reset();
     if(pending.path==='/api/customers')$('customer-form').reset();
     if(pending.path==='/api/customers/update')$('customer-edit-form').reset();
-    if(pending.path==='/api/stores'){
-      $('store-form').reset();state.me=await api('/api/me');$('store-select').replaceChildren();
+    if(pending.path==='/api/stores'||pending.path==='/api/stores/update'){
+      const keep=pending.path==='/api/stores'?result.data.store.id:storeId();
+      if(pending.path==='/api/stores')$('store-form').reset();else{$('store-edit-form').reset();$('store-edit-dialog').close();}
+      state.me=await api('/api/me');$('store-select').replaceChildren();
       for(const store of state.me.stores){const option=element('option',store.name);option.value=store.id;$('store-select').append(option);}
-      $('store-select').value=result.data.store.id;
+      $('store-select').value=state.me.stores.some(store=>store.id===keep)?keep:state.me.stores[0]?.id;
+      if(state.tab==='stores')await loadCompanyStores();
     }
     updateMoneyPreviews();
     message(result.replayed?'Operação recuperada. Nenhum registro foi duplicado.':'Operação confirmada.');
@@ -560,7 +610,7 @@ async function boot(){
   state.me=await api('/api/me');state.csrf=state.me.csrfToken;
   $('login-panel').hidden=true;$('workspace').hidden=false;$('user-label').textContent=state.me.user.name;
   $('role-label').textContent=companyAdmin()?'ADMINISTRADOR DA EMPRESA':manager()?'GERENTE':'OPERADOR';
-  $('mfa-open').hidden=!manager();$('mfa-open').textContent=state.me.user.mfa_enabled===1?'MFA ativo':'Ativar MFA';$('mfa-open').disabled=state.me.user.mfa_enabled===1;
+  const mfaOn=state.me.user.mfa_enabled===1;$('mfa-open').hidden=!manager()||mfaOn;$('mfa-open').textContent='Ativar MFA';$('mfa-badge').hidden=!mfaOn;
   $('network-nav').hidden=!manager();
   if(manager()&&state.me.user.mfa_enabled!==1)return requireMfaSetup();
   $('store-select').replaceChildren();
@@ -655,6 +705,8 @@ function openProductEdit(product){
   updateMoneyPreviews();$('product-edit-dialog').showModal();
 }
 $('product-edit-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/products/update',{storeId:storeId(),productId:f.productId,sku:f.sku,barcode:f.barcode||null,name:f.name,priceCents:cents(f.price),active:1});});});
+$('product-deactivate').addEventListener('click',()=>{const product=state.data?.products.find(p=>p.id===$('product-edit-form').productId.value);if(!product)return;$('product-edit-dialog').close();deactivateProduct(product);});
+$('store-edit-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));if(f.active==='0'&&!confirm(`Desativar ${f.name}? Ela some dos seletores e deixa de operar. O histórico continua guardado.`))return;return command('/api/stores/update',{storeId:f.storeId,name:f.name,active:Number(f.active)});});});
 function deactivateProduct(product){
   if(!confirm(`Inativar ${product.name}? Ele deixará de aparecer na venda.`))return;
   run(()=>command('/api/products/update',{storeId:storeId(),productId:product.id,sku:product.sku,barcode:product.barcode??null,name:product.name,priceCents:product.price_cents,active:0}));
@@ -719,7 +771,7 @@ document.querySelectorAll('[data-network-period]').forEach(button=>button.addEve
 $('network-custom-open').addEventListener('click',()=>{const form=$('network-custom-period'),today=localDay();form.hidden=!form.hidden;$('network-from').max=today;$('network-to').max=today;const period=state.networkPeriod??presetPeriod('today');$('network-from').value=period.from;$('network-to').value=period.to;});
 $('network-custom-cancel').addEventListener('click',()=>{$('network-custom-period').hidden=true;$('network-custom-open').focus();});
 $('network-custom-period').addEventListener('submit',event=>{event.preventDefault();const from=$('network-from').value,to=$('network-to').value,today=localDay();if(!from||!to||from>to)return message('Informe um período válido.');if(to>today)return message('O período não pode terminar no futuro.');if(daysInPeriod(from,to)>366)return message('O período máximo é de 366 dias.');state.networkPeriod={preset:'custom',from,to};event.currentTarget.hidden=true;requestNetworkLoad();});
-document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>run(async()=>{state.tab=b.dataset.tab;$('management-search').value='';document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('selected',button===b));if(state.tab==='reports')await loadReport();renderManagement();})));
+document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>run(async()=>{state.tab=b.dataset.tab;state.productFilter=null;$('management-search').value='';document.querySelectorAll('[data-tab]').forEach(button=>button.classList.toggle('selected',button===b));syncTabActions();if(state.tab==='reports')await loadReport();if(state.tab==='stores')await loadCompanyStores();renderManagement();})));
 $('management-search').addEventListener('input',renderManagement);
 document.addEventListener('keydown',event=>{
   if(!state.me)return;

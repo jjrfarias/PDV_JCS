@@ -201,6 +201,11 @@ export function createApp(db,{mailer}={}) {
         throw new AppError(403,'MFA_SETUP_REQUIRED','Ative a autenticação em duas etapas para continuar.');
       if(req.method==='GET'&&url.pathname==='/api/me') return send(res,200,{...await pos.me(ctx),csrfToken:ctx.csrfToken});
       if(req.method==='GET'&&url.pathname==='/api/network/overview') return send(res,200,await pos.networkOverview(ctx,url.searchParams.get('from')??'',url.searchParams.get('to')??''));
+      if(req.method==='GET'&&url.pathname==='/api/company/stores') return send(res,200,await pos.companyStores(ctx));
+      if(req.method==='POST'&&url.pathname==='/api/stores/update') {
+        const result=await pos.updateStore(ctx,req.headers['idempotency-key'],await json(req));
+        return send(res,result.replayed?200:201,result);
+      }
       if(req.method==='POST'&&url.pathname==='/api/stores') {
         const result=await pos.createStore(ctx,req.headers['idempotency-key'],await json(req),origin);
         return send(res,result.replayed?200:201,result);

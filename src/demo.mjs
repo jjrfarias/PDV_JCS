@@ -28,7 +28,7 @@ export function seedDemo(db, testPassword) {
     for (const [tenantId, store, company, name] of [
       ['tenant-demo','store-a','company-demo','Loja A · Centro'],
       ['tenant-demo','store-b','company-demo','Loja B · Bairro'],
-      ['tenant-other','store-other','company-other','Loja de outro contratante']]) run('INSERT INTO stores VALUES(?,?,?,?)',tenantId,store,company,name);
+      ['tenant-other','store-other','company-other','Loja de outro contratante']]) run('INSERT INTO stores(tenant_id,id,company_id,name) VALUES(?,?,?,?)',tenantId,store,company,name);
     for (const u of credentials) run('INSERT INTO users(tenant_id,id,email,name,password_hash,role) VALUES(?,?,?,?,?,?)',u.tenantId,u.id,u.email,u.name,hashPassword(u.password),u.role);
     for (const [tenant,user,store] of [
       ['tenant-demo','user-manager','store-a'],['tenant-demo','user-manager','store-b'],
