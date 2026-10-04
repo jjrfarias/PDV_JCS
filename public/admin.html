@@ -13,11 +13,14 @@
       <p id="login-error" role="alert"></p>
     </form>
   </main>
-  <div id="workspace" hidden>
-    <header class="header"><div class="wordmark">JCS <span>ADMIN</span></div><div class="head-controls"><div class="operator-card"><small>ADMINISTRADOR</small><div id="admin-label"></div></div><button id="logout" type="button">Sair</button></div></header>
-    <div class="page-heading"><div><span class="eyebrow">SISTEMA</span><h1>Empresas contratantes</h1></div><div class="register-actions"><button id="refresh" type="button">Atualizar</button><button id="new-tenant" class="primary" type="button">Nova empresa</button></div></div>
-    <div id="message" class="message" role="status" aria-live="polite" hidden></div>
-    <section class="management view-panel"><div id="tenant-table" class="table-wrap"></div></section>
+  <div id="workspace" class="admin-workspace" hidden>
+    <header class="admin-header"><div class="admin-brand"><span class="wordmark">JCS <span>PDV</span></span><span class="admin-tag">Administração do sistema</span></div><div class="admin-user"><div><small>ADMINISTRADOR</small><strong id="admin-label"></strong></div><button id="logout" type="button">Sair</button></div></header>
+    <main class="admin-main">
+      <div class="admin-heading"><div><span class="eyebrow">EMPRESAS</span><h1>Empresas contratantes</h1><p>Crie empresas e controle o acesso delas ao PDV. Esta área não mostra dados de operação.</p></div><div class="admin-actions"><button id="refresh" type="button">Atualizar</button><button id="new-tenant" class="primary" type="button">+ Nova empresa</button></div></div>
+      <div id="message" class="message admin-message" role="status" aria-live="polite" hidden></div>
+      <div id="tenant-stats" class="admin-stats"></div>
+      <section class="admin-card"><div id="tenant-table"></div></section>
+    </main>
     <footer>Jordão Consultoria e Soluções · PDV JCS <span>Administração do sistema</span></footer>
   </div>
   <dialog id="tenant-dialog"><form id="tenant-form"><h2>Nova empresa</h2><p>Cria a empresa com uma loja, o terminal Caixa 01 e o primeiro gerente. O gerente recebe por e-mail um convite para criar a própria senha.</p>

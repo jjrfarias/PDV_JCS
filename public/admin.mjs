@@ -21,12 +21,17 @@ async function busy(work) {
 }
 
 function renderTenants() {
-  const table = cell('table'); const head = cell('thead'); const row = cell('tr');
-  for (const title of ['Empresa', 'Identificador', 'Usuários', 'Status', '']) row.append(cell('th', title));
+  const active = state.tenants.filter(tenant => tenant.active).length;
+  const users = state.tenants.reduce((sum, tenant) => sum + tenant.userCount, 0);
+  $('tenant-stats').replaceChildren(...[['Empresas', state.tenants.length], ['Ativas', active], ['Desativadas', state.tenants.length - active], ['Usuários', users]]
+    .map(([label, value]) => { const box = cell('div'); box.append(cell('span', label), cell('strong', String(value))); return box; }));
+  const table = cell('table', undefined, 'admin-table'); const head = cell('thead'); const row = cell('tr');
+  for (const [title, className] of [['Empresa'], ['Acesso pelo PDV'], ['Usuários', 'number'], ['Status'], ['', 'actions']]) row.append(cell('th', title, className));
   head.append(row); const body = cell('tbody');
   for (const tenant of state.tenants) {
     const tr = cell('tr');
-    const toggle = cell('button', tenant.active ? 'Desativar' : 'Ativar', tenant.active ? 'ghost danger-action' : 'ghost');
+    if (!tenant.active) tr.className = 'inactive';
+    const toggle = cell('button', tenant.active ? 'Desativar' : 'Reativar', tenant.active ? 'admin-danger' : 'admin-restore');
     toggle.type = 'button';
     toggle.addEventListener('click', () => busy(async () => {
       const verb = tenant.active ? 'desativar' : 'reativar';
@@ -35,13 +40,18 @@ function renderTenants() {
         body: JSON.stringify({ tenantId: tenant.id, active: tenant.active ? 0 : 1 }) });
       message(tenant.active ? 'Empresa desativada.' : 'Empresa reativada.'); await load();
     }));
-    const action = cell('td'); action.append(toggle);
-    tr.append(cell('td', tenant.name), cell('td', tenant.slug), cell('td', String(tenant.userCount)),
-      cell('td', tenant.active ? 'Ativa' : 'Desativada', tenant.active ? 'badge' : 'badge muted'), action);
+    const action = cell('td', undefined, 'actions'); action.append(toggle);
+    const name = cell('td'); name.append(cell('strong', tenant.name));
+    const access = cell('td'); access.append(cell('code', tenant.slug));
+    const status = cell('td'); status.append(cell('span', tenant.active ? 'Ativa' : 'Desativada', tenant.active ? 'status-pill on' : 'status-pill off'));
+    tr.append(name, access, cell('td', String(tenant.userCount), 'number'), status, action);
     body.append(tr);
   }
   table.append(head, body);
-  $('tenant-table').replaceChildren(state.tenants.length ? table : cell('p', 'Nenhuma empresa cadastrada.'));
+  if (state.tenants.length) return $('tenant-table').replaceChildren(table);
+  const empty = cell('div', undefined, 'admin-empty');
+  empty.append(cell('strong', 'Nenhuma empresa cadastrada'), cell('p', 'Use + Nova empresa para cadastrar a primeira.'));
+  $('tenant-table').replaceChildren(empty);
 }
 async function load() { state.tenants = (await api('/api/platform/tenants')).tenants; renderTenants(); }
 async function boot() {
