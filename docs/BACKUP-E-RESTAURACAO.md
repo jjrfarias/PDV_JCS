@@ -44,6 +44,6 @@ O ciclo de dump, criação do banco e restauração terminou sem erro. A etapa d
 ## Pendências
 
 - Confirmar a primeira cobertura efetiva do PITR e a saúde do arquivador após o backup-base.
-- Criar dump lógico criptografado e armazenado fora do mesmo projeto Railway.
+- Conectar e homologar o serviço `ops/offsite-backup` a um bucket S3 fora do mesmo projeto Railway; a implementação já gera dump validado, criptografia `age` e checksum.
 - Guardar uma cópia controlada da chave de criptografia em cofre separado e testar sua recuperação sem revelar o valor.
 - Automatizar alerta quando agenda, backup ou arquivamento falhar.
