@@ -54,10 +54,19 @@ function renderTenants() {
   $('tenant-table').replaceChildren(empty);
 }
 async function load() { state.tenants = (await api('/api/platform/tenants')).tenants; renderTenants(); }
+// Administrador sem MFA: a sessão só serve para ativar. Fechar o diálogo encerra a sessão.
+async function requireMfaSetup(){
+  state.mfaRequired=true;
+  const result=await api('/api/platform/mfa/start',{method:'POST',body:'{}'});
+  $('mfa-form').reset();$('mfa-secret').value=result.secret;
+  $('mfa-required-note').hidden=false;
+  $('mfa-dialog').showModal();
+}
 async function boot() {
   state.me = await api('/api/platform/me'); state.csrf = state.me.csrfToken;
   $('login-panel').hidden = true; $('workspace').hidden = false; $('admin-label').textContent = state.me.admin.name;
   $('mfa-open').textContent=state.me.admin.mfa_enabled===1?'MFA ativo':'Ativar MFA';$('mfa-open').disabled=state.me.admin.mfa_enabled===1;
+  if(state.me.admin.mfa_enabled!==1)return requireMfaSetup();
   await load();
 }
 
@@ -71,7 +80,7 @@ $('login-form').addEventListener('submit', async event => {
 $('logout').addEventListener('click', () => busy(async () => { await api('/api/platform/logout', { method: 'POST', body: '{}' }); location.reload(); }));
 $('refresh').addEventListener('click', () => busy(load));
 $('mfa-open').addEventListener('click',()=>busy(async()=>{const result=await api('/api/platform/mfa/start',{method:'POST',body:'{}'});$('mfa-form').reset();$('mfa-secret').value=result.secret;$('mfa-dialog').showModal();}));
-$('mfa-form').addEventListener('submit',event=>{event.preventDefault();busy(async()=>{await api('/api/platform/mfa/confirm',{method:'POST',body:JSON.stringify({code:event.target.code.value})});$('mfa-dialog').close();message('MFA ativado. Os próximos acessos exigirão o código do aplicativo.');await boot();});});
+$('mfa-form').addEventListener('submit',event=>{event.preventDefault();busy(async()=>{await api('/api/platform/mfa/confirm',{method:'POST',body:JSON.stringify({code:event.target.code.value})});state.mfaRequired=false;$('mfa-required-note').hidden=true;$('mfa-dialog').close();message('MFA ativado. Os próximos acessos exigirão o código do aplicativo.');await boot();});});
 $('new-tenant').addEventListener('click', () => { $('tenant-form').reset(); delete $('tenant-form').dataset.key; $('tenant-dialog').showModal(); });
 $('tenant-form').addEventListener('submit', event => {
   event.preventDefault();
@@ -109,3 +118,5 @@ $('reset-form').addEventListener('submit', async event => {
 });
 document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => button.closest('dialog').close()));
 boot().catch(error => { if (error.status !== 401) $('login-error').textContent = error.message; });
+
+$('mfa-dialog').addEventListener('close',()=>{if(state.mfaRequired)api('/api/platform/logout',{method:'POST',body:'{}'}).finally(()=>location.reload());});

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createApp } from '../src/http.mjs';
-import { fixture, PASSWORD, DEMO, key } from './helpers.mjs';
+import { fixture, PASSWORD, DEMO, key, testMfaCode } from './helpers.mjs';
 
 async function web(t) {
   const { db } = fixture(t);
@@ -27,7 +27,7 @@ async function web(t) {
     return { response, data };
   }
   async function login(email = 'gerente@jcs.local', password = PASSWORD) {
-    const result = await call('/api/login', { method: 'POST', body: { tenant: 'demo', email, password } });
+    const result = await call('/api/login', { method: 'POST', body: { tenant: 'demo', email, password, code: testMfaCode(db, 'users', email) } });
     if (result.response.status === 200) {
       cookie = result.response.headers.get('set-cookie').split(';')[0];
       csrf = result.data.csrfToken;

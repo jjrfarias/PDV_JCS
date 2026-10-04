@@ -13,7 +13,8 @@ Antes da expansão comercial, o contrato deve identificar razão social, CNPJ, e
 - Acesso individual; é proibido compartilhar contas.
 - Menor privilégio por perfil, empresa e loja. Acesso de suporte a dados operacionais não existe por padrão.
 - Senha forte, sessão limitada e encerramento de acessos ao desligar uma pessoa.
-- MFA TOTP está disponível para administradores da plataforma e gerentes e deve ser ativado nas contas privilegiadas.
+- MFA TOTP é obrigatório para administradores da plataforma e gerentes. Sem MFA ativo, a sessão só permite ativar o MFA, trocar a senha ou sair. Cada código vale uma única vez: o último intervalo de 30 segundos aceito fica gravado na conta.
+- Toda troca ou redefinição de senha envia um aviso por e-mail ao dono da conta, sem senha nem link.
 - Segredos ficam somente no cofre da plataforma, nunca no Git, em mensagens ou arquivos de demonstração.
 - Produção usa HTTPS, PostgreSQL com RLS e usuário runtime sem superusuário, `BYPASSRLS` ou propriedade das tabelas.
 - Dados pessoais opcionais de clientes permanecem criptografados. A chave deve ter cópia segura e acesso restrito.
@@ -58,7 +59,7 @@ Trimestralmente: revisar usuários privilegiados, dependências, fornecedores, a
 
 ## Pendências para liberação comercial ampliada
 
-1. Procedimento seguro de recuperação do MFA quando o administrador ou gerente perde o autenticador. Administradores e gerentes já dispõem de MFA TOTP.
+1. Recuperação do MFA: o procedimento auditado existe em `scripts/reset-mfa-postgres.mjs`; falta registrar a verificação de identidade antes de usá-lo.
 2. Backup criptografado com restauração homologada e evidência periódica.
 3. Executar e registrar periodicamente a rotação versionada já implementada, conforme o procedimento operacional.
 4. Rate limit compartilhado entre instâncias. O IP real já vem do cabeçalho `X-Real-IP` da borda da Railway, aceito só em produção na Railway; o contador ainda é em memória e reinicia a cada deploy.

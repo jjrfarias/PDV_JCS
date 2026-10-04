@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { AppError, requireThat, text, object, id as checkId, operationKey } from './errors.mjs';
 import { withPostgresTransaction } from './postgres.mjs';
 import { sha256, randomToken, hashPassword, verifyPassword, encryptField, decryptField } from './security.mjs';
-import { totpSecret, verifyTotp, otpauthUri } from './totp.mjs';
+import { totpSecret, verifyTotp, otpauthUri, totpStep, currentTotpStep } from './totp.mjs';
 import { createMailer } from './mailer.mjs';
 
 const SESSION_TTL_MS = 8 * 60 * 60_000;
@@ -81,14 +81,20 @@ export class Platform {
     const admin = await this.q.one('SELECT * FROM platform_admins WHERE email=$1 AND active=1', [address]);
     const valid = await verifyPassword(password, admin?.password_hash ?? this.dummyHash);
     requireThat(admin && valid, 401, 'INVALID_LOGIN', 'E-mail ou senha inválidos.');
+    let mfaStep = null;
     if (admin.mfa_enabled === 1) {
-      requireThat(verifyTotp(decryptField(admin.mfa_secret_enc), input.code), 401, 'MFA_REQUIRED',
+      mfaStep = totpStep(decryptField(admin.mfa_secret_enc), input.code);
+      requireThat(mfaStep !== null, 401, 'MFA_REQUIRED',
         input.code ? 'Código de autenticação inválido.' : 'Informe o código do aplicativo autenticador.');
     }
     const token = randomToken(); const csrfToken = randomToken(); const now = Date.now();
     await this.tx({}, async q => {
       const current = await q.one('SELECT active,password_hash FROM platform_admins WHERE id=$1', [admin.id]);
       requireThat(current?.active === 1 && current.password_hash === admin.password_hash, 401, 'INVALID_LOGIN', 'Acesso indisponível.');
+      if (mfaStep !== null) {
+        const used = await q.run('UPDATE platform_admins SET mfa_last_step=$1 WHERE id=$2 AND (mfa_last_step IS NULL OR mfa_last_step<$1)', [mfaStep, admin.id]);
+        requireThat(used.changes === 1, 401, 'MFA_CODE_REUSED', 'Este código já foi usado. Aguarde o próximo código do aplicativo.');
+      }
       await q.run('DELETE FROM platform_sessions WHERE expires_at<$1', [now]);
       await q.run('INSERT INTO platform_sessions(token_hash,admin_id,csrf_token,expires_at) VALUES($1,$2,$3,$4)', [sha256(token), admin.id, csrfToken, now + SESSION_TTL_MS]);
       await this.audit(q, admin.id, 'PLATFORM_LOGIN', admin.id);
@@ -103,6 +109,11 @@ export class Platform {
     return session ? { adminId: session.admin_id, csrfToken: session.csrf_token, tokenHash: session.token_hash } : null;
   }
   async logout(ctx) { await this.q.run('DELETE FROM platform_sessions WHERE token_hash=$1 AND admin_id=$2', [ctx.tokenHash, ctx.adminId]); }
+  // Administrador sem MFA ativo só pode configurar o MFA ou sair.
+  async mfaSetupPending(ctx) {
+    const admin = await this.q.one('SELECT mfa_enabled FROM platform_admins WHERE id=$1', [ctx.adminId]);
+    return admin?.mfa_enabled !== 1;
+  }
   async me(ctx) {
     const admin = await this.q.one('SELECT id,email,name,mfa_enabled FROM platform_admins WHERE id=$1 AND active=1', [ctx.adminId]);
     requireThat(admin, 401, 'AUTH_REQUIRED', 'Faça login para continuar.');
@@ -120,7 +131,7 @@ export class Platform {
     await this.tx({},async q=>{const admin=await q.one('SELECT mfa_pending_secret_enc FROM platform_admins WHERE id=$1',[ctx.adminId]);
       requireThat(admin?.mfa_pending_secret_enc,400,'MFA_NOT_STARTED','Inicie a configuração novamente.');
       requireThat(verifyTotp(decryptField(admin.mfa_pending_secret_enc),code),400,'INVALID_MFA_CODE','Código de autenticação inválido.');
-      await q.run('UPDATE platform_admins SET mfa_secret_enc=mfa_pending_secret_enc,mfa_pending_secret_enc=NULL,mfa_enabled=1 WHERE id=$1',[ctx.adminId]);
+      await q.run(`UPDATE platform_admins SET mfa_secret_enc=mfa_pending_secret_enc,mfa_pending_secret_enc=NULL,mfa_enabled=1,mfa_last_step=${currentTotpStep()} WHERE id=$1`,[ctx.adminId]);
       await q.run('DELETE FROM platform_sessions WHERE admin_id=$1 AND token_hash<>$2',[ctx.adminId,ctx.tokenHash]);
       await this.audit(q,ctx.adminId,'PLATFORM_MFA_ENABLED',ctx.adminId);
     });return {ok:true};
@@ -151,6 +162,7 @@ export class Platform {
     if (!/^[\w-]{43}$/.test(token)) invalid();
     const newPassword = text(input.newPassword, 'Nova senha', 200, 12);
     requireThat(strongPassword(newPassword), 400, 'WEAK_PASSWORD', 'A nova senha deve ter 12 caracteres, com letras maiúsculas, minúsculas e número.');
+    let changed = null;
     const passwordHash = hashPassword(newPassword); const now = Date.now();
     await this.tx({}, async q => {
       const found = await q.one(`SELECT r.id,r.admin_id FROM platform_password_resets r JOIN platform_admins a ON a.id=r.admin_id
@@ -161,7 +173,9 @@ export class Platform {
       await q.run('UPDATE platform_admins SET password_hash=$1 WHERE id=$2', [passwordHash, found.admin_id]);
       await q.run('DELETE FROM platform_sessions WHERE admin_id=$1', [found.admin_id]);
       await this.audit(q, found.admin_id, 'PLATFORM_PASSWORD_RESET_COMPLETED', found.id);
+      changed = (await q.one('SELECT email FROM platform_admins WHERE id=$1', [found.admin_id]))?.email ?? null;
     });
+    if (changed) this.send('sendPasswordChanged', { to: changed });
     return { ok: true };
   }
 

@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { createApp } from '../src/http.mjs';
 import { hashPassword } from '../src/security.mjs';
 import { totpCode } from '../src/totp.mjs';
-import { fixture, PASSWORD, key } from './helpers.mjs';
+import { fixture, PASSWORD, key, enableTestMfa, testMfaCode } from './helpers.mjs';
 
 const ADMIN_EMAIL = 'admin.sistema@jcs.local';
 const ADMIN_PASSWORD = 'Admin-Sistema-2026';
@@ -14,6 +14,7 @@ async function web(t) {
   const { db } = fixture(t);
   db.prepare('INSERT INTO platform_admins(id,email,name,password_hash,created_at) VALUES(?,?,?,?,?)')
     .run('admin-1', ADMIN_EMAIL, 'Administrador de teste', hashPassword(ADMIN_PASSWORD), Date.now());
+  enableTestMfa(db, 'platform_admins', "id='admin-1'");
   const outbox = [];
   const mailer = {
     async sendPasswordReset(message) { outbox.push({ kind: 'reset', ...message }); },
@@ -35,12 +36,12 @@ async function web(t) {
     return { response, data };
   }
   const cookieOf = result => result.response.headers.get('set-cookie')?.split(';')[0] ?? '';
-  async function adminLogin(email = ADMIN_EMAIL, password = ADMIN_PASSWORD, code) {
+  async function adminLogin(email = ADMIN_EMAIL, password = ADMIN_PASSWORD, code = testMfaCode(db, 'platform_admins', email)) {
     const result = await call('/api/platform/login', { body: { email, password, ...(code ? { code } : {}) } });
     return { status: result.response.status, cookie: cookieOf(result), csrf: result.data.csrfToken };
   }
   async function tenantLogin(tenant, email, password) {
-    const result = await call('/api/login', { body: { tenant, email, password } });
+    const result = await call('/api/login', { body: { tenant, email, password, code: testMfaCode(db, 'users', email) } });
     return { status: result.response.status, cookie: cookieOf(result), csrf: result.data.csrfToken };
   }
   const as = session => ({
@@ -55,14 +56,17 @@ async function web(t) {
 const NEW_TENANT = { slug: 'mercado-silva', name: 'Mercado Silva', storeName: 'Loja Centro', managerName: 'Ana Silva', managerEmail: 'ana@silva.local' };
 
 test('admin ativa MFA TOTP e novos logins exigem código válido', async t => {
-  const w=await web(t),admin=await w.adminLogin();
+  const w=await web(t);w.db.prepare("UPDATE platform_admins SET mfa_enabled=0,mfa_secret_enc=NULL WHERE id='admin-1'").run();const admin=await w.adminLogin();
+  // Sem MFA, o administrador só consegue configurar o MFA.
+  assert.equal((await w.as(admin).get('/api/platform/tenants')).data.error.code,'MFA_SETUP_REQUIRED');
   const started=await w.as(admin).post('/api/platform/mfa/start',{});
   assert.match(started.data.secret,/^[A-Z2-7]{32}$/);
   assert.match(started.data.uri,/^otpauth:\/\/totp\//);
   assert.equal((await w.as(admin).post('/api/platform/mfa/confirm',{code:totpCode(started.data.secret)})).response.status,200);
-  assert.equal((await w.adminLogin()).status,401);
+  assert.equal((await w.adminLogin(ADMIN_EMAIL,ADMIN_PASSWORD,'')).status,401);
   assert.equal((await w.adminLogin(ADMIN_EMAIL,ADMIN_PASSWORD,'000000')).status,401);
-  assert.equal((await w.adminLogin(ADMIN_EMAIL,ADMIN_PASSWORD,totpCode(started.data.secret))).status,200);
+  assert.equal((await w.adminLogin(ADMIN_EMAIL,ADMIN_PASSWORD,totpCode(started.data.secret))).status,401,'confirmation code cannot be reused');
+  assert.equal((await w.adminLogin(ADMIN_EMAIL,ADMIN_PASSWORD,totpCode(started.data.secret,Date.now()+30_000))).status,200);
   const stored=w.db.prepare('SELECT mfa_secret_enc,mfa_enabled FROM platform_admins WHERE id=?').get('admin-1');
   assert.equal(stored.mfa_enabled,1);assert.doesNotMatch(stored.mfa_secret_enc,new RegExp(started.data.secret));
 });

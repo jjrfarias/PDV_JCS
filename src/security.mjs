@@ -4,7 +4,7 @@ import { requireThat, text, object } from './errors.mjs';
 import { one, run, withPostgresTransaction } from './postgres.mjs';
 import { transaction } from './database.mjs';
 import { createMailer } from './mailer.mjs';
-import { totpSecret, verifyTotp, otpauthUri } from './totp.mjs';
+import { totpSecret, verifyTotp, otpauthUri, totpStep, currentTotpStep } from './totp.mjs';
 
 const RESET_TTL_MS = 30 * 60_000;
 const strongPassword = value => /[A-Z]/.test(value) && /[a-z]/.test(value) && /\d/.test(value);
@@ -137,6 +137,7 @@ export class Auth {
     if (!/^[\w-]{43}$/.test(token)) invalid();
     const newPassword = text(input.newPassword, 'Nova senha', 200, 12);
     requireThat(strongPassword(newPassword), 400, 'WEAK_PASSWORD', 'A nova senha deve ter 12 caracteres, com letras maiúsculas, minúsculas e número.');
+    let changed = null;
     const tokenHash = sha256(token);
     const now = Date.now();
     const passwordHash = hashPassword(newPassword);
@@ -153,6 +154,7 @@ export class Auth {
         await run(client, 'DELETE FROM sessions WHERE tenant_id=$1 AND user_id=$2', [found.tenant_id, found.user_id]);
         await this.auditReset(client, 'PASSWORD_RESET_COMPLETED', found.tenant_id, found.user_id, found.id);
       }, { tenantId: found.tenant_id, userId: found.user_id });
+      changed = { tenantId: found.tenant_id, userId: found.user_id };
     } else {
       transaction(this.db, () => {
         const found = this.db.prepare(`SELECT r.tenant_id,r.id,r.user_id FROM password_resets r
@@ -164,8 +166,10 @@ export class Auth {
         this.db.prepare('UPDATE users SET password_hash=? WHERE tenant_id=? AND id=?').run(passwordHash, found.tenant_id, found.user_id);
         this.db.prepare('DELETE FROM sessions WHERE tenant_id=? AND user_id=?').run(found.tenant_id, found.user_id);
         this.auditReset(this.db, 'PASSWORD_RESET_COMPLETED', found.tenant_id, found.user_id, found.id);
+        changed = { tenantId: found.tenant_id, userId: found.user_id };
       });
     }
+    this.notifyPasswordChanged(changed ? await this.userEmail(changed.tenantId, changed.userId) : null);
     return { ok: true };
   }
   // Registro de acesso (Marco Civil). Só para contas existentes: sem conta não há tenant a quem o registro pertença.
@@ -175,6 +179,27 @@ export class Auth {
     if (typeof this.db.query !== 'function') return this.db.prepare(sql.replace(/\$\d/g, '?')).run(...values);
     if (client) return run(client, sql, values);
     return withPostgresTransaction(this.db, tx => run(tx, sql, values), { tenantId, userId });
+  }
+  // Gerente sem MFA ativo só pode configurar o MFA, trocar a senha ou sair.
+  async mfaSetupPending(ctx) {
+    const sql = 'SELECT role,mfa_enabled FROM users WHERE tenant_id=$1 AND id=$2';
+    const user = typeof this.db.query === 'function'
+      ? await withPostgresTransaction(this.db, client => one(client, sql, [ctx.tenantId, ctx.userId]), { tenantId: ctx.tenantId, userId: ctx.userId, readOnly: true })
+      : this.db.prepare(sql.replace(/\$\d/g, '?')).get(ctx.tenantId, ctx.userId);
+    return user?.role === 'MANAGER' && user.mfa_enabled !== 1;
+  }
+  // Aviso de senha alterada ao dono da conta. Sem await e sem registrar endereço em log.
+  notifyPasswordChanged(to) {
+    if (!to) return;
+    Promise.resolve().then(() => this.mailer.sendPasswordChanged({ to })).catch(error => console.error('Falha ao enviar aviso de senha alterada:',
+      String(error?.message ?? '').startsWith('MAIL_PROVIDER_') ? error.message : (error?.name ?? 'Error')));
+  }
+  async userEmail(tenantId, userId) {
+    const sql = 'SELECT email FROM users WHERE tenant_id=$1 AND id=$2';
+    const row = typeof this.db.query === 'function'
+      ? await withPostgresTransaction(this.db, client => one(client, sql, [tenantId, userId]), { tenantId, userId, readOnly: true })
+      : this.db.prepare(sql.replace(/\$\d/g, '?')).get(tenantId, userId);
+    return row?.email ?? null;
   }
   async login(input, ip) {
     object(input, ['tenant','email','password','code']);
@@ -198,11 +223,16 @@ export class Auth {
     const valid = await verifyPassword(password, user?.password_hash ?? this.dummyHash);
     if (user && !valid) await this.accessEvent(user.tenant_id, user.id, 'LOGIN_FAILED', ip);
     requireThat(user && valid, 401, 'INVALID_LOGIN', 'Empresa, e-mail ou senha inválidos.');
-    if(user.role==='MANAGER'&&user.mfa_enabled===1&&!verifyTotp(decryptField(user.mfa_secret_enc),input.code)) {
-      // Pedir o código pela primeira vez não é falha; código errado é.
-      if(input.code) await this.accessEvent(user.tenant_id, user.id, 'LOGIN_FAILED', ip);
-      requireThat(false,401,'MFA_REQUIRED',input.code?'Código de autenticação inválido.':'Informe o código do aplicativo autenticador.');
+    let mfaStep = null;
+    if(user.role==='MANAGER'&&user.mfa_enabled===1) {
+      mfaStep = totpStep(decryptField(user.mfa_secret_enc), input.code);
+      if (mfaStep === null) {
+        // Pedir o código pela primeira vez não é falha; código errado é.
+        if(input.code) await this.accessEvent(user.tenant_id, user.id, 'LOGIN_FAILED', ip);
+        requireThat(false,401,'MFA_REQUIRED',input.code?'Código de autenticação inválido.':'Informe o código do aplicativo autenticador.');
+      }
     }
+    const codeReused = () => requireThat(false, 401, 'MFA_CODE_REUSED', 'Este código já foi usado. Aguarde o próximo código do aplicativo.');
     const token = randomToken();
     const csrfToken = randomToken();
     // Revalidar depois do scrypt; o lock impede desativação no meio da criação da sessão.
@@ -210,6 +240,7 @@ export class Auth {
       await withPostgresTransaction(this.db, async client => {
         const current = await one(client, 'SELECT active,password_hash FROM users WHERE tenant_id=$1 AND id=$2 FOR SHARE', [user.tenant_id,user.id]);
         requireThat(current?.active===1 && current.password_hash===user.password_hash,401,'INVALID_LOGIN','Acesso indisponível.');
+        if (mfaStep !== null && (await run(client,'UPDATE users SET mfa_last_step=$1 WHERE tenant_id=$2 AND id=$3 AND (mfa_last_step IS NULL OR mfa_last_step<$1)',[mfaStep,user.tenant_id,user.id])).changes !== 1) codeReused();
         await run(client,'DELETE FROM sessions WHERE tenant_id=$1 AND expires_at<$2',[user.tenant_id,now]);
         await run(client,`INSERT INTO sessions(token_hash,tenant_id,user_id,csrf_token,expires_at) VALUES($1,$2,$3,$4,$5)`,
           [sha256(token),user.tenant_id,user.id,csrfToken,now+12*60*60_000]);
@@ -218,6 +249,7 @@ export class Auth {
     } else {
       const current=this.db.prepare('SELECT active,password_hash FROM users WHERE tenant_id=? AND id=?').get(user.tenant_id,user.id);
       requireThat(current?.active===1 && current.password_hash===user.password_hash,401,'INVALID_LOGIN','Acesso indisponível.');
+      if (mfaStep !== null && Number(this.db.prepare('UPDATE users SET mfa_last_step=? WHERE tenant_id=? AND id=? AND (mfa_last_step IS NULL OR mfa_last_step<?)').run(mfaStep,user.tenant_id,user.id,mfaStep).changes) !== 1) codeReused();
       this.db.prepare('DELETE FROM sessions WHERE tenant_id=? AND expires_at<?').run(user.tenant_id,now);
       this.db.prepare('INSERT INTO sessions VALUES(?,?,?,?,?)').run(sha256(token),user.tenant_id,user.id,csrfToken,now+12*60*60_000);
       await this.accessEvent(user.tenant_id, user.id, 'LOGIN_SUCCEEDED', ip);
@@ -270,6 +302,7 @@ export class Auth {
       this.db.prepare('UPDATE users SET password_hash=? WHERE tenant_id=? AND id=?').run(hashPassword(newPassword), ctx.tenantId, ctx.userId);
       this.db.prepare('DELETE FROM sessions WHERE tenant_id=? AND user_id=? AND token_hash<>?').run(ctx.tenantId, ctx.userId, ctx.tokenHash);
     }
+    this.notifyPasswordChanged(await this.userEmail(ctx.tenantId, ctx.userId));
     return { ok: true };
   }
   async beginMfa(ctx) {
@@ -286,8 +319,8 @@ export class Auth {
     object(input,['code']);const code=text(input.code,'Código',6,6),postgres=typeof this.db.query==='function';
     if(postgres)await withPostgresTransaction(this.db,async client=>{const user=await one(client,'SELECT role,mfa_pending_secret_enc FROM users WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[ctx.tenantId,ctx.userId]);
       requireThat(user?.role==='MANAGER'&&user.mfa_pending_secret_enc,400,'MFA_NOT_STARTED','Inicie a configuração novamente.');requireThat(verifyTotp(decryptField(user.mfa_pending_secret_enc),code),400,'INVALID_MFA_CODE','Código de autenticação inválido.');
-      await run(client,'UPDATE users SET mfa_secret_enc=mfa_pending_secret_enc,mfa_pending_secret_enc=NULL,mfa_enabled=1 WHERE tenant_id=$1 AND id=$2',[ctx.tenantId,ctx.userId]);await run(client,'DELETE FROM sessions WHERE tenant_id=$1 AND user_id=$2 AND token_hash<>$3',[ctx.tenantId,ctx.userId,ctx.tokenHash]);await this.auditReset(client,'MFA_ENABLED',ctx.tenantId,ctx.userId,ctx.userId);},ctx);
-    else transaction(this.db,()=>{const user=this.db.prepare('SELECT role,mfa_pending_secret_enc FROM users WHERE tenant_id=? AND id=?').get(ctx.tenantId,ctx.userId);requireThat(user?.role==='MANAGER'&&user.mfa_pending_secret_enc,400,'MFA_NOT_STARTED','Inicie a configuração novamente.');requireThat(verifyTotp(decryptField(user.mfa_pending_secret_enc),code),400,'INVALID_MFA_CODE','Código de autenticação inválido.');this.db.prepare('UPDATE users SET mfa_secret_enc=mfa_pending_secret_enc,mfa_pending_secret_enc=NULL,mfa_enabled=1 WHERE tenant_id=? AND id=?').run(ctx.tenantId,ctx.userId);this.db.prepare('DELETE FROM sessions WHERE tenant_id=? AND user_id=? AND token_hash<>?').run(ctx.tenantId,ctx.userId,ctx.tokenHash);this.auditReset(this.db,'MFA_ENABLED',ctx.tenantId,ctx.userId,ctx.userId);});
+      await run(client,`UPDATE users SET mfa_secret_enc=mfa_pending_secret_enc,mfa_pending_secret_enc=NULL,mfa_enabled=1,mfa_last_step=${currentTotpStep()} WHERE tenant_id=$1 AND id=$2`,[ctx.tenantId,ctx.userId]);await run(client,'DELETE FROM sessions WHERE tenant_id=$1 AND user_id=$2 AND token_hash<>$3',[ctx.tenantId,ctx.userId,ctx.tokenHash]);await this.auditReset(client,'MFA_ENABLED',ctx.tenantId,ctx.userId,ctx.userId);},ctx);
+    else transaction(this.db,()=>{const user=this.db.prepare('SELECT role,mfa_pending_secret_enc FROM users WHERE tenant_id=? AND id=?').get(ctx.tenantId,ctx.userId);requireThat(user?.role==='MANAGER'&&user.mfa_pending_secret_enc,400,'MFA_NOT_STARTED','Inicie a configuração novamente.');requireThat(verifyTotp(decryptField(user.mfa_pending_secret_enc),code),400,'INVALID_MFA_CODE','Código de autenticação inválido.');this.db.prepare(`UPDATE users SET mfa_secret_enc=mfa_pending_secret_enc,mfa_pending_secret_enc=NULL,mfa_enabled=1,mfa_last_step=${currentTotpStep()} WHERE tenant_id=? AND id=?`).run(ctx.tenantId,ctx.userId);this.db.prepare('DELETE FROM sessions WHERE tenant_id=? AND user_id=? AND token_hash<>?').run(ctx.tenantId,ctx.userId,ctx.tokenHash);this.auditReset(this.db,'MFA_ENABLED',ctx.tenantId,ctx.userId,ctx.userId);});
     return {ok:true};
   }
 }

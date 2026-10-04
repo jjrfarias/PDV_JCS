@@ -6,6 +6,10 @@ const messages = {
     subject: 'PDV JCS - recuperação de senha',
     text: `Recebemos um pedido para redefinir sua senha do PDV JCS.\n\nAbra o link abaixo em até 30 minutos. Ele só pode ser usado uma vez:\n${link}\n\nSe você não fez este pedido, ignore este e-mail. Sua senha atual continua válida.`
   }),
+  sendPasswordChanged: () => ({
+    subject: 'PDV JCS - sua senha foi alterada',
+    text: 'A senha da sua conta no PDV JCS acabou de ser alterada e as outras sessões foram encerradas.\n\nSe foi você, nada mais é necessário.\n\nSe não foi você, avise imediatamente o gerente da sua loja ou o suporte da Jordão Consultoria e Soluções. Use "Esqueci minha senha" na tela de acesso para retomar a conta.'
+  }),
   sendInvite: ({ link, tenantName, tenantSlug }) => ({
     subject: 'PDV JCS - seu acesso de gerente',
     text: `Você foi cadastrado como gerente de ${tenantName} no PDV JCS.\n\nCrie sua senha pelo link abaixo em até 24 horas. Ele só pode ser usado uma vez:\n${link}\n\nPara entrar depois, use a empresa "${tenantSlug}" e este e-mail.\n\nSe você não esperava este convite, ignore este e-mail.`

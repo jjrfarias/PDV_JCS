@@ -85,6 +85,9 @@ export function clientIp(req, env = process.env) {
   if (env.NODE_ENV === 'production' && env.RAILWAY_ENVIRONMENT && isIP(header)) return header;
   return req.socket.remoteAddress;
 }
+// MFA obrigatório para contas privilegiadas: sem MFA ativo, só estas rotas respondem.
+const MFA_SETUP_ROUTES=new Set(['GET /api/me','POST /api/me/mfa/start','POST /api/me/mfa/confirm','POST /api/me/password','POST /api/logout']);
+const PLATFORM_MFA_SETUP_ROUTES=new Set(['GET /api/platform/me','POST /api/platform/mfa/start','POST /api/platform/mfa/confirm','POST /api/platform/logout']);
 export function createApp(db,{mailer}={}) {
   const auth=new Auth(db,mailer?{mailer}:{}); const pos=new Pos(db); const platform=new Platform(db,mailer?{mailer}:{});
   const server=createServer(async(req,res)=>{
@@ -147,6 +150,8 @@ export function createApp(db,{mailer}={}) {
         const admin=await platform.resolve(req.headers.cookie);
         requireThat(admin,401,'AUTH_REQUIRED','Faça login para continuar.');
         if(mutating) requireThat(req.headers['x-csrf-token']===admin.csrfToken,403,'CSRF_FORBIDDEN','Sessão da tela inválida. Atualize a página.');
+        if(!PLATFORM_MFA_SETUP_ROUTES.has(`${req.method} ${url.pathname}`)&&await platform.mfaSetupPending(admin))
+          throw new AppError(403,'MFA_SETUP_REQUIRED','Ative a autenticação em duas etapas para continuar.');
         if(req.method==='GET'&&url.pathname==='/api/platform/me') return send(res,200,await platform.me(admin));
         if(req.method==='POST'&&url.pathname==='/api/platform/mfa/start') return send(res,200,await platform.beginMfa(admin));
         if(req.method==='POST'&&url.pathname==='/api/platform/mfa/confirm') return send(res,200,await platform.confirmMfa(admin,await json(req)));
@@ -165,6 +170,8 @@ export function createApp(db,{mailer}={}) {
       const ctx=await auth.resolve(req.headers.cookie);
       requireThat(ctx,401,'AUTH_REQUIRED','Faça login para continuar.');
       if(mutating) requireThat(req.headers['x-csrf-token']===ctx.csrfToken,403,'CSRF_FORBIDDEN','Sessão da tela inválida. Atualize a página.');
+      if(!MFA_SETUP_ROUTES.has(`${req.method} ${url.pathname}`)&&await auth.mfaSetupPending(ctx))
+        throw new AppError(403,'MFA_SETUP_REQUIRED','Ative a autenticação em duas etapas para continuar.');
       if(req.method==='GET'&&url.pathname==='/api/me') return send(res,200,{...await pos.me(ctx),csrfToken:ctx.csrfToken});
       if(req.method==='GET'&&url.pathname==='/api/network/overview') return send(res,200,await pos.networkOverview(ctx,url.searchParams.get('from')??'',url.searchParams.get('to')??''));
       if(req.method==='POST'&&url.pathname==='/api/logout') {
@@ -194,6 +201,8 @@ export function createApp(db,{mailer}={}) {
       const routes={'/api/products':'createProduct','/api/products/update':'updateProduct','/api/users':'createUser','/api/users/update':'updateUser','/api/customers':'createCustomer','/api/customers/update':'updateCustomer','/api/stock/adjust':'adjustStock','/api/cash/open':'openCash','/api/cash/close':'closeCash','/api/cash/move':'moveCash','/api/sales':'sell','/api/sales/cancel':'cancelSale','/api/sales/return':'returnSale'};
       if(req.method==='POST'&&routes[url.pathname]) {
         const result=await pos[routes[url.pathname]](ctx,req.headers['idempotency-key'],await json(req));
+        // Senha redefinida pelo gerente: o dono da conta é avisado por e-mail.
+        if(routes[url.pathname]==='updateUser'&&!result.replayed&&result.data?.passwordReset)auth.notifyPasswordChanged(result.data.email);
         return send(res,result.replayed?200:201,result);
       }
       throw new AppError(404,'NOT_FOUND','Rota não encontrada.');

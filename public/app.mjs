@@ -501,12 +501,21 @@ async function submitPending(){
     message(error.message+(state.pending?' Use Recuperar operação.':''),{sticky:Boolean(state.pending)});
   }finally{state.busy=false;lock();}
 }
+// Gerente sem MFA: a sessão só serve para ativar. Fechar o diálogo encerra a sessão.
+async function requireMfaSetup(){
+  state.mfaRequired=true;
+  const result=await api('/api/me/mfa/start',{method:'POST',body:'{}'});
+  $('mfa-form').reset();$('mfa-secret').value=result.secret;
+  $('mfa-required-note').hidden=false;
+  $('mfa-dialog').showModal();
+}
 async function boot(){
   state.me=await api('/api/me');state.csrf=state.me.csrfToken;
   $('login-panel').hidden=true;$('workspace').hidden=false;$('user-label').textContent=state.me.user.name;
   $('role-label').textContent=manager()?'GERENTE':'OPERADOR';
   $('mfa-open').hidden=!manager();$('mfa-open').textContent=state.me.user.mfa_enabled===1?'MFA ativo':'Ativar MFA';$('mfa-open').disabled=state.me.user.mfa_enabled===1;
   $('network-nav').hidden=!manager();
+  if(manager()&&state.me.user.mfa_enabled!==1)return requireMfaSetup();
   $('store-select').replaceChildren();
   for(const store of state.me.stores){const option=element('option',store.name);option.value=store.id;$('store-select').append(option);}
   const raw=localStorage.getItem(scope());state.pending=raw?JSON.parse(raw):null;
@@ -522,7 +531,7 @@ $('login-form').addEventListener('submit',async event=>{
 $('logout').addEventListener('click',()=>run(async()=>{if(state.pending)throw new Error('Resolva a pendência antes de sair.');await api('/api/logout',{method:'POST',body:'{}'});location.reload();}));
 $('password-open').addEventListener('click',()=>$('password-dialog').showModal());
 $('mfa-open').addEventListener('click',()=>run(async()=>{const result=await api('/api/me/mfa/start',{method:'POST',body:'{}'});$('mfa-form').reset();$('mfa-secret').value=result.secret;$('mfa-dialog').showModal();}));
-$('mfa-form').addEventListener('submit',event=>{event.preventDefault();run(async()=>{await api('/api/me/mfa/confirm',{method:'POST',body:JSON.stringify({code:event.target.code.value})});$('mfa-dialog').close();message('MFA ativado. Os próximos acessos exigirão o código do aplicativo.');await boot();});});
+$('mfa-form').addEventListener('submit',event=>{event.preventDefault();run(async()=>{await api('/api/me/mfa/confirm',{method:'POST',body:JSON.stringify({code:event.target.code.value})});state.mfaRequired=false;$('mfa-required-note').hidden=true;$('mfa-dialog').close();message('MFA ativado. Os próximos acessos exigirão o código do aplicativo.');await boot();});});
 $('password-form').addEventListener('submit',event=>{event.preventDefault();run(async()=>{
   const data=Object.fromEntries(new FormData(event.target));
   if(data.newPassword!==data.confirmPassword)throw new Error('A confirmação da nova senha não confere.');
@@ -665,3 +674,5 @@ document.addEventListener('keydown',event=>{
 });
 boot().catch(error=>{if(error.status!==401)$('login-error').textContent=error.message;});
 setInterval(()=>{if(state.me&&state.view==='network'&&document.visibilityState==='visible')run(loadNetwork);},5000);
+
+$('mfa-dialog').addEventListener('close',()=>{if(state.mfaRequired)api('/api/logout',{method:'POST',body:'{}'}).finally(()=>location.reload());});

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createApp, clientIp } from '../src/http.mjs';
-import { fixture, PASSWORD } from './helpers.mjs';
+import { fixture, PASSWORD, testMfaCode } from './helpers.mjs';
 
 const railway = { NODE_ENV: 'production', RAILWAY_ENVIRONMENT: 'production' };
 const req = (realIp, remote = '10.0.0.5') => ({ headers: realIp === undefined ? {} : { 'x-real-ip': realIp }, socket: { remoteAddress: remote } });
@@ -32,7 +32,7 @@ test('logins, failures and logouts are recorded per tenant with IP and no secret
   assert.equal(events().length, 0, 'unknown account has no tenant to own the record');
 
   assert.equal((await post('/api/login', { tenant: 'demo', email: 'gerente@jcs.local', password: 'senha-errada' })).status, 401);
-  const ok = await post('/api/login', { tenant: 'demo', email: 'gerente@jcs.local', password: PASSWORD });
+  const ok = await post('/api/login', { tenant: 'demo', email: 'gerente@jcs.local', password: PASSWORD, code: testMfaCode(db, 'users', 'gerente@jcs.local') });
   assert.equal(ok.status, 200);
   const cookie = ok.headers.get('set-cookie').split(';')[0];
   const { csrfToken } = await ok.json();

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createApp } from '../src/http.mjs';
 import { sha256 } from '../src/security.mjs';
-import { fixture, PASSWORD } from './helpers.mjs';
+import { fixture, PASSWORD, testMfaCode } from './helpers.mjs';
 import { connect } from '../src/database.mjs';
 
 const NEW_PASSWORD = 'NovaSenhaRecuperada2026';
@@ -30,7 +30,7 @@ async function web(t) {
     return { response, data: await response.json() };
   }
   async function login(email = 'gerente@jcs.local', password = PASSWORD, tenant = 'demo') {
-    const result = await call('/api/login', { body: { tenant, email, password } });
+    const result = await call('/api/login', { body: { tenant, email, password, code: testMfaCode(db, 'users', email) } });
     return { status: result.response.status, cookie: result.response.headers.get('set-cookie')?.split(';')[0] ?? '' };
   }
   const forgot = (email = 'gerente@jcs.local', tenant = 'demo') => call('/api/password/forgot', { body: { tenant, email } });
@@ -156,7 +156,7 @@ test('local SQLite database at version 8 upgrades to password resets and platfor
   const tables = upgraded.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('password_resets','platform_admins','platform_sessions','platform_password_resets','platform_operations','platform_audit_events') ORDER BY name").all().map(row => row.name);
   const active = upgraded.prepare('SELECT DISTINCT active FROM tenants').all().map(row => row.active);
   upgraded.close();
-  assert.equal(version, 13);
+  assert.equal(version, 14);
   assert.deepEqual(tables, ['password_resets','platform_admins','platform_audit_events','platform_operations','platform_password_resets','platform_sessions']);
   assert.deepEqual(active, [1]);
 });

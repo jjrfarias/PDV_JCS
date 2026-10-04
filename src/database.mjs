@@ -9,7 +9,7 @@ export function connect(filename) {
   const db = new DatabaseSync(filename);
   db.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
   const version = db.prepare('PRAGMA user_version').get().user_version;
-  if (version > 13) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
+  if (version > 14) { db.close(); throw new Error('Banco de uma versao mais nova. Nao faca downgrade.'); }
   if (version === 0) {
     transaction(db, () => {
       if (db.prepare('PRAGMA user_version').get().user_version !== 0) return;
@@ -229,6 +229,16 @@ export function connect(filename) {
         CREATE INDEX access_events_history ON access_events(tenant_id,created_at);
         CREATE INDEX access_events_user ON access_events(tenant_id,user_id,created_at);`);
       db.exec('PRAGMA user_version=13;');
+    });
+  }
+  if (version <= 13) {
+    transaction(db, () => {
+      if (db.prepare('PRAGMA user_version').get().user_version !== 13) return;
+      for (const table of ['users', 'platform_admins']) {
+        const columns = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(column => column.name));
+        if (!columns.has('mfa_last_step')) db.exec(`ALTER TABLE ${table} ADD COLUMN mfa_last_step INTEGER`);
+      }
+      db.exec('PRAGMA user_version=14;');
     });
   }
   return db;

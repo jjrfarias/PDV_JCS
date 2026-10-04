@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { request } from 'node:http';
 import { createApp } from '../src/http.mjs';
-import { fixture,PASSWORD,DEMO,key } from './helpers.mjs';
+import { fixture,PASSWORD,DEMO,key,testMfaCode } from './helpers.mjs';
 import { businessDate } from '../src/time.mjs';
 import { totpCode } from '../src/totp.mjs';
 
-async function web(t){
-  const {db,pos}=fixture(t);const server=createApp(db);server.listen(0,'127.0.0.1');await once(server,'listening');
+async function web(t,options={}){
+  const {db,pos}=fixture(t,options);const server=createApp(db);server.listen(0,'127.0.0.1');await once(server,'listening');
   t.after(async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));});
   const origin=`http://127.0.0.1:${server.address().port}`;
   let cookie='',csrf='';
@@ -17,7 +17,7 @@ async function web(t){
     const content=await response.text();let data;try{data=JSON.parse(content);}catch{data=content;}
     return {response,data};
   }
-  async function login(email='gerente@jcs.local',tenant='demo',code) {
+  async function login(email='gerente@jcs.local',tenant='demo',code=testMfaCode(db,'users',email)) {
     const result=await call('/api/login',{method:'POST',body:{tenant,email,password:PASSWORD,...(code?{code}:{})}});
     assert.equal(result.response.status,200);
     cookie=result.response.headers.get('set-cookie').split(';')[0];csrf=result.data.csrfToken;
@@ -33,7 +33,7 @@ test('HTTP 01 · login emite cookie HttpOnly/SameSite e sessão não vai ao JSON
 });
 
 test('HTTP 01.2 · gerente ativa MFA e novos logins exigem TOTP',async t=>{
-  const w=await web(t);await w.login();
+  const w=await web(t,{mfa:false});await w.login();
   const started=await w.call('/api/me/mfa/start',{method:'POST',body:{}});
   assert.match(started.data.secret,/^[A-Z2-7]{32}$/);
   assert.equal((await w.call('/api/me/mfa/confirm',{method:'POST',body:{code:totpCode(started.data.secret)}})).response.status,200);
@@ -41,7 +41,10 @@ test('HTTP 01.2 · gerente ativa MFA e novos logins exigem TOTP',async t=>{
   assert.equal(without.response.status,401);assert.equal(without.data.error.code,'MFA_REQUIRED');
   const wrong=await w.call('/api/login',{method:'POST',body:{tenant:'demo',email:'gerente@jcs.local',password:PASSWORD,code:'000000'}});
   assert.equal(wrong.response.status,401);
-  assert.equal((await w.login('gerente@jcs.local','demo',totpCode(started.data.secret))).response.status,200);
+  // O código usado na confirmação não vale de novo; o próximo intervalo vale.
+  assert.equal((await w.call('/api/login',{method:'POST',body:{tenant:'demo',email:'gerente@jcs.local',password:PASSWORD,code:totpCode(started.data.secret)}})).data.error.code,'MFA_CODE_REUSED');
+  assert.equal((await w.login('gerente@jcs.local','demo',totpCode(started.data.secret,Date.now()+30_000))).response.status,200);
+  assert.equal((await w.call('/api/login',{method:'POST',body:{tenant:'demo',email:'gerente@jcs.local',password:PASSWORD,code:totpCode(started.data.secret,Date.now()+30_000)}})).data.error.code,'MFA_CODE_REUSED');
   assert.equal(w.db.prepare('SELECT mfa_enabled FROM users WHERE id=?').get(DEMO.manager.userId).mfa_enabled,1);
   assert.equal(w.db.prepare("SELECT COUNT(*) n FROM audit_events WHERE action='MFA_ENABLED'").get().n,1);
 });
@@ -207,7 +210,7 @@ test('HTTP 14 · usuário troca a própria senha com senha atual',async t=>{
   await w.call('/api/logout',{method:'POST',body:{}});
   const oldLogin=await w.call('/api/login',{method:'POST',body:{tenant:'demo',email:'gerente@jcs.local',password:PASSWORD}});
   assert.equal(oldLogin.response.status,401);
-  const newLogin=await w.call('/api/login',{method:'POST',body:{tenant:'demo',email:'gerente@jcs.local',password:'NovaSenha2026'}});
+  const newLogin=await w.call('/api/login',{method:'POST',body:{tenant:'demo',email:'gerente@jcs.local',password:'NovaSenha2026',code:testMfaCode(w.db,'users','gerente@jcs.local')}});
   assert.equal(newLogin.response.status,200);
 });
 test('HTTP 15 · gerente cadastra usuário vinculado à loja',async t=>{
