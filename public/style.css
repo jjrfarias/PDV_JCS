@@ -442,3 +442,6 @@ button.summary-card:hover{border-color:#94a3b8;background:#fff}
 input[readonly]{background:#f1f5f9;color:#64748b;cursor:not-allowed}
 
 .availability-balance{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}.availability-balance small{color:#64748b}.availability-balance button{padding:7px 12px}.reservation-context{display:grid;gap:5px;padding:12px;border:1px solid #dbe4ee;border-radius:10px;background:#f8fafc;margin:12px 0}
+.titular-rights{border-top:1px solid var(--line,#e5e7eb);margin-top:12px;padding-top:12px}
+.titular-rights legend{font-weight:600;padding:0}
+.titular-rights p{font-size:.875rem;color:var(--muted,#6b7280);margin:4px 0 8px}

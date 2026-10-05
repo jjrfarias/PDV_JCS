@@ -6,7 +6,7 @@ import { decryptField, encryptField, fieldDigest, hashPassword, sha256 } from '.
 import { AppError, requireThat, object, text, integer, id, operationKey } from './errors.mjs';
 import { hourlySales } from './pos.mjs';
 import { reportRange } from './time.mjs';
-import { customerSummary } from './privacy.mjs';
+import { ANONYMIZED_NAME, customerExportDocument, customerSummary } from './privacy.mjs';
 import { createMailer } from './mailer.mjs';
 
 const now = () => new Date().toISOString();
@@ -443,6 +443,19 @@ class TransactionPos {
     return this.customerRow(row);
   }
 
+  // Direito de acesso e portabilidade do titular (LGPD art. 18, II e V).
+  async customerExport(ctx, storeId, customerId) {
+    id(storeId); id(customerId);
+    const user = await this.authorize(ctx, storeId);
+    requireThat(user.role === 'MANAGER', 403, 'MANAGER_REQUIRED', 'Somente gerente exporta dados do titular.');
+    const row = await this.one('SELECT * FROM customers WHERE tenant_id=$1 AND store_id=$2 AND id=$3', ctx.tenantId, storeId, customerId);
+    requireThat(row, 404, 'CUSTOMER_NOT_FOUND', 'Cliente não encontrado nesta loja.');
+    const sales = await this.all('SELECT id,store_id,total_cents,created_at FROM sales WHERE tenant_id=$1 AND customer_id=$2 ORDER BY created_at',
+      ctx.tenantId, customerId);
+    await this.audit(ctx, storeId, 'CUSTOMER_EXPORTED', customerId, { sales: sales.length });
+    return customerExportDocument(this.customerRow(row), sales);
+  }
+
   customerRow(row) {
     return row ? {
       id: row.id, store_id: row.store_id, name: decryptField(row.name_enc),
@@ -483,6 +496,7 @@ export class PostgresPos {
   async state(ctx, storeId) { return this.#transaction(ctx, true, tx => tx.state(ctx, storeId)); }
   // Não é somente leitura: grava a auditoria da consulta.
   async customerDetail(ctx, storeId, customerId) { return this.#transaction(ctx, false, tx => tx.customerDetail(ctx, storeId, customerId)); }
+  async customerExport(ctx, storeId, customerId) { return this.#transaction(ctx, false, tx => tx.customerExport(ctx, storeId, customerId)); }
   async report(ctx, storeId, from, to) { return this.#transaction(ctx, true, tx => tx.report(ctx, storeId, from, to)); }
   async networkOverview(ctx, from, to) { return this.#transaction(ctx, true, tx => tx.networkOverview(ctx, from, to)); }
   async stockLookup(ctx, query) { return this.#transaction(ctx, true, tx => tx.stockLookup(ctx, query)); }
@@ -779,6 +793,23 @@ export class PostgresPos {
       input.active, updatedAt, ctx.tenantId, input.customerId);
       await tx.audit(ctx, input.storeId, 'CUSTOMER_UPDATED', input.customerId,
         { active: input.active, hasDocument: Boolean(input.document), hasEmail: Boolean(input.email) });
+      return tx.customerMutationResult(await tx.one('SELECT id,store_id,active,created_at,updated_at FROM customers WHERE tenant_id=$1 AND id=$2', ctx.tenantId, input.customerId));
+    });
+  }
+
+  // Eliminação a pedido do titular (LGPD art. 18, IV e VI). As vendas ficam, sem apontar para alguém identificável.
+  async anonymizeCustomer(ctx, key, raw) {
+    object(raw, ['storeId', 'customerId']);
+    const input = { storeId: id(raw.storeId), customerId: id(raw.customerId) };
+    return this.#mutate(ctx, 'CUSTOMER_ANONYMIZE', key, input, async (tx, user) => {
+      requireThat(user.role === 'MANAGER', 403, 'MANAGER_REQUIRED', 'Somente gerente anonimiza clientes.');
+      const current = await tx.one('SELECT 1 FROM customers WHERE tenant_id=$1 AND store_id=$2 AND id=$3 FOR UPDATE',
+        ctx.tenantId, input.storeId, input.customerId);
+      requireThat(current, 404, 'CUSTOMER_NOT_FOUND', 'Cliente não encontrado nesta loja.');
+      await tx.run(`UPDATE customers SET name_enc=$1,document_hash=NULL,document_enc=NULL,phone_hash=NULL,phone_enc=NULL,
+          email_hash=NULL,email_enc=NULL,note_enc=NULL,active=0,updated_at=$2
+        WHERE tenant_id=$3 AND id=$4`, encryptField(ANONYMIZED_NAME), now(), ctx.tenantId, input.customerId);
+      await tx.audit(ctx, input.storeId, 'CUSTOMER_ANONYMIZED', input.customerId, {});
       return tx.customerMutationResult(await tx.one('SELECT id,store_id,active,created_at,updated_at FROM customers WHERE tenant_id=$1 AND id=$2', ctx.tenantId, input.customerId));
     });
   }

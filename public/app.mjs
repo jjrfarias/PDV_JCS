@@ -929,8 +929,19 @@ async function openCustomerEdit(summary){
   const customer=await api(`/api/stores/${storeId()}/customers/${summary.id}`);
   const form=$('customer-edit-form');
   form.customerId.value=customer.id;form.name.value=customer.name;form.document.value=customer.document??'';form.phone.value=customer.phone??'';form.email.value=customer.email??'';form.note.value=customer.note??'';form.active.value=String(customer.active);
+  $('customer-rights').hidden=!manager();
   $('customer-edit-dialog').showModal();
 }
+// Pedido do titular: exportação baixada pelo navegador (auditada no servidor) e anonimização irreversível.
+$('customer-export').addEventListener('click',()=>{
+  const link=element('a');link.href=`/api/stores/${storeId()}/customers/${$('customer-edit-form').customerId.value}/export`;link.download='';link.click();
+});
+$('customer-anonymize').addEventListener('click',()=>{
+  const form=$('customer-edit-form');
+  if(!confirm(`Anonimizar ${form.name.value}? Nome, documento, telefone, e-mail e observação serão apagados para sempre. Isso não pode ser desfeito.`))return;
+  $('customer-edit-dialog').close();
+  run(()=>command('/api/customers/anonymize',{storeId:storeId(),customerId:form.customerId.value}));
+});
 $('customer-edit-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/customers/update',{storeId:storeId(),customerId:f.customerId,name:f.name,document:f.document||null,phone:f.phone||null,email:f.email||null,note:f.note||null,active:Number(f.active)});});});
 $('new-store').addEventListener('click',()=>$('store-dialog').showModal());
 $('store-form').addEventListener('submit',event=>{event.preventDefault();run(()=>{const f=Object.fromEntries(new FormData(event.target));return command('/api/stores',{name:f.name,managerName:f.managerName,managerEmail:f.managerEmail});});});

@@ -4,7 +4,7 @@ import { decryptField, encryptField, fieldDigest, hashPassword, sha256 } from '.
 import { AppError, requireThat, object, text, integer, id, operationKey } from './errors.mjs';
 import { PostgresPos } from './postgres-pos.mjs';
 import { reportRange } from './time.mjs';
-import { customerSummary } from './privacy.mjs';
+import { ANONYMIZED_NAME, customerExportDocument, customerSummary } from './privacy.mjs';
 import { createMailer } from './mailer.mjs';
 
 const now = () => new Date().toISOString();
@@ -325,6 +325,35 @@ export class Pos {
         fieldDigest(input.phone),encryptField(input.phone),fieldDigest(input.email),encryptField(input.email),
         encryptField(input.note),input.active,updatedAt,ctx.tenantId,input.customerId);
       this.audit(ctx,input.storeId,'CUSTOMER_UPDATED',input.customerId,{active:input.active,hasDocument:Boolean(input.document),hasEmail:Boolean(input.email)});
+      return this.customerMutationResult(this.one('SELECT id,store_id,active,created_at,updated_at FROM customers WHERE tenant_id=? AND id=?',ctx.tenantId,input.customerId));
+    });
+  }
+  // Direito de acesso e portabilidade do titular (LGPD art. 18, II e V): cadastro completo e compras vinculadas.
+  customerExport(ctx,storeId,customerId) {
+    id(storeId);id(customerId);
+    return transaction(this.db,()=>{
+      const user=this.authorize(ctx,storeId);
+      requireThat(user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente exporta dados do titular.');
+      const row=this.one('SELECT * FROM customers WHERE tenant_id=? AND store_id=? AND id=?',ctx.tenantId,storeId,customerId);
+      requireThat(row,404,'CUSTOMER_NOT_FOUND','Cliente não encontrado nesta loja.');
+      const sales=this.all('SELECT id,store_id,total_cents,created_at FROM sales WHERE tenant_id=? AND customer_id=? ORDER BY created_at',ctx.tenantId,customerId);
+      this.audit(ctx,storeId,'CUSTOMER_EXPORTED',customerId,{sales:sales.length});
+      return customerExportDocument(this.customerRow(row),sales);
+    });
+  }
+  // Eliminação a pedido do titular (LGPD art. 18, IV e VI). As vendas continuam para obrigação fiscal e contábil,
+  // mas deixam de apontar para alguém identificável. Irreversível: os campos são apagados, não cifrados.
+  anonymizeCustomer(ctx,key,raw) {
+    object(raw,['storeId','customerId']);
+    const input={storeId:id(raw.storeId),customerId:id(raw.customerId)};
+    return this.mutate(ctx,'CUSTOMER_ANONYMIZE',key,input,user => {
+      requireThat(user.role==='MANAGER',403,'MANAGER_REQUIRED','Somente gerente anonimiza clientes.');
+      requireThat(this.one('SELECT 1 FROM customers WHERE tenant_id=? AND store_id=? AND id=?',ctx.tenantId,input.storeId,input.customerId),404,'CUSTOMER_NOT_FOUND','Cliente não encontrado nesta loja.');
+      const updatedAt=now();
+      this.run(`UPDATE customers SET name_enc=?,document_hash=NULL,document_enc=NULL,phone_hash=NULL,phone_enc=NULL,
+        email_hash=NULL,email_enc=NULL,note_enc=NULL,active=0,updated_at=? WHERE tenant_id=? AND id=?`,
+        encryptField(ANONYMIZED_NAME),updatedAt,ctx.tenantId,input.customerId);
+      this.audit(ctx,input.storeId,'CUSTOMER_ANONYMIZED',input.customerId,{});
       return this.customerMutationResult(this.one('SELECT id,store_id,active,created_at,updated_at FROM customers WHERE tenant_id=? AND id=?',ctx.tenantId,input.customerId));
     });
   }

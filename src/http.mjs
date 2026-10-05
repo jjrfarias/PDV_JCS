@@ -222,6 +222,11 @@ export function createApp(db,{mailer}={}) {
       let match;
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/stores\/([\w-]+)\/state$/))) return send(res,200,await pos.state(ctx,match[1]));
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/stores\/([\w-]+)\/customers\/([\w-]+)$/))) return send(res,200,await pos.customerDetail(ctx,match[1],match[2]));
+      if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/stores\/([\w-]+)\/customers\/([\w-]+)\/export$/))) {
+        const document=await pos.customerExport(ctx,match[1],match[2]);
+        res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Content-Disposition':`attachment; filename="pdv-jcs-titular-${match[2]}.json"`});
+        return res.end(JSON.stringify(document,null,2));
+      }
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/cash\/([\w-]+)$/))) return send(res,200,await pos.cashDetail(ctx,match[1]));
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/stores\/([\w-]+)\/report(?:\.csv)?$/))) {
         const report=await pos.report(ctx,match[1],url.searchParams.get('from')??'',url.searchParams.get('to')??'');
@@ -236,7 +241,7 @@ export function createApp(db,{mailer}={}) {
       }
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/sales\/([\w-]+)$/))) return send(res,200,await pos.receipt(ctx,match[1]));
       if(req.method==='GET'&&(match=url.pathname.match(/^\/api\/operations\/([\w-]+)$/))) return send(res,200,await pos.operation(ctx,match[1]));
-      const routes={'/api/products':'createProduct','/api/products/update':'updateProduct','/api/users':'createUser','/api/users/update':'updateUser','/api/customers':'createCustomer','/api/customers/update':'updateCustomer','/api/stock/adjust':'adjustStock','/api/stock/transfer':'transferStock','/api/stock/reserve':'reserveStock','/api/cash/open':'openCash','/api/cash/close':'closeCash','/api/cash/move':'moveCash','/api/sales':'sell','/api/sales/cancel':'cancelSale','/api/sales/return':'returnSale'};
+      const routes={'/api/products':'createProduct','/api/products/update':'updateProduct','/api/users':'createUser','/api/users/update':'updateUser','/api/customers':'createCustomer','/api/customers/update':'updateCustomer','/api/customers/anonymize':'anonymizeCustomer','/api/stock/adjust':'adjustStock','/api/stock/transfer':'transferStock','/api/stock/reserve':'reserveStock','/api/cash/open':'openCash','/api/cash/close':'closeCash','/api/cash/move':'moveCash','/api/sales':'sell','/api/sales/cancel':'cancelSale','/api/sales/return':'returnSale'};
       if(req.method==='POST'&&routes[url.pathname]) {
         const result=await pos[routes[url.pathname]](ctx,req.headers['idempotency-key'],await json(req));
         // Senha redefinida pelo gerente: o dono da conta é avisado por e-mail.
